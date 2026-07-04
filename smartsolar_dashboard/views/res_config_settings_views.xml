@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <record id="res_config_settings_view_form_smartsolar" model="ir.ui.view">
+        <field name="name">res.config.settings.smartsolar</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <app string="Smart Solar" name="smartsolar_dashboard">
+                    <block title="Dashboard">
+                        <setting string="Electricity Price"><field name="smartsolar_electricity_price"/></setting>
+                        <setting string="CO2 Factor"><field name="smartsolar_co2_factor"/></setting>
+                        <setting string="Temperature Alert"><field name="smartsolar_temperature_alert"/></setting>
+                        <setting string="Refresh Interval"><field name="smartsolar_dashboard_refresh"/></setting>
+                    </block>
+                </app>
+            </xpath>
+        </field>
+    </record>
+</odoo>

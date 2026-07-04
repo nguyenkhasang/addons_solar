@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="smartsolar.SystemOverview">
+        <div class="ss_overview_wrap" t-att-class="{ dark: props.theme === 'dark', light: props.theme !== 'dark' }">
+            <div class="ss_overview_title">SYSTEM OVERVIEW</div>
+            <div class="ss_overview_diagram">
+                <div class="ss_ov_node ss_ov_solar" t-att-class="{ active: solarActive }">
+                    <div class="ss_ov_icon_wrap solar"><i class="fa fa-sun-o ss_ov_fallback_icon"/></div>
+                    <div class="ss_ov_label">SOLAR</div>
+                    <div class="ss_ov_value_box"><span class="ss_ov_big"><t t-esc="fmtW(state.solar_w)"/></span><span class="ss_ov_unit">W</span></div>
+                    <div class="ss_ov_sub_box"><span><t t-esc="fmtV(state.solar_v)"/>V</span><span class="ss_ov_divider">|</span><span><t t-esc="fmtA(state.solar_a)"/>A</span></div>
+                </div>
+                <div class="ss_ov_line ss_ov_line_top" t-att-class="{ active: solarActive }" t-att-style="flowStyle(state.solar_w)"/>
+                <div class="ss_ov_center_row">
+                    <div class="ss_ov_node ss_ov_grid" t-att-class="{ active: gridActive }">
+                        <div class="ss_ov_icon_wrap grid"><i class="fa fa-plug ss_ov_fallback_icon"/></div>
+                        <div class="ss_ov_label">GRID</div>
+                        <div class="ss_ov_value_box"><span class="ss_ov_big cyan"><t t-esc="fmtW(state.grid_w)"/></span><span class="ss_ov_unit">W</span></div>
+                    </div>
+                    <div class="ss_ov_hline left" t-att-class="{ active: gridActive, reverse: gridReverse }" t-att-style="flowStyle(state.grid_w)"/>
+                    <div class="ss_ov_inverter" t-att-class="{ active: inverterActive, solar_source: inverterSource === 'solar', grid_source: inverterSource === 'grid', battery_source: inverterSource === 'battery' }">
+                        <div class="ss_ov_inverter_icon"><i class="fa fa-microchip"/></div>
+                        <div class="ss_ov_inverter_label">AC OUT</div>
+                        <div class="ss_ov_inverter_value cyan"><t t-esc="fmtW(state.acout_w)"/> W</div>
+                    </div>
+                    <div class="ss_ov_hline right" t-att-class="{ active: homeActive }" t-att-style="flowStyle(state.home_w)"/>
+                    <div class="ss_ov_node ss_ov_home" t-att-class="{ active: homeActive }">
+                        <div class="ss_ov_icon_wrap home"><i class="fa fa-home ss_ov_fallback_icon"/></div>
+                        <div class="ss_ov_label">HOME</div>
+                        <div class="ss_ov_value_box"><span class="ss_ov_big purple"><t t-esc="fmtW(state.home_w)"/></span><span class="ss_ov_unit">W</span></div>
+                    </div>
+                </div>
+                <div class="ss_ov_line ss_ov_line_bottom" t-att-class="{ active: batActive, reverse: batReverse }" t-att-style="flowStyle(state.bat_w)"/>
+                <div class="ss_ov_node ss_ov_battery" t-att-class="{ active: batActive }">
+                    <div class="ss_ov_icon_wrap battery" t-att-class="{ active: batActive }"><i class="fa fa-battery-three-quarters ss_ov_fallback_icon"/></div>
+                    <div class="ss_ov_label">BATTERY</div>
+                    <div class="ss_ov_value_box"><span class="ss_ov_big"><t t-esc="fmtW(state.bat_w)"/></span><span class="ss_ov_unit">W</span></div>
+                    <div class="ss_ov_sub_box"><span><t t-esc="fmtV(state.bat_v)"/>V</span><span class="ss_ov_divider">|</span><span><t t-esc="fmtA(state.bat_a)"/>A</span></div>
+                </div>
+            </div>
+        </div>
+    </t>
+</templates>

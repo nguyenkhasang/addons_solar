@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <!-- List view -->
+        <record id="view_grid_tie_inverter_list" model="ir.ui.view">
+            <field name="name">grid.tie.inverter.list</field>
+            <field name="model">grid.tie.inverter</field>
+            <field name="arch" type="xml">
+                <list string="Dữ liệu Grid Tie Inverter" default_order="record_date desc">
+                    <field name="device_guid"/>
+                    <field name="record_date"/>
+                    <field name="dc_voltage"/>
+                    <field name="ac_voltage"/>
+                    <field name="output_power"/>
+                    <field name="limiter_power"/>
+                    <field name="total_power"/>
+                    <field name="energy_today"/>
+                    <field name="energy_total"/>
+                    <field name="limiter_today"/>
+                    <field name="limiter_total"/>
+                    <field name="temperature"/>
+                    <field name="is_online" widget="boolean_toggle"/>
+                </list>
+            </field>
+        </record>
+
+        <!-- Form view -->
+        <record id="view_grid_tie_inverter_form" model="ir.ui.view">
+            <field name="name">grid.tie.inverter.form</field>
+            <field name="model">grid.tie.inverter</field>
+            <field name="arch" type="xml">
+                <form string="Grid Tie Inverter">
+                    <sheet>
+                        <group>
+                            <group string="Thông tin thiết bị">
+                                <field name="device_guid"/>
+                                <field name="device_id"/>
+                                <field name="system_id"/>
+                                <field name="is_online" widget="boolean_toggle"/>
+                                <field name="record_date"/>
+                            </group>
+                            <group string="Điện áp">
+                                <field name="dc_voltage"/>
+                                <field name="ac_voltage"/>
+                            </group>
+                            <group string="Công suất">
+                                <field name="output_power"/>
+                                <field name="limiter_power"/>
+                                <field name="total_power"/>
+                            </group>
+                            <group string="Năng lượng">
+                                <field name="energy_today"/>
+                                <field name="energy_total"/>
+                                <field name="limiter_today"/>
+                                <field name="limiter_total"/>
+                                <field name="temperature"/>
+                            </group>
+                        </group>
+                    </sheet>
+                </form>
+            </field>
+        </record>
+
+        <!-- Graph view -->
+        <record id="view_grid_tie_inverter_graph" model="ir.ui.view">
+            <field name="name">grid.tie.inverter.graph</field>
+            <field name="model">grid.tie.inverter</field>
+            <field name="arch" type="xml">
+                <graph string="Grid Tie Inverter" type="line">
+                    <field name="record_date" type="row"/>
+                    <field name="output_power" type="measure"/>
+                    <field name="limiter_power" type="measure"/>
+                    <field name="dc_voltage" type="measure"/>
+                    <field name="total_power" type="measure"/>
+                </graph>
+            </field>
+        </record>
+
+        <!-- Action -->
+        <record id="action_grid_tie_inverter" model="ir.actions.act_window">
+            <field name="name">Dữ liệu Grid Tie Inverter</field>
+            <field name="res_model">grid.tie.inverter</field>
+            <field name="view_mode">list,form,graph</field>
+        </record>
+
+        <!-- Menu -->
+        <menuitem id="menu_grid_tie_inverter"
+                  name="Dữ liệu Grid Tie Inverter"
+                  parent="smartsolar.menu_smartsolar_root"
+                  action="action_grid_tie_inverter"
+                  sequence="40"/>
+
+    </data>
+</odoo>

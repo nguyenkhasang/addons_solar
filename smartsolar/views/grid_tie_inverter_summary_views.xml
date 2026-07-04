@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <record id="view_grid_tie_inverter_summary_list" model="ir.ui.view">
+            <field name="name">grid.tie.inverter.summary.list</field>
+            <field name="model">grid.tie.inverter.summary</field>
+            <field name="arch" type="xml">
+                <list string="Tổng hợp Grid Tie Inverter" default_order="bucket_start desc">
+                    <field name="bucket_start"/>
+                    <field name="bucket_type"/>
+                    <field name="device_guid"/>
+                    <field name="output_power_avg"/>
+                    <field name="output_power_max"/>
+                    <field name="limiter_power_avg"/>
+                    <field name="total_power_avg"/>
+                    <field name="dc_voltage_avg"/>
+                    <field name="energy_kwh"/>
+                    <field name="energy_total_end"/>
+                    <field name="temperature_avg"/>
+                    <field name="sample_count"/>
+                </list>
+            </field>
+        </record>
+
+        <record id="action_grid_tie_inverter_summary" model="ir.actions.act_window">
+            <field name="name">Tổng hợp Grid Tie Inverter</field>
+            <field name="res_model">grid.tie.inverter.summary</field>
+            <field name="view_mode">list,form</field>
+        </record>
+
+        <menuitem id="menu_grid_tie_inverter_summary"
+                  name="Tổng hợp Grid Tie Inverter"
+                  parent="smartsolar.menu_smartsolar_root"
+                  action="action_grid_tie_inverter_summary"
+                  sequence="60"/>
+
+    </data>
+</odoo>

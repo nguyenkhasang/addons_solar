@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <record id="smartsolar_sync_interval_seconds" model="ir.config_parameter">
+            <field name="key">smartsolar.sync_interval_seconds</field>
+            <field name="value">60</field>
+        </record>
+
+        <record id="smartsolar_raw_retention_days" model="ir.config_parameter">
+            <field name="key">smartsolar.raw_retention_days</field>
+            <field name="value">30</field>
+        </record>
+
+        <record id="smartsolar_hourly_retention_days" model="ir.config_parameter">
+            <field name="key">smartsolar.hourly_retention_days</field>
+            <field name="value">365</field>
+        </record>
+
+        <record id="smartsolar_daily_retention_days" model="ir.config_parameter">
+            <field name="key">smartsolar.daily_retention_days</field>
+            <field name="value">0</field>
+        </record>
+
+        <record id="ir_cron_sync_smartsolar_system_data" model="ir.cron">
+            <field name="name">SmartSolar_WebSocket: Sync MQSolar</field>
+            <field name="model_id" ref="model_smartsolar_system"/>
+            <field name="state">code</field>
+            <field name="code">model._sync_all_systems_data()</field>
+            <field name="user_id" ref="base.user_root"/>
+            <field name="interval_number">1</field>
+            <field name="interval_type">minutes</field>
+            <field name="active" eval="True"/>
+        </record>
+
+        <record id="ir_cron_aggregate_hourly" model="ir.cron">
+            <field name="name">SmartSolar: Aggregate hourly</field>
+            <field name="model_id" ref="model_smartsolar_system"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_aggregate_hourly()</field>
+            <field name="user_id" ref="base.user_root"/>
+            <field name="interval_number">1</field>
+            <field name="interval_type">hours</field>
+            <field name="active" eval="True"/>
+        </record>
+
+        <record id="ir_cron_aggregate_daily" model="ir.cron">
+            <field name="name">SmartSolar: Aggregate daily</field>
+            <field name="model_id" ref="model_smartsolar_system"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_aggregate_daily()</field>
+            <field name="user_id" ref="base.user_root"/>
+            <field name="interval_number">1</field>
+            <field name="interval_type">days</field>
+            <field name="active" eval="True"/>
+        </record>
+
+        <record id="ir_cron_purge_old_data" model="ir.cron">
+            <field name="name">SmartSolar: Purge old data</field>
+            <field name="model_id" ref="model_smartsolar_system"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_purge_old_data()</field>
+            <field name="user_id" ref="base.user_root"/>
+            <field name="interval_number">1</field>
+            <field name="interval_type">days</field>
+            <field name="active" eval="True"/>
+        </record>
+    </data>
+</odoo>

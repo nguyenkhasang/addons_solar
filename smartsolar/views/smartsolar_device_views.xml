@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <!-- Form view -->
+        <record id="view_smartsolar_device_form" model="ir.ui.view">
+            <field name="name">smartsolar.device.form</field>
+            <field name="model">smartsolar.device</field>
+            <field name="arch" type="xml">
+                <form string="Thiết bị Smart Solar">
+                    <header>
+                        <button name="action_sync_data" string="Đồng bộ dữ liệu"
+                                type="object" class="btn-primary"/>
+                    </header>
+                    <sheet>
+                        <div class="oe_button_box" name="button_box">
+                            <button name="action_view_charge_power" type="object"
+                                    class="oe_stat_button" icon="fa-battery-half"
+                                    invisible="device_type != 'charge_power'">
+                                <field name="charge_power_count" widget="statinfo" string="Charge Power"/>
+                            </button>
+                            <button name="action_view_grid_tie_inverter" type="object"
+                                    class="oe_stat_button" icon="fa-plug"
+                                    invisible="device_type != 'grid_tie_inverter'">
+                                <field name="grid_tie_inverter_count" widget="statinfo" string="Grid Tie"/>
+                            </button>
+                        </div>
+                        <group>
+                            <group string="Thông tin thiết bị">
+                                <field name="device_guid"/>
+                                <field name="name"/>
+                                <field name="device_type"/>
+                                <field name="system_id"/>
+                                <field name="active" widget="boolean_toggle"/>
+                            </group>
+                            <group string="Trạng thái">
+                                <field name="is_online" widget="boolean_toggle"/>
+                                <field name="firmware_version"/>
+                                <field name="last_sync_date"/>
+                                <field name="last_sync_status"/>
+                                <field name="last_sync_error"/>
+                            </group>
+                        </group>
+                    </sheet>
+                </form>
+            </field>
+        </record>
+
+        <!-- List view -->
+        <record id="view_smartsolar_device_list" model="ir.ui.view">
+            <field name="name">smartsolar.device.list</field>
+            <field name="model">smartsolar.device</field>
+            <field name="arch" type="xml">
+                <list string="Thiết bị Smart Solar">
+                    <field name="device_guid"/>
+                    <field name="name"/>
+                    <field name="device_type"/>
+                    <field name="system_id"/>
+                    <field name="is_online" widget="boolean_toggle"/>
+                    <field name="last_sync_date"/>
+                    <field name="last_sync_status"/>
+                </list>
+            </field>
+        </record>
+
+        <!-- Action -->
+        <record id="action_smartsolar_device" model="ir.actions.act_window">
+            <field name="name">Thiết bị Smart Solar</field>
+            <field name="res_model">smartsolar.device</field>
+            <field name="view_mode">list,form</field>
+        </record>
+
+        <!-- Menu -->
+        <menuitem id="menu_smartsolar_device"
+                  name="Thiết bị"
+                  parent="smartsolar.menu_smartsolar_root"
+                  action="action_smartsolar_device"
+                  sequence="20"/>
+
+    </data>
+</odoo>

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <record id="view_charge_power_summary_list" model="ir.ui.view">
+            <field name="name">charge.power.summary.list</field>
+            <field name="model">charge.power.summary</field>
+            <field name="arch" type="xml">
+                <list string="Tổng hợp Charge Power" default_order="bucket_start desc">
+                    <field name="bucket_start"/>
+                    <field name="bucket_type"/>
+                    <field name="device_guid"/>
+                    <field name="charge_power_avg"/>
+                    <field name="charge_power_max"/>
+                    <field name="pv_voltage_avg"/>
+                    <field name="bat_voltage_avg"/>
+                    <field name="bat_voltage_min"/>
+                    <field name="energy_kwh"/>
+                    <field name="total_kwh_end"/>
+                    <field name="temperature_avg"/>
+                    <field name="sample_count"/>
+                </list>
+            </field>
+        </record>
+
+        <record id="action_charge_power_summary" model="ir.actions.act_window">
+            <field name="name">Tổng hợp Charge Power</field>
+            <field name="res_model">charge.power.summary</field>
+            <field name="view_mode">list,form</field>
+        </record>
+
+        <menuitem id="menu_charge_power_summary"
+                  name="Tổng hợp Charge Power"
+                  parent="smartsolar.menu_smartsolar_root"
+                  action="action_charge_power_summary"
+                  sequence="50"/>
+
+    </data>
+</odoo>

@@ -1,0 +1,182 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="smartsolar.Dashboard">
+        <div class="o_smartsolar_dashboard" t-att-class="{ dark: state.theme === 'dark' }">
+            <div class="ss_topbar">
+                <div class="ss_brand">
+                    <span class="ss_brand_icon"><i class="fa fa-sun-o"/></span>
+                    <div>
+                        <div class="ss_brand_title">Smart Solar Dashboard</div>
+                        <div class="ss_brand_sub"><span t-att-class="'ss_status_pill ' + dataFreshClass"><span class="ss_status_dot"/><t t-esc="dataFreshLabel"/></span><span t-if="state.lastRefresh">Cap nhat <t t-esc="refreshLabel"/></span></div>
+                    </div>
+                </div>
+                <div class="ss_topbar_right">
+                    <div class="ss_select_wrap">
+                        <select class="ss_select" t-on-change="onSystemChange">
+                            <option value="">Tat ca he thong</option>
+                            <t t-foreach="state.data?.systems || []" t-as="sys" t-key="sys.id"><option t-att-value="sys.id" t-att-selected="state.systemId === sys.id"><t t-esc="sys.name"/></option></t>
+                        </select>
+                    </div>
+                    <button class="ss_icon_btn" t-on-click="onManualRefresh" title="Lam moi"><i class="fa fa-refresh" t-att-class="{ 'fa-spin': state.loading }"/></button>
+                    <button class="ss_icon_btn" t-on-click="toggleAutoRefresh" t-att-class="{ active: state.autoRefresh }"><i class="fa" t-att-class="state.autoRefresh ? 'fa-pause' : 'fa-play'"/></button>
+                    <button class="ss_icon_btn" t-on-click="toggleTheme"><i class="fa" t-att-class="state.theme === 'dark' ? 'fa-sun-o' : 'fa-moon-o'"/></button>
+                </div>
+            </div>
+            <div class="ss_loading_bar" t-if="state.loading"/>
+            <div class="ss_kpi_grid" t-if="hasData">
+                <div class="ss_kpi_card kpi_power"><div class="ss_kpi_icon"><i class="fa fa-bolt"/></div><div class="ss_kpi_body"><div class="ss_kpi_label">Cong suat hien tai</div><div class="ss_kpi_value"><t t-esc="fmtNumber(state.data.kpi.current_power_kw, 2)"/><span class="ss_kpi_unit">kW</span></div><div class="ss_kpi_sub"><t t-esc="fmtNumber(state.data.kpi.capacity_kw, 1)"/> kW danh dinh</div></div></div>
+                <div class="ss_kpi_card kpi_efficiency"><div class="ss_kpi_icon"><i class="fa fa-tachometer"/></div><div class="ss_kpi_body"><div class="ss_kpi_label">Hieu suat</div><div class="ss_kpi_value"><t t-esc="fmtNumber(state.data.kpi.efficiency, 1)"/><span class="ss_kpi_unit">%</span></div><div class="ss_kpi_progress"><div class="ss_kpi_progress_bar" t-att-style="'width:' + Math.min(100, state.data.kpi.efficiency) + '%'"/></div></div></div>
+                <div class="ss_kpi_card kpi_today"><div class="ss_kpi_icon"><i class="fa fa-line-chart"/></div><div class="ss_kpi_body"><div class="ss_kpi_label">San luong hom nay</div><div class="ss_kpi_value"><t t-esc="fmtNumber(state.data.kpi.today_kwh, 2)"/><span class="ss_kpi_unit">kWh</span></div><div class="ss_kpi_sub">Cap nhat <t t-esc="refreshLabel"/></div></div></div>
+                <div class="ss_kpi_card kpi_revenue"><div class="ss_kpi_icon"><i class="fa fa-money"/></div><div class="ss_kpi_body"><div class="ss_kpi_label">Doanh thu hom nay</div><div class="ss_kpi_value"><t t-esc="fmtMoney(state.data.kpi.revenue_today)"/><span class="ss_kpi_unit"><t t-esc="state.data.kpi.currency_symbol"/></span></div><div class="ss_kpi_sub">Cap nhat <t t-esc="refreshLabel"/></div></div></div>
+                <div class="ss_kpi_card kpi_self_consumption"><div class="ss_kpi_icon"><i class="fa fa-home"/></div><div class="ss_kpi_body"><div class="ss_kpi_label">Ty le tu dung PV</div><div class="ss_kpi_value"><t t-esc="fmtNumber(selfConsumptionPct, 1)"/><span class="ss_kpi_unit">%</span></div><div class="ss_kpi_sub">PV khong xuat luoi</div></div></div>
+                <div class="ss_kpi_card kpi_grid_dependency"><div class="ss_kpi_icon"><i class="fa fa-plug"/></div><div class="ss_kpi_body"><div class="ss_kpi_label">Phu thuoc luoi</div><div class="ss_kpi_value"><t t-esc="fmtNumber(gridDependencyPct, 1)"/><span class="ss_kpi_unit">%</span></div><div class="ss_kpi_sub">Dien lay tu luoi</div></div></div>
+                <div class="ss_kpi_card kpi_yield"><div class="ss_kpi_icon"><i class="fa fa-star-o"/></div><div class="ss_kpi_body"><div class="ss_kpi_label">Hieu suat he thong</div><div class="ss_kpi_value"><t t-esc="fmtNumber(yieldKwhPerKwp, 2)"/><span class="ss_kpi_unit">kWh/kWp</span></div><div class="ss_kpi_sub">San luong / cong suat danh dinh</div></div></div>
+                <div class="ss_kpi_card kpi_trees" t-att-class="{ alert: performanceAlertLevel !== 'none' }"><div class="ss_kpi_icon"><i class="fa fa-tree"/></div><div class="ss_kpi_body"><div class="ss_kpi_label">So cay xanh tuong duong</div><div class="ss_kpi_value"><t t-esc="fmtNumber(co2Trees, 0)"/><span class="ss_kpi_unit">cay</span></div><div class="ss_kpi_sub" t-att-class="{ 'ss_alert_text': performanceAlertLevel !== 'none' }"><t t-if="performanceAlertLevel === 'none'">Tong CO2 tiet kiem</t><t t-else="">⚠ Hieu suat bat thuong <t t-esc="fmtNumber(state.data.kpi.perf_deviation_pct, 0)"/>%</t></div></div></div>
+            </div>
+            <div class="ss_ops_grid" t-if="hasData">
+                <div class="ss_overview_container"><SystemOverview kpi="state.data.kpi" devices="state.data.devices" theme="state.theme" onUpdate.bind="_onOverviewUpdate"/></div>
+                <div class="ss_status_panel">
+                    <div class="ss_panel_header"><div><div class="ss_panel_title"><i class="fa fa-heartbeat"/> Live Status</div><div class="ss_panel_sub">Trang thai van hanh hien tai</div></div><span t-att-class="'ss_live_badge ' + (state.realtimeActive ? 'online' : 'offline')"><span class="ss_live_dot"/><t t-esc="connectionLabel"/></span></div>
+
+                    <!-- Sức khỏe thiết bị -->
+                    <div class="ss_health_block"><div class="ss_health_ring" t-att-style="'--health:' + onlinePercent + '%'"><div><strong><t t-esc="onlinePercent"/>%</strong><span>online</span></div></div><div class="ss_health_stats"><div class="ss_health_row"><span>Thiết bị online</span><strong><t t-esc="state.data.kpi.online_devices"/> / <t t-esc="state.data.kpi.total_devices"/></strong></div><div class="ss_health_row"><span>Thiết bị offline</span><strong t-att-class="{ danger: state.data.kpi.offline_devices > 0 }"><t t-esc="offlineDeviceNames"/></strong></div><div class="ss_health_row"><span>Cảnh báo nhiệt</span><strong t-att-class="{ danger: hotDeviceCount > 0 }"><t t-esc="hotDeviceCount"/> thiết bị</strong></div></div></div>
+
+                    <!-- Công suất realtime -->
+                    <div class="ss_status_section_title">Công suất realtime</div>
+                    <div class="ss_status_metrics">
+                        <div class="ss_status_metric"><span>Hòa lưới</span><strong><t t-esc="fmtNumber(realtimeGridOutW, 0)"/><small>W</small></strong></div>
+                        <div class="ss_status_metric"><span>Lấy lưới</span><strong><t t-esc="fmtNumber(realtimeGridInW, 0)"/><small>W</small></strong></div>
+                        <div class="ss_status_metric"><span>Dàn PV</span><strong><t t-esc="fmtNumber(realtimePvW, 0)"/><small>W</small></strong></div>
+                        <div class="ss_status_metric"><span>Sạc pin</span><strong><t t-esc="fmtNumber(realtimeChargeW, 0)"/><small>W</small></strong></div>
+                    </div>
+
+                    <!-- Trạng thái pin -->
+                    <div class="ss_status_section_title">Pin</div>
+                    <div class="ss_status_metrics">
+                        <div class="ss_status_metric"><span>Điện áp</span><strong><t t-esc="fmtNumber(realtimeBatV, 1)"/><small>V</small></strong></div>
+                        <div class="ss_status_metric"><span>Dòng điện</span><strong><t t-esc="fmtNumber(realtimeBatA, 1)"/><small>A</small></strong></div>
+                        <div class="ss_status_metric power"><span>Trạng thái</span><strong><t t-esc="realtimeBatStatus"/></strong></div>
+                    </div>
+
+                    <!-- Nhiệt độ -->
+                    <div class="ss_status_section_title">Nhiệt độ</div>
+                    <div class="ss_status_metrics">
+                        <div class="ss_status_metric"><span>Cao nhất</span><strong><t t-esc="fmtNumber(maxDeviceTemp, 1)"/><small>°C</small></strong></div>
+                        <div class="ss_status_metric"><span>Trung bình</span><strong><t t-esc="fmtNumber(avgDeviceTemp, 1)"/><small>°C</small></strong></div>
+                        <div class="ss_status_metric"><span>Nóng nhất</span><strong><t t-esc="hottestDeviceName"/></strong></div>
+                    </div>
+
+                    <!-- Thông tin hệ thống -->
+                    <div class="ss_status_list">
+                        <div class="ss_status_item"><span>Hệ thống đang xem</span><strong><t t-esc="selectedSystemName"/></strong></div>
+                        <div class="ss_status_item"><span>Khoảng dữ liệu</span><strong><t t-esc="currentRangeLabel"/></strong></div>
+                        <div class="ss_status_item"><span>Đỉnh công suất hôm nay</span><strong><t t-esc="peakPowerLabel"/></strong></div>
+                        <div class="ss_status_item" t-att-class="{ 'ss_alert_item': performanceAlertLevel !== 'none' }"><span>Hiệu suất vs 7 ngày</span><strong t-att-class="{ 'ss_alert_text': performanceAlertLevel !== 'none' }"><t t-esc="fmtNumber(state.data.kpi.perf_deviation_pct, 1)"/>%</strong></div>
+                        <div class="ss_status_item"><span>Ngưỡng nhiệt</span><strong><t t-esc="fmtNumber(state.data.kpi.temperature_alert, 0)"/>°C</strong></div>
+                        <div class="ss_status_item"><span>Chu kỳ refresh</span><strong><t t-esc="state.data.kpi.refresh_interval || 60"/>s</strong></div>
+                    </div>
+                    <!-- Thiết bị offline với thời gian -->
+                    <div t-if="state.data.devices.filter(d => d.status === 'offline').length" class="ss_status_section_title ss_alert_title">Offline</div>
+                    <div t-if="state.data.devices.filter(d => d.status === 'offline').length" class="ss_offline_list">
+                        <t t-foreach="state.data.devices.filter(d => d.status === 'offline')" t-as="dev" t-key="dev.id">
+                            <div class="ss_offline_item">
+                                <span class="ss_offline_name"><t t-esc="dev.name"/></span>
+                                <span class="ss_offline_time" t-if="dev.offline_minutes !== null"><t t-esc="dev.offline_minutes"/> phút</span>
+                            </div>
+                        </t>
+                    </div>
+                </div>
+            </div>
+            <div class="ss_weather_panel" t-if="hasData and hasEnvironment">
+                <div class="ss_weather_header">
+                    <div class="ss_weather_now">
+                        <span class="ss_weather_icon"><i class="fa" t-att-class="weatherIcon"/></span>
+                        <div>
+                            <div class="ss_weather_temp"><t t-esc="fmtNumber(weather.temperature, 1)"/>°C</div>
+                            <div class="ss_weather_desc"><t t-esc="weather.weather_description"/></div>
+                        </div>
+                    </div>
+                    <div class="ss_weather_meta">
+                        <div class="ss_weather_title"><i class="fa fa-cloud"/> Thời tiết môi trường</div>
+                        <div class="ss_weather_sub"><t t-esc="weather.system_name"/> · Cập nhật <t t-esc="weather.record_date"/></div>
+                    </div>
+                </div>
+                <div class="ss_weather_grid">
+                    <div class="ss_weather_item"><span class="ss_weather_k"><i class="fa fa-tint"/> Độ ẩm</span><strong><t t-esc="fmtNumber(weather.humidity, 0)"/>%</strong></div>
+                    <div class="ss_weather_item"><span class="ss_weather_k"><i class="fa fa-cloud"/> Mây che</span><strong><t t-esc="fmtNumber(weather.cloud_cover, 0)"/>%</strong></div>
+                    <div class="ss_weather_item"><span class="ss_weather_k"><i class="fa fa-flag"/> Gió</span><strong><t t-esc="fmtNumber(weather.wind_speed, 1)"/> km/h</strong></div>
+                    <div class="ss_weather_item"><span class="ss_weather_k"><i class="fa fa-tachometer"/> Áp suất</span><strong><t t-esc="fmtNumber(weather.pressure, 0)"/> hPa</strong></div>
+                    <div class="ss_weather_item"><span class="ss_weather_k"><i class="fa fa-umbrella"/> Mưa</span><strong><t t-esc="fmtNumber(weather.rain, 1)"/> mm</strong></div>
+                    <div class="ss_weather_item"><span class="ss_weather_k"><i class="fa fa-sun-o"/> Bức xạ</span><strong><t t-esc="fmtNumber(weather.radiation, 2)"/> MJ/m²</strong></div>
+                    <div class="ss_weather_item"><span class="ss_weather_k"><i class="fa fa-sun-o"/> UV Max</span><strong><t t-esc="fmtNumber(weather.uv_index_max, 1)"/></strong></div>
+                    <div class="ss_weather_item"><span class="ss_weather_k"><i class="fa fa-clock-o"/> Giờ nắng</span><strong><t t-esc="fmtNumber(weather.sunshine_hours, 1)"/> h</strong></div>
+                    <div class="ss_weather_item"><span class="ss_weather_k"><i class="fa fa-arrow-up"/> Bình minh</span><strong><t t-esc="weather.sunrise"/></strong></div>
+                    <div class="ss_weather_item"><span class="ss_weather_k"><i class="fa fa-arrow-down"/> Hoàng hôn</span><strong><t t-esc="weather.sunset"/></strong></div>
+                    <div class="ss_weather_item"><span class="ss_weather_k"><i class="fa fa-thermometer-full"/> Nhiệt độ Max</span><strong><t t-esc="fmtNumber(weather.temp_max, 1)"/>°C</strong></div>
+                    <div class="ss_weather_item"><span class="ss_weather_k"><i class="fa fa-umbrella"/> Xác suất mưa</span><strong><t t-esc="fmtNumber(weather.rain_probability, 0)"/>%</strong></div>
+                </div>
+            </div>
+            <div class="ss_lifetime_grid" t-if="hasData">
+                <div class="ss_lifetime_item"><span>Tong nang luong</span><strong><t t-esc="fmtNumber(state.data.kpi.total_kwh, 1)"/> kWh</strong></div>
+                <div class="ss_lifetime_item"><span>Tong thu PV</span><strong><t t-esc="fmtNumber(state.data.kpi.total_pv_kwh, 1)"/> kWh</strong></div>
+                <div class="ss_lifetime_item"><span>Tong lay luoi</span><strong><t t-esc="fmtNumber(state.data.kpi.total_limiter_kwh, 1)"/> kWh</strong></div>
+                <div class="ss_lifetime_item"><span>Tong doanh thu</span><strong><t t-esc="fmtMoney(state.data.kpi.revenue_total)"/> <t t-esc="state.data.kpi.currency_symbol"/></strong></div>
+                <div class="ss_lifetime_item"><span>CO2 hom nay</span><strong><t t-esc="fmtNumber(state.data.kpi.co2_saved_kg, 1)"/> kg</strong></div>
+                <div class="ss_lifetime_item"><span>Tong CO2</span><strong><t t-esc="fmtNumber(state.data.kpi.co2_total_kg, 0)"/> kg</strong></div>
+                <div class="ss_lifetime_item clickable" t-on-click="onOpenSystems"><span>He thong</span><strong><t t-esc="state.data.kpi.total_systems"/></strong></div>
+            </div>
+            <div class="ss_time_bar" t-if="hasData"><div class="ss_time_label">Khoang thoi gian</div><div class="ss_time_buttons"><t t-foreach="timeRanges" t-as="r" t-key="r.key"><button class="ss_time_btn" t-att-class="{ active: state.timeRange === r.key, 'ss_live_btn': r.key === 'realtime' }" t-on-click="() => this.onTimeRangeChange(r.key)"><t t-esc="r.label"/></button></t></div><div class="ss_time_meta"><span t-if="state.realtimeActive" class="ss_live_badge online"><span class="ss_live_dot"/> LIVE</span><i class="fa fa-clock-o"/> Cap nhat: <t t-esc="refreshLabel"/></div></div>
+            <div class="ss_charts_grid" t-if="hasData">
+                <div class="ss_chart_card ss_col_8 ss_chart_primary"><div class="ss_chart_header"><div><div class="ss_chart_title"><i class="fa fa-plug"/> Grid Tie Inverter</div><div class="ss_chart_sub">Cong suat hoa luoi, lay luoi, PV va sac pin</div></div></div><div class="ss_chart_body ss_chart_body_large"><canvas t-ref="gridTieChart"/></div></div>
+                <div class="ss_chart_card ss_col_4"><div class="ss_chart_header"><div><div class="ss_chart_title"><i class="fa fa-pie-chart"/> Phan bo nang luong</div><div class="ss_chart_sub">Theo loai thiet bi</div></div></div><div class="ss_chart_body ss_chart_body_donut"><canvas t-ref="distributionChart"/></div></div>
+                <div class="ss_chart_card ss_col_6"><div class="ss_chart_header"><div><div class="ss_chart_title"><i class="fa fa-battery-full"/> Charge Power</div><div class="ss_chart_sub">Cong suat sac, dien ap PV va pin</div></div></div><div class="ss_chart_body"><canvas t-ref="chargePowerChart"/></div></div>
+                <div class="ss_chart_card ss_col_6"><div class="ss_chart_header"><div><div class="ss_chart_title"><i class="fa fa-bar-chart"/> San luong theo ngay</div><div class="ss_chart_sub">Du lieu gan nhat</div></div></div><div class="ss_chart_body"><canvas t-ref="energyChart"/></div></div>
+                <div class="ss_chart_card ss_col_6"><div class="ss_chart_header"><div><div class="ss_chart_title"><i class="fa fa-thermometer-three-quarters"/> Nhiet do thiet bi</div><div class="ss_chart_sub">Canh bao khi vuot nguong</div></div></div><div class="ss_chart_body"><canvas t-ref="temperatureChart"/></div></div>
+                <div class="ss_chart_card ss_col_6"><div class="ss_chart_header"><div><div class="ss_chart_title"><i class="fa fa-battery-three-quarters"/> Pin (Battery)</div><div class="ss_chart_sub">Dien ap va dong sac pin</div></div></div><div class="ss_chart_body"><canvas t-ref="batteryChart"/></div></div>
+                <div class="ss_chart_card ss_col_6"><div class="ss_chart_header"><div><div class="ss_chart_title"><i class="fa fa-sun-o"/> Hieu suat PV Input</div><div class="ss_chart_sub">Cong suat PV vao va sac ra</div></div></div><div class="ss_chart_body"><canvas t-ref="pvEfficiencyChart"/></div></div>
+                <div class="ss_chart_card ss_col_6 ss_device_panel"><div class="ss_chart_header"><div><div class="ss_chart_title"><i class="fa fa-list"/> Thiet bi</div><div class="ss_chart_sub">Danh sach compact de quet nhanh trang thai</div></div></div><div class="ss_device_list"><t t-if="!state.data.devices.length"><div class="ss_empty">Chua co thiet bi</div></t><t t-foreach="state.data.devices" t-as="dev" t-key="dev.id"><div class="ss_device_row" t-att-class="'status_' + dev.status" t-on-click="() => this.onDeviceClick(dev.id)"><div class="ss_device_identity"><span class="ss_device_dot" t-att-class="dev.status"/><div><div class="ss_device_name" t-esc="dev.name"/><div class="ss_device_meta"><span t-esc="deviceTypeLabel(dev.type)"/><span t-esc="dev.system_name"/></div></div></div><div class="ss_device_metric"><span>Power</span><strong><t t-esc="fmtNumber(dev.power, 1)"/> W</strong></div><div class="ss_device_metric" t-att-class="{ alert: dev.temperature >= state.data.kpi.temperature_alert }"><span>Temp</span><strong><t t-esc="fmtNumber(dev.temperature, 1)"/> C</strong></div><div class="ss_device_sync"><span>Sync</span><strong><t t-esc="dev.last_sync || 'Chua dong bo'"/></strong></div></div></t></div></div>
+
+                <!-- Heatmap 24h x 30 ngày -->
+                <div class="ss_chart_card ss_col_12">
+                    <div class="ss_chart_header">
+                        <div>
+                            <div class="ss_chart_title"><i class="fa fa-th"/> Heatmap Công suất (24h × 30 ngày)</div>
+                            <div class="ss_chart_sub">Màu sắc theo công suất trung bình — đậm = cao, nhạt = thấp</div>
+                        </div>
+                    </div>
+                    <div class="ss_chart_body ss_chart_body_heatmap">
+                        <canvas t-ref="heatmapChart"/>
+                    </div>
+                </div>
+
+                <!-- So sánh tháng năm nay vs năm trước -->
+                <div class="ss_chart_card ss_col_6">
+                    <div class="ss_chart_header">
+                        <div>
+                            <div class="ss_chart_title"><i class="fa fa-calendar"/> So sánh sản lượng theo tháng</div>
+                            <div class="ss_chart_sub">Năm nay vs năm trước (kWh)</div>
+                        </div>
+                    </div>
+                    <div class="ss_chart_body">
+                        <canvas t-ref="monthlyComparisonChart"/>
+                    </div>
+                </div>
+
+                <!-- Energy Flow Stacked -->
+                <div class="ss_chart_card ss_col_6">
+                    <div class="ss_chart_header">
+                        <div>
+                            <div class="ss_chart_title"><i class="fa fa-exchange"/> Luồng năng lượng</div>
+                            <div class="ss_chart_sub">PV tự dùng / Xuất lưới / Lấy lưới (kWh)</div>
+                        </div>
+                    </div>
+                    <div class="ss_chart_body">
+                        <canvas t-ref="energyFlowChart"/>
+                    </div>
+                </div>
+
+            </div>
+            <div class="ss_empty_state" t-if="!hasData and !state.loading"><i class="fa fa-database"/><h3>Chua co du lieu</h3><p>Hay dam bao cac thiet bi da duoc dong bo qua API.</p></div>
+        </div>
+    </t>
+</templates>

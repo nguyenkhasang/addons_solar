@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <!-- Kế thừa form hệ thống: thêm lat/long, nút lấy thời tiết, tab Môi trường -->
+        <record id="view_smartsolar_system_form_environment" model="ir.ui.view">
+            <field name="name">smartsolar.system.form.environment</field>
+            <field name="model">smartsolar.system</field>
+            <field name="inherit_id" ref="smartsolar.view_smartsolar_system_form"/>
+            <field name="arch" type="xml">
+
+                <!-- Nút "Lấy dữ liệu môi trường" cạnh nút Đồng bộ WebSocket -->
+                <xpath expr="//button[@name='action_sync_mqsolar_websocket']" position="after">
+                    <button name="action_fetch_environment" string="Lấy dữ liệu môi trường"
+                            type="object" class="btn-secondary"/>
+                </xpath>
+
+                <!-- Nhóm toạ độ địa lý sau nhóm cấu hình MQSolar (anchor theo field con, không dùng @string) -->
+                <xpath expr="//group[field[@name='mqsolar_ws_listen_seconds']]" position="after">
+                    <group string="Vị trí địa lý (thời tiết)">
+                        <field name="latitude"/>
+                        <field name="longitude"/>
+                    </group>
+                </xpath>
+
+                <!-- Tab Môi trường sau tab Thiết bị -->
+                <xpath expr="//page[@name='devices']" position="after">
+                    <page string="Môi trường" name="environment">
+                        <field name="environment_ids" readonly="1">
+                            <list>
+                                <field name="record_date"/>
+                                <field name="temperature_2m"/>
+                                <field name="relative_humidity_2m"/>
+                                <field name="cloud_cover"/>
+                                <field name="shortwave_radiation_sum"/>
+                                <field name="uv_index_max"/>
+                                <field name="weather_description"/>
+                            </list>
+                        </field>
+                    </page>
+                </xpath>
+
+            </field>
+        </record>
+
+    </data>
+</odoo>

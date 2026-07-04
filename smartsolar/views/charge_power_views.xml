@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <!-- List view -->
+        <record id="view_charge_power_list" model="ir.ui.view">
+            <field name="name">charge.power.list</field>
+            <field name="model">charge.power</field>
+            <field name="arch" type="xml">
+                <list string="Dữ liệu Charge Power" default_order="record_date desc">
+                    <field name="device_guid"/>
+                    <field name="record_date"/>
+                    <field name="pv_voltage"/>
+                    <field name="pv_current"/>
+                    <field name="bat_voltage"/>
+                    <field name="bat_current"/>
+                    <field name="charge_power"/>
+                    <field name="today_kwh"/>
+                    <field name="total_kwh"/>
+                    <field name="temperature"/>
+                    <field name="is_online" widget="boolean_toggle"/>
+                </list>
+            </field>
+        </record>
+
+        <!-- Form view -->
+        <record id="view_charge_power_form" model="ir.ui.view">
+            <field name="name">charge.power.form</field>
+            <field name="model">charge.power</field>
+            <field name="arch" type="xml">
+                <form string="Charge Power">
+                    <sheet>
+                        <group>
+                            <group string="Thông tin thiết bị">
+                                <field name="device_guid"/>
+                                <field name="device_id"/>
+                                <field name="system_id"/>
+                                <field name="is_online" widget="boolean_toggle"/>
+                                <field name="record_date"/>
+                            </group>
+                            <group string="Dữ liệu PV">
+                                <field name="pv_voltage"/>
+                                <field name="pv_current"/>
+                            </group>
+                            <group string="Dữ liệu Pin">
+                                <field name="bat_voltage"/>
+                                <field name="bat_current"/>
+                                <field name="charge_power"/>
+                            </group>
+                            <group string="Năng lượng">
+                                <field name="today_kwh"/>
+                                <field name="total_kwh"/>
+                                <field name="temperature"/>
+                            </group>
+                        </group>
+                    </sheet>
+                </form>
+            </field>
+        </record>
+
+        <!-- Graph view -->
+        <record id="view_charge_power_graph" model="ir.ui.view">
+            <field name="name">charge.power.graph</field>
+            <field name="model">charge.power</field>
+            <field name="arch" type="xml">
+                <graph string="Charge Power" type="line">
+                    <field name="record_date" type="row"/>
+                    <field name="charge_power" type="measure"/>
+                    <field name="pv_voltage" type="measure"/>
+                    <field name="bat_voltage" type="measure"/>
+                </graph>
+            </field>
+        </record>
+
+        <!-- Action -->
+        <record id="action_charge_power" model="ir.actions.act_window">
+            <field name="name">Dữ liệu Charge Power</field>
+            <field name="res_model">charge.power</field>
+            <field name="view_mode">list,form,graph</field>
+        </record>
+
+        <!-- Menu -->
+        <menuitem id="menu_charge_power"
+                  name="Dữ liệu công suất sạc"
+                  parent="smartsolar.menu_smartsolar_root"
+                  action="action_charge_power"
+                  sequence="30"/>
+
+    </data>
+</odoo>

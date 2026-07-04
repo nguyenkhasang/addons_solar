@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <!-- List view -->
+        <record id="view_smartsolar_environment_list" model="ir.ui.view">
+            <field name="name">smartsolar.environment.list</field>
+            <field name="model">smartsolar.environment</field>
+            <field name="arch" type="xml">
+                <list string="Dữ liệu môi trường">
+                    <field name="record_date"/>
+                    <field name="system_id"/>
+                    <field name="temperature_2m"/>
+                    <field name="relative_humidity_2m"/>
+                    <field name="cloud_cover"/>
+                    <field name="wind_speed_10m"/>
+                    <field name="rain"/>
+                    <field name="shortwave_radiation_sum"/>
+                    <field name="uv_index_max"/>
+                    <field name="weather_description"/>
+                </list>
+            </field>
+        </record>
+
+        <!-- Form view -->
+        <record id="view_smartsolar_environment_form" model="ir.ui.view">
+            <field name="name">smartsolar.environment.form</field>
+            <field name="model">smartsolar.environment</field>
+            <field name="arch" type="xml">
+                <form string="Dữ liệu môi trường">
+                    <sheet>
+                        <group>
+                            <group string="Thông tin chung">
+                                <field name="system_id"/>
+                                <field name="record_date"/>
+                                <field name="current_time"/>
+                                <field name="latitude"/>
+                                <field name="longitude"/>
+                                <field name="elevation"/>
+                            </group>
+                            <group string="Thời tiết">
+                                <field name="weather_code"/>
+                                <field name="weather_description"/>
+                            </group>
+                        </group>
+                        <group>
+                            <group string="Số đo tức thời (Current)">
+                                <field name="temperature_2m"/>
+                                <field name="relative_humidity_2m"/>
+                                <field name="wind_speed_10m"/>
+                                <field name="cloud_cover"/>
+                                <field name="surface_pressure"/>
+                                <field name="rain"/>
+                                <field name="precipitation"/>
+                            </group>
+                            <group string="Tổng hợp trong ngày (Daily)">
+                                <field name="daily_date"/>
+                                <field name="sunrise"/>
+                                <field name="sunset"/>
+                                <field name="daylight_duration"/>
+                                <field name="sunshine_duration"/>
+                                <field name="uv_index_max"/>
+                                <field name="uv_index_clear_sky_max"/>
+                                <field name="shortwave_radiation_sum"/>
+                                <field name="temperature_2m_max"/>
+                                <field name="wind_speed_10m_max"/>
+                                <field name="wind_gusts_10m_max"/>
+                                <field name="precipitation_probability_max"/>
+                                <field name="precipitation_hours"/>
+                                <field name="precipitation_sum"/>
+                            </group>
+                        </group>
+                    </sheet>
+                </form>
+            </field>
+        </record>
+
+        <!-- Search view -->
+        <!-- <record id="view_smartsolar_environment_search" model="ir.ui.view">
+            <field name="name">smartsolar.environment.search</field>
+            <field name="model">smartsolar.environment</field>
+            <field name="arch" type="xml">
+                <search string="Tìm dữ liệu môi trường">
+                    <field name="system_id"/>
+                    <field name="weather_description"/>
+                    <filter name="today" string="Hôm nay"
+                            domain="[('record_date', '&gt;=', context_today().strftime('%Y-%m-%d'))]"/>
+                    <group expand="0" string="Nhóm theo">
+                        <filter name="group_system" string="Hệ thống" context="{'group_by': 'system_id'}"/>
+                        <filter name="group_date" string="Ngày" context="{'group_by': 'record_date:day'}"/>
+                    </group>
+                </search>
+            </field>
+        </record> -->
+
+        <!-- Action -->
+        <record id="action_smartsolar_environment" model="ir.actions.act_window">
+            <field name="name">Dữ liệu môi trường</field>
+            <field name="res_model">smartsolar.environment</field>
+            <field name="view_mode">list,form,graph,pivot</field>
+            <!-- <field name="search_view_id" ref="view_smartsolar_environment_search"/> -->
+        </record>
+
+        <!-- Menu (gắn vào menu gốc Smart Solar của module smartsolar) -->
+        <menuitem id="menu_smartsolar_environment"
+                  name="Môi trường"
+                  parent="smartsolar.menu_smartsolar_root"
+                  action="action_smartsolar_environment"
+                  sequence="30"/>
+
+    </data>
+</odoo>

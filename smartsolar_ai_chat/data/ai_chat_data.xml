@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+
+        <!-- User đại diện cho bot AI. Discuss chỉ cho tìm/DM partner gắn với một
+             user (search_for_channel_invite lọc user_ids != False), nên bot phải
+             là user chứ không chỉ là partner trần. Tạo user inactive (không đăng
+             nhập được) — giống cách OdooBot gắn với base.user_root. -->
+        <record id="user_smartsolar_ai" model="res.users">
+            <field name="name">SmartSolar AI</field>
+            <field name="login">smartsolar_ai_bot</field>
+            <field name="active" eval="True"/>
+            <field name="share" eval="False"/>
+            <field name="group_ids" eval="[(6, 0, [ref('base.group_user')])]"/>
+        </record>
+
+        <!-- Partner của bot = partner của user vừa tạo (dùng để post message). -->
+        <record id="partner_smartsolar_ai" model="res.partner">
+            <field name="name">SmartSolar AI</field>
+        </record>
+        <record id="user_smartsolar_ai" model="res.users">
+            <field name="partner_id" ref="partner_smartsolar_ai"/>
+        </record>
+
+        <!-- Cấu hình AI Provider (đổi được trong Settings > Smart Solar AI) -->
+        <record id="config_provider" model="ir.config_parameter">
+            <field name="key">smartsolar_ai.provider</field>
+            <field name="value">ollama</field>
+        </record>
+        <record id="config_model" model="ir.config_parameter">
+            <field name="key">smartsolar_ai.model</field>
+            <field name="value">llama3.2:3b</field>
+        </record>
+        <record id="config_max_iterations" model="ir.config_parameter">
+            <field name="key">smartsolar_ai.max_tool_iterations</field>
+            <field name="value">5</field>
+        </record>
+
+    </data>
+</odoo>

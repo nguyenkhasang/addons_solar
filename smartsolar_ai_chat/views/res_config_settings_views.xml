@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <record id="res_config_settings_view_form_smartsolar_ai_chat" model="ir.ui.view">
+        <field name="name">res.config.settings.smartsolar.ai.chat</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <app string="Smart Solar AI" name="smartsolar_ai_chat"
+                     logo="/base/static/img/icons/settings.png">
+                    <block title="Nhà cung cấp AI"
+                           help="Chọn provider và cấu hình kết nối. Đổi provider chỉ cần đổi ở đây, toàn hệ thống hoạt động.">
+                        <setting string="AI Provider"
+                                 help="Ollama (local), OpenAI, NVIDIA Build API, OpenRouter, LM Studio.">
+                            <field name="smartsolar_ai_provider"/>
+                        </setting>
+                        <setting string="Base URL"
+                                 help="Để trống dùng URL mặc định của provider.">
+                            <field name="smartsolar_ai_base_url"
+                                   placeholder="mặc định theo provider (vd http://localhost:11434)"/>
+                        </setting>
+                        <setting string="API Key"
+                                 help="Cần cho provider cloud (NVIDIA, OpenRouter, OpenAI). Local thường không cần.">
+                            <field name="smartsolar_ai_api_key" password="True"
+                                   placeholder="nv-... / sk-... (để trống nếu local)"/>
+                        </setting>
+                        <setting string="Model"
+                                 help="Phải hỗ trợ tool calling.">
+                            <field name="smartsolar_ai_model"
+                                   placeholder="llama3.2:3b / gpt-4o-mini / meta/llama-3.1-70b-instruct"/>
+                        </setting>
+                    </block>
+                    <block title="Hành vi Trợ lý"
+                           help="Điều chỉnh cách bot SmartSolar AI xử lý trong Discuss.">
+                        <setting string="Số vòng gọi tool tối đa"
+                                 help="Giới hạn số lần LLM gọi tool trong một câu hỏi (chống lặp vô tận).">
+                            <field name="smartsolar_ai_max_tool_iterations"/>
+                        </setting>
+                        <setting string="Số tin nhớ ngữ cảnh"
+                                 help="Số tin nhắn gần nhất được nạp làm ngữ cảnh để AI nhớ hội thoại trước. 0 = tắt trí nhớ (mỗi câu độc lập). Đặt cao tốn nhiều token hơn.">
+                            <field name="smartsolar_ai_history_limit"/>
+                        </setting>
+                    </block>
+                    <block title="System Prompt"
+                           help="Định hướng vai trò/văn phong của AI. ĐỂ TRỐNG để dùng prompt mặc định (khuyến nghị). Nhập văn bản thuần, xuống dòng thật — KHÔNG dán mã nguồn có dấu ngoặc kép hay ký tự \n. Cách gọi tool do mô tả tool quyết định, không phải prompt này.">
+                        <div class="w-100 o_smartsolar_prompt">
+                            <field name="smartsolar_ai_system_prompt" widget="text"
+                                   class="w-100"
+                                   placeholder="Để trống để dùng prompt mặc định (kỹ sư giám sát, luôn gọi tool trước khi kết luận, trả lời tiếng Việt, không dùng bảng...)."/>
+                        </div>
+                    </block>
+                </app>
+            </xpath>
+        </field>
+    </record>
+</odoo>

@@ -1,0 +1,7 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_smartsolar_system_user,smartsolar.system user,model_smartsolar_system,base.group_user,1,1,1,1
+access_smartsolar_device_user,smartsolar.device user,model_smartsolar_device,base.group_user,1,1,1,1
+access_charge_power_user,charge.power user,model_charge_power,base.group_user,1,1,1,1
+access_grid_tie_inverter_user,grid.tie.inverter user,model_grid_tie_inverter,base.group_user,1,1,1,1
+access_charge_power_summary_user,charge.power.summary user,model_charge_power_summary,base.group_user,1,1,1,1
+access_grid_tie_inverter_summary_user,grid.tie.inverter.summary user,model_grid_tie_inverter_summary,base.group_user,1,1,1,1

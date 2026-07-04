@@ -1,0 +1,13 @@
+// Ô System Prompt trong Settings: ép textarea cao & không co về 2 dòng.
+// widget="text" render ra thẻ <textarea> con; style trên <field> KHÔNG truyền
+// xuống được, nên phải nhắm CSS thẳng vào textarea bên trong.
+.o_smartsolar_prompt {
+    textarea {
+        min-height: 320px;
+        font-family: monospace;
+        line-height: 1.4;
+        white-space: pre-wrap; // giữ xuống dòng thật, đồng thời tự wrap dòng dài
+        overflow: auto;        // dài hơn thì cuộn trong ô, không che nội dung
+        resize: vertical;      // cho người dùng tự kéo cao thêm nếu cần
+    }
+}

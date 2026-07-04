@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <!-- Form view -->
+        <record id="view_smartsolar_system_form" model="ir.ui.view">
+            <field name="name">smartsolar.system.form</field>
+            <field name="model">smartsolar.system</field>
+            <field name="arch" type="xml">
+                <form string="Hệ thống Smart Solar">
+                    <header>
+                        <button name="action_install" string="Lắp đặt" type="object"
+                                invisible="state != 'draft'" class="btn-primary"/>
+                        <button name="action_start_operating" string="Vận hành" type="object"
+                                invisible="state != 'installed'" class="btn-primary"/>
+                        <button name="action_maintenance" string="Bảo trì" type="object"
+                                invisible="state not in ['installed', 'operating']"/>
+                        <button name="action_inactive" string="Ngừng" type="object"
+                                invisible="state == 'inactive'"/>
+                        <button name="action_draft" string="Đặt lại" type="object"
+                                invisible="state == 'draft'"/>
+                        <button name="action_sync_mqsolar_websocket" string="Đồng bộ WebSocket"
+                                type="object" class="btn-secondary"/>
+                        <field name="state" widget="statusbar"
+                               statusbar_visible="draft,installed,operating"/>
+                    </header>
+                    <sheet>
+                        <div class="oe_button_box" name="button_box">
+                            <button name="action_open_devices" type="object"
+                                    class="oe_stat_button" icon="fa-microchip">
+                                <field name="device_count" widget="statinfo" string="Thiết bị"/>
+                            </button>
+                        </div>
+                        <group>
+                            <group string="Thông tin chung">
+                                <field name="name"/>
+                                <field name="code"/>
+                                <field name="capacity"/>
+                                <field name="installation_date"/>
+                                <field name="location"/>
+                                <field name="company_id"/>
+                                <field name="user_id"/>
+                            </group>
+                            <group string="Cấu hình MQSolar">
+                                <field name="mqsolar_ws_url"/>
+                                <field name="mqsolar_cloud_token"/>
+                                <field name="mqsolar_ws_listen_seconds"/>
+                            </group>
+                        </group>
+                        <notebook>
+                            <page string="Thiết bị" name="devices">
+                                <field name="device_ids">
+                                    <list>
+                                        <field name="device_guid"/>
+                                        <field name="name"/>
+                                        <field name="device_type"/>
+                                        <field name="is_online" widget="boolean_toggle"/>
+                                        <field name="last_sync_date"/>
+                                        <field name="last_sync_status"/>
+                                    </list>
+                                </field>
+                            </page>
+                            <page string="Mô tả" name="description">
+                                <field name="description"/>
+                            </page>
+                        </notebook>
+                    </sheet>
+                    <chatter>
+                        <field name="message_follower_ids"/>
+                        <field name="activity_ids"/>
+                        <field name="message_ids"/>
+                    </chatter>
+                </form>
+            </field>
+        </record>
+
+        <!-- List view -->
+        <record id="view_smartsolar_system_list" model="ir.ui.view">
+            <field name="name">smartsolar.system.list</field>
+            <field name="model">smartsolar.system</field>
+            <field name="arch" type="xml">
+                <list string="Hệ thống Smart Solar">
+                    <field name="name"/>
+                    <field name="code"/>
+                    <field name="capacity"/>
+                    <field name="state"/>
+                    <field name="device_count"/>
+                    <field name="installation_date"/>
+                    <field name="location"/>
+                </list>
+            </field>
+        </record>
+
+        <!-- Action -->
+        <record id="action_smartsolar_system" model="ir.actions.act_window">
+            <field name="name">Hệ thống Smart Solar</field>
+            <field name="res_model">smartsolar.system</field>
+            <field name="view_mode">list,form</field>
+        </record>
+
+        <!-- Root menu -->
+        <menuitem id="menu_smartsolar_root"
+                  name="Smart Solar"
+                  sequence="50"
+                  web_icon="smartsolar,static/description/icon.png"/>
+
+        <!-- Menu: Hệ thống -->
+        <menuitem id="menu_smartsolar_system"
+                  name="Hệ thống"
+                  parent="menu_smartsolar_root"
+                  action="action_smartsolar_system"
+                  sequence="10"/>
+
+    </data>
+</odoo>
