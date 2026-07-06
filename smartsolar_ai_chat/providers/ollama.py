@@ -44,6 +44,10 @@ class OllamaProvider(AIProvider):
         if options:
             payload['options'] = options
 
+        # DEBUG: JSON đầy đủ gửi cho LLM (system prompt + lịch sử + câu hỏi + kết
+        # quả tool + schema tool). Bật log level DEBUG cho logger này để thấy.
+        # _logger.debug('SmartSolar AI -> LLM payload:\n%s',
+        #               json.dumps(payload, ensure_ascii=False, indent=2))
         try:
             resp = requests.post(
                 self.base_url + '/api/chat',

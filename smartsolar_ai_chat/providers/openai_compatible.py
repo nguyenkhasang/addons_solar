@@ -43,6 +43,10 @@ class OpenAICompatibleProvider(AIProvider):
             headers['Authorization'] = 'Bearer %s' % self.api_key
 
         url = self.base_url + '/chat/completions'
+        # DEBUG: JSON đầy đủ gửi cho LLM (system prompt + lịch sử + câu hỏi + kết
+        # quả tool + schema tool). Bật log level DEBUG cho logger này để thấy.
+        # _logger.debug('SmartSolar AI -> LLM payload:\n%s',
+        #               json.dumps(payload, ensure_ascii=False, indent=2))
         try:
             resp = requests.post(url, json=payload, headers=headers, timeout=self.timeout)
         except Exception as e:
