@@ -27,6 +27,37 @@ class TestDomain(TransactionCase):
         with self.assertRaises(ValueError):
             TimeRange.from_iso('2026-07-02T08:00:00', '2026-07-02T07:00:00')
 
+    def test_timerange_iso_with_offset_not_double_shifted(self):
+        # Chuỗi kèm offset phải được TÔN TRỌNG (không cộng/trừ thêm lần nữa).
+        # 00:00+07:00 = 17:00 UTC hôm trước; 00:00Z = 00:00 UTC.
+        self.assertEqual(
+            TimeRange.from_iso('2026-07-02T00:00:00+07:00',
+                               '2026-07-03T00:00:00+07:00').start_utc,
+            datetime(2026, 7, 1, 17, 0, 0))
+        self.assertEqual(
+            TimeRange.from_iso('2026-07-02T00:00:00Z',
+                               '2026-07-03T00:00:00Z').start_utc,
+            datetime(2026, 7, 2, 0, 0, 0))
+
+    def test_timerange_relative_now_delta(self):
+        # 'now-2h' -> 'now' luôn dài đúng 2 giờ, bất kể chạy lúc nào.
+        from datetime import timedelta
+        tr = TimeRange.from_iso('now-2h', 'now')
+        self.assertAlmostEqual(tr.duration, timedelta(hours=2),
+                               delta=timedelta(seconds=5))
+
+    def test_timerange_relative_day_tokens(self):
+        # 'today' -> 'tomorrow' là trọn 1 ngày; 'yesterday' -> 'today' cũng vậy.
+        from datetime import timedelta
+        self.assertEqual(TimeRange.from_iso('today', 'tomorrow').duration,
+                         timedelta(days=1))
+        self.assertEqual(TimeRange.from_iso('yesterday', 'today').duration,
+                         timedelta(days=1))
+
+    def test_timerange_relative_bad_token_raises(self):
+        with self.assertRaises(ValueError):
+            TimeRange.from_iso('now-2x', 'now')
+
     def test_registry_has_core_metrics(self):
         self.assertTrue(MetricRegistry.exists('output_power'))
         self.assertTrue(MetricRegistry.exists('bat_voltage'))

@@ -16,11 +16,25 @@ Bối cảnh múi giờ (rất quan trọng):
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 # Múi giờ Việt Nam. Mọi chuỗi ISO AI gửi lên, nếu không kèm offset, mặc định là giờ này.
 UTC7 = timezone(timedelta(hours=7))
+
+# Token thời gian TƯƠNG ĐỐI mà AI được phép gửi thay cho mốc tuyệt đối.
+# Mục đích: AI KHÔNG phải tự biết "bây giờ là mấy giờ" và KHÔNG tự trừ múi giờ —
+# server tự tính từ thời điểm hiện tại (UTC+7) rồi mới quy về UTC. Nhờ vậy tránh
+# lỗi "trừ 7 giờ hai lần" khi AI vừa tự đổi sang UTC vừa để tool đổi thêm lần nữa.
+#   now                -> thời điểm hiện tại
+#   now-2h / now-30m   -> lùi 2 giờ / 30 phút
+#   now-7d             -> lùi 7 ngày
+#   today              -> 00:00 hôm nay (giờ VN)
+#   yesterday          -> 00:00 hôm qua (giờ VN)
+#   tomorrow           -> 00:00 ngày mai (giờ VN) — hữu ích cho end của "hôm nay"
+_RE_NOW_DELTA = re.compile(r'^now\s*-\s*(\d+)\s*([mhd])$', re.IGNORECASE)
+_UNIT_KEY = {'m': 'minutes', 'h': 'hours', 'd': 'days'}
 
 
 @dataclass(frozen=True)
@@ -42,9 +56,50 @@ class TimeRange:
             raise ValueError('TimeRange: start phải nhỏ hơn end')
 
     @staticmethod
+    def _resolve_relative(text: str):
+        """Thử phân giải một TOKEN thời gian tương đối thành datetime UTC naive.
+
+        Trả về datetime (UTC naive) nếu ``text`` là token hợp lệ (now, now-2h,
+        today, yesterday, tomorrow...), hoặc None nếu không phải token tương đối
+        (để bên gọi rơi về nhánh parse ISO tuyệt đối).
+
+        MẤU CHỐT chống lệch giờ: mốc gốc là ``datetime.now(UTC7)`` — tức thời điểm
+        hiện tại ĐÃ ở giờ Việt Nam. Server tự trừ khoảng và tự quy về UTC đúng MỘT
+        lần. AI không cần biết giờ hiện tại, không tự làm phép trừ nào.
+        """
+        s = (text or '').strip().lower()
+        if not s or not (s.startswith('now') or s in ('today', 'yesterday', 'tomorrow')):
+            return None
+
+        now_local = datetime.now(UTC7)
+
+        if s == 'now':
+            local = now_local
+        elif s in ('today', 'yesterday', 'tomorrow'):
+            midnight = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+            offset_days = {'today': 0, 'yesterday': -1, 'tomorrow': 1}[s]
+            local = midnight + timedelta(days=offset_days)
+        else:
+            m = _RE_NOW_DELTA.match(s)
+            if not m:
+                # Bắt đầu bằng 'now' nhưng sai cú pháp -> báo lỗi rõ thay vì âm thầm sai.
+                raise ValueError(
+                    "Token thời gian '%s' không hợp lệ. Dùng: now, now-2h, now-30m, "
+                    "now-7d, today, yesterday, tomorrow." % text)
+            amount = int(m.group(1))
+            unit = _UNIT_KEY[m.group(2).lower()]
+            local = now_local - timedelta(**{unit: amount})
+
+        # Quy về UTC naive để khớp định dạng Odoo lưu trong DB.
+        return local.astimezone(timezone.utc).replace(tzinfo=None)
+
+    @staticmethod
     def _parse_local(value) -> datetime:
-        """Phân tích một chuỗi ISO 8601 (mặc định UTC+7 nếu không có múi giờ)
-        thành datetime UTC naive để truy vấn DB.
+        """Phân tích một mốc thời gian thành datetime UTC naive để truy vấn DB.
+
+        Ưu tiên TOKEN TƯƠNG ĐỐI (now / now-2h / today / yesterday...) — server tự
+        tính, tránh việc AI tự trừ múi giờ. Nếu không phải token thì parse như ISO
+        8601 tuyệt đối; chuỗi không kèm múi giờ được coi là giờ Việt Nam (UTC+7).
 
         Chấp nhận cả datetime object lẫn chuỗi. Ký tự 'Z' (Zulu = UTC) được đổi
         thành '+00:00' cho ``fromisoformat`` hiểu được.
@@ -52,6 +107,11 @@ class TimeRange:
         if isinstance(value, datetime):
             dt = value
         else:
+            # 1) Token tương đối -> đã là UTC naive, trả luôn.
+            relative = TimeRange._resolve_relative(value)
+            if relative is not None:
+                return relative
+            # 2) ISO tuyệt đối.
             text = str(value).strip().replace('Z', '+00:00')
             dt = datetime.fromisoformat(text)
         # Nếu chuỗi không kèm múi giờ -> coi như giờ Việt Nam.
