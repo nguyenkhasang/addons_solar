@@ -57,15 +57,24 @@ class DiscussChannel(models.Model):
             return
 
         question = self._smartsolar_html_to_text(message.body or '').strip()
-        if not question:
+        # Ảnh đính kèm (nếu có) -> chuyển sang chế độ phân tích ảnh. Vì vậy KHÔNG
+        # return sớm khi thiếu text: user có thể chỉ gửi ảnh không kèm chữ.
+        images = self._smartsolar_extract_images(message)
+        if not question and not images:
             return
 
         # Nạp ngữ cảnh hội thoại (các tin trước) để AI "nhớ" câu hỏi/đáp trước đó.
         history = self._smartsolar_build_history(message, bot_partner)
 
-        _logger.info('SmartSolar AI: nhận câu hỏi "%s" -> chạy planner (history=%d tin)',
-                     question, len(history))
-        answer = self.env['smartsolar.ai.agent'].chat(question, history=history)
+        Agent = self.env['smartsolar.ai.agent']
+        if images:
+            _logger.info('SmartSolar AI: nhận %d ảnh (text="%s") -> phân tích ảnh',
+                         len(images), question)
+            answer = Agent.analyze_images(question, images, history=history)
+        else:
+            _logger.info('SmartSolar AI: nhận câu hỏi "%s" -> chạy planner (history=%d tin)',
+                         question, len(history))
+            answer = Agent.chat(question, history=history)
         _logger.info('SmartSolar AI: trả lời (%d ký tự)', len(answer or ''))
 
         # Đăng câu trả lời dưới danh nghĩa bot.
@@ -111,6 +120,43 @@ class DiscussChannel(models.Model):
                 'content': content,
             })
         return history
+
+    # Giới hạn để tránh vượt context / timeout của LLM vision.
+    _SMARTSOLAR_MAX_IMAGES = 4
+    _SMARTSOLAR_MAX_IMAGE_BYTES = 5 * 1024 * 1024   # ~5MB mỗi ảnh (sau giải mã)
+
+    def _smartsolar_extract_images(self, message):
+        """Trích ảnh đính kèm trong tin nhắn -> list dict {'mime', 'b64'}.
+
+        b64 là base64 THUẦN (không tiền tố 'data:'); mime giữ đúng mimetype gốc
+        (image/png, image/jpeg...) vì một số API vision (Gemini/OpenAI-compatible)
+        đối chiếu mime với dữ liệu và BỎ ảnh nếu nhãn sai -> không được hardcode
+        jpeg. provider.build_image_message() dùng cả hai.
+
+        Chỉ lấy attachment 'image/*'. Bỏ qua ảnh quá lớn và giới hạn số lượng để
+        không làm vỡ context/timeout của model vision. Log ảnh bị bỏ để chẩn đoán.
+        """
+        images = []
+        for att in message.attachment_ids:
+            if len(images) >= self._SMARTSOLAR_MAX_IMAGES:
+                _logger.info('SmartSolar AI: bỏ bớt ảnh, chỉ nhận tối đa %d',
+                             self._SMARTSOLAR_MAX_IMAGES)
+                break
+            if not att.mimetype or not att.mimetype.startswith('image/'):
+                continue
+            # att.datas là base64 (bytes hoặc str tùy phiên bản). Ước lượng kích
+            # thước gốc = len(base64) * 3/4 để lọc ảnh quá lớn mà không cần decode.
+            data = att.datas
+            if not data:
+                continue
+            b64 = data.decode('ascii') if isinstance(data, bytes) else data
+            approx_bytes = len(b64) * 3 // 4
+            if approx_bytes > self._SMARTSOLAR_MAX_IMAGE_BYTES:
+                _logger.info('SmartSolar AI: bỏ ảnh "%s" vì quá lớn (~%d bytes)',
+                             att.name, approx_bytes)
+                continue
+            images.append({'mime': att.mimetype, 'b64': b64})
+        return images
 
     @staticmethod
     def _smartsolar_html_to_text(html):

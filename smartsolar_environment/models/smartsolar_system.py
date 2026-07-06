@@ -99,15 +99,29 @@ class SmartSolarSystem(models.Model):
         current/daily deu tra ve gia tri tuc thoi va mot mang daily (chi lay phan
         tu [0] = hom nay). Cac moc thoi gian ISO duoc chuyen sang datetime naive.
         """
-        from datetime import datetime, date
+        from datetime import datetime, date, timedelta
+
+        # Open-Meteo (timezone='auto') trả current.time / sunrise / sunset dạng
+        # NAIVE theo GIỜ ĐỊA PHƯƠNG (vd GMT+7), không kèm hậu tố Z/offset. Nhưng
+        # Odoo lưu Datetime là UTC naive (hiển thị mới +7 cho user). Nếu lưu thẳng
+        # giờ địa phương thì khi hiện lên bị cộng thêm 7h -> bình minh 05:20 thành
+        # 12:20, hoàng hôn 18:42 thành 01:42. Vì vậy phải TRỪ utc_offset_seconds
+        # để đưa về UTC trước khi lưu.
+        offset = timedelta(seconds=int(data.get('utc_offset_seconds') or 0))
 
         def _dt(value):
             if not value:
                 return False
             try:
-                return datetime.fromisoformat(str(value).replace('Z', '+00:00')).replace(tzinfo=None)
+                parsed = datetime.fromisoformat(str(value).replace('Z', '+00:00'))
             except (ValueError, TypeError):
                 return False
+            if parsed.tzinfo is not None:
+                # Có offset tường minh -> quy về UTC rồi bỏ tzinfo (Odoo lưu naive UTC).
+                from datetime import timezone as _tz
+                return parsed.astimezone(_tz.utc).replace(tzinfo=None)
+            # Naive theo giờ địa phương -> trừ offset để thành UTC naive.
+            return parsed - offset
 
         def _d(value):
             if not value:

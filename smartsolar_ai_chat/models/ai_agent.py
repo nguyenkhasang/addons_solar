@@ -62,6 +62,20 @@ _SYSTEM_PROMPT = (
     "số cụ thể kèm đơn vị và một nhận định hữu ích. Thời gian theo giờ Việt Nam (UTC+7)."
 )
 
+# Prompt riêng cho chế độ PHÂN TÍCH ẢNH: gọn, không có catalog metric hay quy tắc
+# tool (chế độ ảnh KHÔNG gọi tool). Chỉ giữ vai trò + quy tắc định dạng Discuss.
+_VISION_SYSTEM_PROMPT = (
+    "Bạn là kỹ sư giám sát hệ thống điện mặt trời. Người dùng gửi kèm ẢNH. Nhiệm "
+    "vụ: quan sát ảnh và mô tả những gì thấy được, nêu nhận định kỹ thuật hữu ích "
+    "(vd dấu hiệu hư hỏng tấm pin, bụi bẩn, đấu nối, chỉ số trên màn hình thiết "
+    "bị...).\n"
+    "- Chỉ nói về những gì THỰC SỰ nhìn thấy trong ảnh; không bịa chi tiết không "
+    "có. Nếu ảnh mờ/không rõ, hãy nói rõ.\n"
+    "- Trả lời bằng tiếng Việt, ngắn gọn.\n"
+    "- KHÔNG dùng bảng Markdown/HTML (Discuss không render được); chỉ dùng tiêu đề, "
+    "gạch đầu dòng hoặc danh sách đánh số."
+)
+
 
 class SmartSolarAIAgent(models.AbstractModel):
     _name = 'smartsolar.ai.agent'
@@ -221,3 +235,62 @@ class SmartSolarAIAgent(models.AbstractModel):
             _logger.warning('SmartSolar AI: lỗi provider: %s', e)
             return _("Không kết nối được tới LLM.\nChi tiết: %s\n\nKiểm tra cấu hình "
                      "AI trong Settings > Smart Solar AI (provider, base URL, API key, model).") % e
+
+    # ------------------------------------------------------------------
+    # Chế độ PHÂN TÍCH ẢNH: user gửi ảnh -> LLM mô tả/nhận định, KHÔNG gọi tool.
+    # ------------------------------------------------------------------
+    @api.model
+    def analyze_images(self, question, images, history=None):
+        """Phân tích ảnh do user gửi. Trả về chuỗi trả lời.
+
+        Khác hẳn chat(): CHỈ gọi LLM MỘT lượt và KHÔNG truyền tools -> không chạy
+        planner loop. Lý do:
+          - Đúng yêu cầu "gửi ảnh thì phân tích, không gọi tool".
+          - Tránh vướng chuyện nhiều model vision yếu về tool-calling.
+
+        images: danh sách dict {'mime', 'b64'} (b64 là base64 thuần). Provider tự
+        nhúng theo chuẩn của nó (OpenAI content-array vs Ollama field 'images')
+        qua build_image_message() -> business layer không cần biết provider nào.
+
+        history vẫn là text-only (không nhồi lại ảnh cũ) để tiết kiệm token.
+        """
+        from ..providers.base import ChatRequest, ProviderError
+        from ..providers.factory import get_provider
+
+        if not images:
+            # Không có ảnh -> quay về luồng chat thường (an toàn nếu bị gọi nhầm).
+            return self.chat(question, history=history)
+
+        cfg = self._get_config()
+        provider = get_provider(self.env)
+
+        messages = [{'role': 'system', 'content': _VISION_SYSTEM_PROMPT}]
+        if history:
+            messages.extend(history)
+        img_msg = provider.build_image_message(
+            question or _("Mô tả và phân tích ảnh này."), images)
+        messages.append(img_msg)
+
+        # Chẩn đoán: in CẤU TRÚC message ảnh (không đổ base64) để biết ảnh có được
+        # nhúng đúng chuẩn provider không. 'images' field = Ollama; content-array
+        # có 'image_url' = OpenAI-compatible. Nếu cả hai đều vắng -> ảnh bị rớt.
+        if isinstance(img_msg.get('content'), list):
+            shape = 'content-array (OpenAI): %s' % [
+                b.get('type') for b in img_msg['content']]
+        elif 'images' in img_msg:
+            shape = 'images-field (Ollama): %d ảnh' % len(img_msg['images'])
+        else:
+            shape = 'KHÔNG có ảnh trong message (!)'
+        _logger.info('SmartSolar AI: PHÂN TÍCH ẢNH (%d ảnh: %s) '
+                     'provider=%s model=%s | message shape: %s',
+                     len(images),
+                     [(i.get('mime'), len(i.get('b64') or '')) for i in images],
+                     type(provider).__name__, provider.model, shape)
+        try:
+            response = provider.chat(ChatRequest(messages=messages))
+            return response.content or _("(LLM không trả về nội dung)")
+        except ProviderError as e:
+            _logger.warning('SmartSolar AI: lỗi provider khi phân tích ảnh: %s', e)
+            return _("Không phân tích được ảnh.\nChi tiết: %s\n\nLưu ý: model phải hỗ "
+                     "trợ ảnh (vision), vd gpt-4o, llava, qwen2-vl. Kiểm tra "
+                     "Settings > Smart Solar AI.") % e

@@ -86,6 +86,26 @@ class AIProvider(ABC):
         của từng API (yêu cầu #5). content là chuỗi JSON của phong bì tool."""
 
     # ---- Tùy chọn ----
+    def build_image_message(self, text: str, images: List[dict]) -> dict:
+        """Dựng một message 'user' kèm ảnh, theo chuẩn của API provider.
+
+        images: danh sách dict {'mime': 'image/png', 'b64': '<base64 thuần>'}.
+        Mỗi provider nhúng ảnh theo cách riêng nên method này có thể override;
+        mặc định ở đây là chuẩn OpenAI vision (content dạng array block), dùng
+        chung cho mọi provider OpenAI-compatible.
+        """
+        content = [{'type': 'text', 'text': text or ''}]
+        for img in images or []:
+            mime = img.get('mime') or 'image/jpeg'
+            content.append({
+                'type': 'image_url',
+                # OpenAI/Gemini cần data URI đầy đủ; mime phải khớp dữ liệu thật,
+                # nếu không một số endpoint sẽ từ chối/bỏ ảnh.
+                'image_url': {'url': 'data:%s;base64,%s' % (mime, img.get('b64', ''))},
+            })
+        return {'role': 'user', 'content': content}
+
+
     def stream_chat(self, request: ChatRequest):
         """Chat dạng stream. Mặc định chưa hỗ trợ; provider nào cần thì override."""
         raise NotImplementedError("stream_chat chưa được hỗ trợ cho provider này")

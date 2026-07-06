@@ -123,3 +123,13 @@ class OllamaProvider(AIProvider):
             'name': tool_call.name,
             'content': content,
         }
+
+    def build_image_message(self, text, images):
+        """Ollama nhúng ảnh KHÁC OpenAI: content vẫn là chuỗi, ảnh đặt ở field
+        riêng 'images' (mảng base64 THUẦN, không tiền tố 'data:'). Ollama tự nhận
+        diện định dạng từ dữ liệu nên bỏ qua mime, chỉ lấy b64."""
+        return {
+            'role': 'user',
+            'content': text or '',
+            'images': [img.get('b64', '') for img in (images or [])],
+        }
