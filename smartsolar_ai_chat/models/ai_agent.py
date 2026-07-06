@@ -105,6 +105,26 @@ class SmartSolarAIAgent(models.AbstractModel):
             lines.append('- %s (%s)%s%s' % (m['key'], m['unit'] or '-', scope, daily))
         catalog = '\n'.join(lines)
 
+        # Hệ thống mặc định: hệ thống có id NHỎ NHẤT mà user hiện tại phụ trách
+        # (user_id). Nạp sẵn vào prompt để khi user hỏi chung chung ("kiểm tra
+        # thông số hệ thống hôm nay") LLM khỏi phải hỏi lại system_id. Record rules
+        # đã tự lọc theo công ty; nếu user không phụ trách hệ thống nào thì lấy hệ
+        # thống đầu tiên user được phép xem (fallback), hoặc rỗng.
+        System = self.env['smartsolar.system']
+        default_system = System.search(
+            [('user_id', '=', self.env.uid)], order='id asc', limit=1)
+        if not default_system:
+            default_system = System.search([], order='id asc', limit=1)
+        if default_system:
+            default_line = (
+                "\n\nHỆ THỐNG MẶC ĐỊNH: system_id=%d (\"%s\"). Khi người dùng hỏi "
+                "chung chung KHÔNG nêu rõ hệ thống nào (vd \"kiểm tra thông số hệ "
+                "thống hôm nay\"), MẶC ĐỊNH dùng system_id=%d — TUYỆT ĐỐI KHÔNG hỏi "
+                "lại người dùng system_id, cứ gọi tool luôn với id này.\n"
+            ) % (default_system.id, default_system.name or '', default_system.id)
+        else:
+            default_line = ''
+
         return (
             "\n\nTHỜI ĐIỂM HIỆN TẠI (UTC+7): %s (chỉ để tham khảo).\n"
             "QUY TẮC THỜI GIAN (bắt buộc, tránh lệch 7 giờ):\n"
@@ -129,10 +149,11 @@ class SmartSolarAIAgent(models.AbstractModel):
             "tiết nên khoảng quá ~7 ngày có thể trả về rỗng.\n"
             "- Nếu kết quả có count=0 hoặc rỗng: nói 'không có dữ liệu cho khoảng này', "
             "TUYỆT ĐỐI KHÔNG báo giá trị 0 như thể đo được 0.\n"
+            "%s"
             "\n"
             "CÁC METRIC CÓ SẴN (dùng đúng key này cho tham số 'metric'/'metrics'; "
             "KHÔNG cần gọi list_metrics nếu key đã có ở đây):\n%s"
-        ) % (now_local_iso(), catalog)
+        ) % (now_local_iso(), default_line, catalog)
 
     # ------------------------------------------------------------------
     # Entry point: hỏi 1 câu, nhận câu trả lời cuối cùng (chuỗi)
