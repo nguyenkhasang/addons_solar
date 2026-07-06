@@ -1,6 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <data>
+        <!-- Số ngày giữ dữ liệu RAW thời tiết. Ngắn hơn nhiều so với raw thiết bị
+             (30) vì raw thời tiết quá ~3 ngày là thành rác: mọi truy vấn dài hơn
+             2 ngày đã đọc bucket theo ngày, và cron gộp ngày chỉ quét lại 3 ngày
+             gần nhất. Đặt 7 để có biên an toàn phòng cron lỡ vài ngày. -->
+        <record id="smartsolar_env_raw_retention_days" model="ir.config_parameter">
+            <field name="key">smartsolar.env_raw_retention_days</field>
+            <field name="value">7</field>
+        </record>
+
         <record id="ir_cron_fetch_environment" model="ir.cron">
             <field name="name">SmartSolar: Fetch environment data</field>
             <field name="model_id" ref="smartsolar.model_smartsolar_system"/>

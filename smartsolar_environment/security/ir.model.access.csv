@@ -1,2 +1,3 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
 access_smartsolar_environment_user,smartsolar.environment user,model_smartsolar_environment,base.group_user,1,1,1,1
+access_smartsolar_environment_summary_user,smartsolar.environment.summary user,model_smartsolar_environment_summary,base.group_user,1,1,1,1

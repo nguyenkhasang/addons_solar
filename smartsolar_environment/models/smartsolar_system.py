@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import logging
 
+from datetime import timedelta
+
 from odoo import models, fields, api, _
 
 _logger = logging.getLogger(__name__)
@@ -181,3 +183,70 @@ class SmartSolarSystem(models.Model):
                 _logger.error('Error fetching environment for system %s: %s',
                               system.name, e, exc_info=True)
         return True
+
+    # ------------------------------------------------------------------
+    # Cắm dữ liệu môi trường vào chu trình tổng hợp / dọn dẹp có sẵn.
+    #
+    # Module smartsolar đã có 3 cron (aggregate hourly/daily, purge) trỏ vào các
+    # method dưới đây của smartsolar.system. Ta OVERRIDE bằng cách gọi super()
+    # (giữ nguyên xử lý charge.power + grid.tie.inverter) rồi làm thêm phần môi
+    # trường -> KHÔNG cần thêm cron record mới, KHÔNG sửa module gốc, và gỡ module
+    # này thì mọi thứ trở lại nguyên trạng.
+    # ------------------------------------------------------------------
+    @api.model
+    def _cron_aggregate_daily(self):
+        """Môi trường CHỈ gộp theo ngày -> chỉ cắm vào cron daily, không cắm hourly.
+
+        (Bức xạ/UV/giờ nắng của Open-Meteo là giá trị cả ngày nên gộp theo giờ vô
+        nghĩa; xem giải thích trong smartsolar_environment_summary.py.)
+        """
+        res = super()._cron_aggregate_daily()
+        try:
+            self.env['smartsolar.environment.summary']._aggregate_daily()
+        except Exception as e:
+            _logger.error('Aggregate daily smartsolar.environment failed: %s', e, exc_info=True)
+        return res
+
+    @api.model
+    def _cron_purge_old_data(self):
+        """Dọn dữ liệu môi trường cũ. Chạy sau super() nên charge.power /
+        grid.tie.inverter vẫn được purge như cũ.
+
+        Raw thời tiết KHÔNG dùng chung ngưỡng 30 ngày của thiết bị: nó chỉ cần sống
+        đủ để (a) trả lời câu hỏi <=2 ngày và (b) cho cron gộp ngày quét lại 3 ngày
+        gần nhất. Quá ~3 ngày thì mọi truy vấn đã đọc bucket ngày, raw 5 phút/lần
+        thành rác. Vì vậy dùng tham số RIÊNG smartsolar.env_raw_retention_days,
+        mặc định 7 ngày (biên an toàn phòng cron lỡ vài ngày). Bucket ngày rất nhỏ
+        nên mặc định giữ mãi (daily_retention_days = 0).
+        """
+        res = super()._cron_purge_old_data()
+        ICP = self.env['ir.config_parameter'].sudo()
+        now = fields.Datetime.now()
+
+        def _to_int(value, default):
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return default
+
+        raw_days = _to_int(ICP.get_param('smartsolar.env_raw_retention_days', '7'), 7)
+        # Môi trường KHÔNG có bucket 'hour' (chỉ gộp tới ngày) nên bỏ qua
+        # hourly_retention_days; chỉ dùng raw + daily.
+        daily_days = _to_int(ICP.get_param('smartsolar.daily_retention_days', '0'), 0)
+
+        if raw_days > 0:
+            cutoff = now - timedelta(days=raw_days)
+            self.env.cr.execute(
+                "DELETE FROM smartsolar_environment WHERE record_date < %s", [cutoff])
+            _logger.info('[purge] smartsolar_environment: deleted %s rows older than %s',
+                         self.env.cr.rowcount, cutoff)
+
+        if daily_days > 0:  # 0 (mặc định) -> giữ bucket ngày vĩnh viễn
+            cutoff = now - timedelta(days=daily_days)
+            self.env.cr.execute(
+                "DELETE FROM smartsolar_environment_summary "
+                "WHERE bucket_type = 'day' AND bucket_start < %s", [cutoff])
+            _logger.info('[purge] smartsolar_environment_summary daily: deleted %s rows older than %s',
+                         self.env.cr.rowcount, cutoff)
+
+        return res

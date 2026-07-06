@@ -45,6 +45,11 @@ class MetricSpec:
     summary_model: Optional[str] = None   # vd 'grid.tie.inverter.summary'
     summary_field: Optional[str] = None   # vd 'output_power_avg'
     summary_max_field: Optional[str] = None   # cột dùng khi gộp MAX trên bảng summary
+    # Mức bucket NHỎ NHẤT có trong bảng summary của metric này. Các bảng thiết bị
+    # gộp tới 'hour' (rồi roll-up 'day'); bảng môi trường CHỈ gộp tới 'day'. Repository
+    # đọc summary từ đúng bucket_type này -> metric chỉ-ngày không bị hụt dữ liệu vì
+    # đòi bucket 'hour' không tồn tại.
+    summary_bucket: str = 'hour'
 
     # Bảng nguồn có cột device_id để lọc theo thiết bị không? Đa số bảng thiết bị
     # có (True). Bảng cấp hệ thống như dữ liệu môi trường CHỈ có system_id -> False,
@@ -170,48 +175,73 @@ _METRICS = {
 
     # ---- Môi trường (thời tiết): nguồn smartsolar.environment ----
     # Bảng cấp HỆ THỐNG (chỉ có system_id, KHÔNG có device_id) -> has_device=False.
-    # Không có bảng summary -> Repository tự đọc bảng raw theo record_date.
+    # Có bảng summary smartsolar.environment.summary -> truy vấn dài ngày đọc bảng
+    # gộp thay vì quét raw (Repository tự chọn raw/summary theo độ dài khoảng).
     # Dùng để đối chiếu điều kiện thời tiết với sản lượng/sạc (vd nắng tốt mà PV thấp).
+    #
+    # Nhóm DAILY (irradiance/uv/sunshine): Open-Meteo trả giá trị CẢ NGÀY nên
+    # summary chỉ có cột *_max (không có *_avg riêng); summary_field = summary_max_field.
     'irradiance': MetricSpec(
         key='irradiance', label='Bức xạ sóng ngắn (tổng ngày)', unit='MJ/m²',
         kind=MetricKind.INSTANTANEOUS, default_aggregation=AggregationType.MAX,
         raw_model='smartsolar.environment', raw_field='shortwave_radiation_sum',
+        summary_model='smartsolar.environment.summary',
+        summary_field='irradiance_max', summary_max_field='irradiance_max',
+        summary_bucket='day',
         has_device=False,
     ),
     'cloud_cover': MetricSpec(
         key='cloud_cover', label='Mây che phủ', unit='%',
         kind=MetricKind.INSTANTANEOUS, default_aggregation=AggregationType.AVG,
         raw_model='smartsolar.environment', raw_field='cloud_cover',
+        summary_model='smartsolar.environment.summary',
+        summary_field='cloud_cover_avg', summary_max_field='cloud_cover_max',
+        summary_bucket='day',
         has_device=False,
     ),
     'ambient_temp': MetricSpec(
         key='ambient_temp', label='Nhiệt độ môi trường', unit='°C',
         kind=MetricKind.INSTANTANEOUS, default_aggregation=AggregationType.AVG,
         raw_model='smartsolar.environment', raw_field='temperature_2m',
+        summary_model='smartsolar.environment.summary',
+        summary_field='temp_avg', summary_max_field='temp_max',
+        summary_bucket='day',
         has_device=False,
     ),
     'humidity': MetricSpec(
         key='humidity', label='Độ ẩm tương đối', unit='%',
         kind=MetricKind.INSTANTANEOUS, default_aggregation=AggregationType.AVG,
         raw_model='smartsolar.environment', raw_field='relative_humidity_2m',
+        summary_model='smartsolar.environment.summary',
+        summary_field='humidity_avg',
+        summary_bucket='day',
         has_device=False,
     ),
     'uv_index': MetricSpec(
         key='uv_index', label='Chỉ số UV (tối đa ngày)', unit='',
         kind=MetricKind.INSTANTANEOUS, default_aggregation=AggregationType.MAX,
         raw_model='smartsolar.environment', raw_field='uv_index_max',
+        summary_model='smartsolar.environment.summary',
+        summary_field='uv_index_max', summary_max_field='uv_index_max',
+        summary_bucket='day',
         has_device=False,
     ),
     'sunshine_duration': MetricSpec(
         key='sunshine_duration', label='Thời lượng nắng', unit='giây',
         kind=MetricKind.INSTANTANEOUS, default_aggregation=AggregationType.MAX,
         raw_model='smartsolar.environment', raw_field='sunshine_duration',
+        summary_model='smartsolar.environment.summary',
+        summary_field='sunshine_duration_max', summary_max_field='sunshine_duration_max',
+        summary_bucket='day',
         has_device=False,
     ),
     'wind_speed': MetricSpec(
         key='wind_speed', label='Tốc độ gió 10m', unit='km/h',
         kind=MetricKind.INSTANTANEOUS, default_aggregation=AggregationType.AVG,
         raw_model='smartsolar.environment', raw_field='wind_speed_10m',
+        summary_model='smartsolar.environment.summary',
+        summary_field='wind_speed_avg', summary_max_field='wind_speed_max',
+        summary_bucket='day',
         has_device=False,
     ),
 
@@ -296,5 +326,8 @@ class MetricRegistry:
                 'derived': spec.is_derived,
                 # False -> metric cấp hệ thống (vd môi trường), đừng truyền device_id.
                 'has_device': spec.has_device,
+                # True -> metric CHỈ tổng hợp tới NGÀY (vd thời tiết): không có dữ
+                # liệu theo giờ, và chi tiết (raw) chỉ giữ vài ngày gần nhất.
+                'daily_only': spec.summary_bucket == 'day',
             })
         return out

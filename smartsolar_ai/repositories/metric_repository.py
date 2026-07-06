@@ -56,6 +56,10 @@ class MetricRepository(BaseRepository):
         days = time_range.days
         if days <= _RAW_MAX_DAYS:
             return Granularity.RAW
+        # Bảng summary chỉ gộp tới ngày (vd môi trường): không có bucket 'hour' để
+        # đọc -> nhảy thẳng lên DAY thay vì HOUR, nếu không sẽ truy vấn bucket rỗng.
+        if spec.summary_bucket == 'day':
+            return Granularity.DAY
         if days <= _HOUR_MAX_DAYS:
             return Granularity.HOUR
         return Granularity.DAY
@@ -135,8 +139,9 @@ class MetricRepository(BaseRepository):
 
         params = [time_range.start_utc, time_range.end_utc]
         where = ["bucket_start >= %s", "bucket_start < %s"]
-        # Luôn đọc từ các bản ghi bucket theo 'hour', rồi gom lên 'day' nếu cần.
-        source_bucket = 'hour'
+        # Đọc từ bucket mịn nhất mà bảng summary này có (thiết bị: 'hour'; môi
+        # trường: 'day'), rồi gom lên 'day' nếu cần. Không đòi 'hour' ở bảng chỉ-ngày.
+        source_bucket = spec.summary_bucket
         where.append("bucket_type = %s")
         params.append(source_bucket)
         if device_id and spec.has_device:
@@ -217,7 +222,7 @@ class MetricRepository(BaseRepository):
         if spec.summary_model:
             energy_col = 'energy_kwh'
             table = self.env[spec.summary_model]._table
-            params = [time_range.start_utc, time_range.end_utc, 'hour']
+            params = [time_range.start_utc, time_range.end_utc, spec.summary_bucket]
             where = ["bucket_start >= %s", "bucket_start < %s", "bucket_type = %s"]
             if device_id and spec.has_device:
                 where.append("device_id = %s")

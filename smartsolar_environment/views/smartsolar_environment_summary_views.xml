@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <record id="view_smartsolar_environment_summary_list" model="ir.ui.view">
+            <field name="name">smartsolar.environment.summary.list</field>
+            <field name="model">smartsolar.environment.summary</field>
+            <field name="arch" type="xml">
+                <list string="Tổng hợp Môi trường (theo ngày)" default_order="bucket_start desc">
+                    <field name="bucket_start"/>
+                    <field name="system_id"/>
+                    <field name="temp_avg"/>
+                    <field name="temp_max"/>
+                    <field name="humidity_avg"/>
+                    <field name="cloud_cover_avg"/>
+                    <field name="wind_speed_avg"/>
+                    <field name="irradiance_max"/>
+                    <field name="uv_index_max"/>
+                    <field name="sunshine_duration_max"/>
+                    <field name="sample_count"/>
+                </list>
+            </field>
+        </record>
+
+        <record id="action_smartsolar_environment_summary" model="ir.actions.act_window">
+            <field name="name">Tổng hợp Môi trường</field>
+            <field name="res_model">smartsolar.environment.summary</field>
+            <field name="view_mode">list,form,graph,pivot</field>
+        </record>
+
+        <menuitem id="menu_smartsolar_environment_summary"
+                  name="Tổng hợp Môi trường"
+                  parent="smartsolar.menu_smartsolar_summary"
+                  action="action_smartsolar_environment_summary"
+                  sequence="30"/>
+
+    </data>
+</odoo>

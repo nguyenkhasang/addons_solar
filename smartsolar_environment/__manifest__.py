@@ -13,6 +13,8 @@
         * Lưu đầy đủ dữ liệu current (nhiệt độ, độ ẩm, mây, mưa, áp suất...) và
           daily hôm nay (bình minh/hoàng hôn, bức xạ, UV, giờ nắng, weather_code...).
         * Diễn giải mã thời tiết WMO sang mô tả tiếng Việt.
+        * Tổng hợp môi trường theo giờ/ngày (summary) và dọn dữ liệu raw cũ,
+          dùng chung cron + chính sách giữ dữ liệu của module smartsolar.
     """,
     'author': 'Sangnk',
     'website': 'https://www.sangnk.vn',
@@ -20,6 +22,7 @@
     'data': [
         'security/ir.model.access.csv',
         'views/smartsolar_environment_views.xml',
+        'views/smartsolar_environment_summary_views.xml',
         'views/smartsolar_system_views.xml',
         'data/scheduled_action.xml',
     ],
