@@ -81,6 +81,59 @@ class SmartSolarAIAgent(models.AbstractModel):
             'history_limit': int(Param.get_param('smartsolar_ai.history_limit', 6) or 0),
         }
 
+    @api.model
+    def _runtime_context(self):
+        """Ngữ cảnh runtime nối thêm vào system prompt mỗi lần chat.
+
+        Gồm 2 phần, đều là dữ liệu ĐỘNG nên không thể để cứng trong _SYSTEM_PROMPT:
+          1. Thời điểm hiện tại (UTC+7) — để LLM tự suy 'hôm nay/hôm qua/tuần này'
+             thay vì đoán ngày (model nhỏ hay đoán sai -> truy vấn lệch khoảng).
+          2. Danh mục metric hợp lệ (key + đơn vị + có lọc theo thiết bị không) sinh
+             động từ MetricRegistry -> LLM biết ngay tham số 'metric' nào dùng được,
+             khỏi tốn một vòng gọi list_metrics trước mỗi câu hỏi. Vì sinh động nên
+             thêm metric mới vào registry là prompt tự cập nhật, không lệch.
+        """
+        from odoo.addons.smartsolar_ai.tools.base_tool import now_local_iso
+        from odoo.addons.smartsolar_ai.domain.metric_registry import MetricRegistry
+
+        lines = []
+        for m in MetricRegistry.describe():
+            scope = '' if m['has_device'] else ' [chỉ system_id, KHÔNG truyền device_id]'
+            # Đánh dấu metric chỉ có độ phân giải NGÀY (thời tiết) để LLM không hỏi
+            # theo giờ và không kỳ vọng dữ liệu chi tiết cũ hơn ~7 ngày.
+            daily = ' [chỉ theo NGÀY, chi tiết ~7 ngày gần nhất]' if m.get('daily_only') else ''
+            lines.append('- %s (%s)%s%s' % (m['key'], m['unit'] or '-', scope, daily))
+        catalog = '\n'.join(lines)
+
+        return (
+            "\n\nTHỜI ĐIỂM HIỆN TẠI (UTC+7): %s (chỉ để tham khảo).\n"
+            "QUY TẮC THỜI GIAN (bắt buộc, tránh lệch 7 giờ):\n"
+            "- Với câu hỏi TƯƠNG ĐỐI (gần nhất, hôm nay, hôm qua, N giờ/ngày qua): "
+            "DÙNG TOKEN cho start/end, KHÔNG tự tính giờ. Ví dụ:\n"
+            "    '2 giờ gần nhất' -> start='now-2h', end='now'\n"
+            "    'từ sáng đến giờ' -> start='today', end='now'\n"
+            "    'hôm nay'         -> start='today', end='tomorrow'\n"
+            "    'hôm qua'         -> start='yesterday', end='today'\n"
+            "    '7 ngày qua'      -> start='now-7d', end='now'\n"
+            "- Chỉ khi người dùng nêu NGÀY/GIỜ CỤ THỂ mới dùng ISO giờ Việt Nam, "
+            "KHÔNG kèm hậu tố múi giờ (viết '2026-07-06T00:00:00', không viết 'Z' "
+            "hay '+07:00').\n"
+            "- TUYỆT ĐỐI KHÔNG tự trừ 7 giờ và KHÔNG tự đổi sang UTC — server lo việc đó.\n"
+            "\n"
+            "METRIC THỜI TIẾT (các metric có nhãn '[chỉ theo NGÀY...]'):\n"
+            "- Chỉ có độ phân giải theo NGÀY, KHÔNG có số liệu theo giờ. Đừng hứa "
+            "'thời tiết lúc 14h'; chỉ nói được giá trị theo ngày.\n"
+            "- Số liệu chi tiết chỉ còn ~7 ngày gần nhất; xa hơn chỉ còn tổng hợp theo ngày.\n"
+            "- Muốn xu hướng/nhiều ngày: DÙNG get_timeseries (đọc bảng tổng hợp ngày), "
+            "KHÔNG dùng get_aggregate cho khoảng dài — get_aggregate đọc dữ liệu chi "
+            "tiết nên khoảng quá ~7 ngày có thể trả về rỗng.\n"
+            "- Nếu kết quả có count=0 hoặc rỗng: nói 'không có dữ liệu cho khoảng này', "
+            "TUYỆT ĐỐI KHÔNG báo giá trị 0 như thể đo được 0.\n"
+            "\n"
+            "CÁC METRIC CÓ SẴN (dùng đúng key này cho tham số 'metric'/'metrics'; "
+            "KHÔNG cần gọi list_metrics nếu key đã có ở đây):\n%s"
+        ) % (now_local_iso(), catalog)
+
     # ------------------------------------------------------------------
     # Entry point: hỏi 1 câu, nhận câu trả lời cuối cùng (chuỗi)
     # ------------------------------------------------------------------
@@ -106,7 +159,13 @@ class SmartSolarAIAgent(models.AbstractModel):
         cfg = self._get_config()
         provider = get_provider(self.env)
 
-        messages = [{'role': 'system', 'content': cfg['system_prompt']}]
+        # Bổ sung ngữ cảnh runtime vào system prompt: (1) thời điểm hiện tại để LLM
+        # suy ra "hôm nay/hôm qua/7 ngày qua" — nếu không có, model tự đoán ngày và
+        # thường sai -> truy vấn lệch khoảng thời gian; (2) danh mục metric để LLM
+        # biết ngay key/đơn vị hợp lệ, khỏi phải gọi list_metrics trước mỗi câu hỏi.
+        system_prompt = cfg['system_prompt'] + self._runtime_context()
+
+        messages = [{'role': 'system', 'content': system_prompt}]
         if history:
             messages.extend(history)
             _logger.info('SmartSolar AI: nạp %d tin ngữ cảnh hội thoại trước', len(history))

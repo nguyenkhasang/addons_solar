@@ -31,9 +31,9 @@
 
         <menuitem id="menu_grid_tie_inverter_summary"
                   name="Tổng hợp Grid Tie Inverter"
-                  parent="smartsolar.menu_smartsolar_root"
+                  parent="menu_smartsolar_summary"
                   action="action_grid_tie_inverter_summary"
-                  sequence="60"/>
+                  sequence="20"/>
 
     </data>
 </odoo>

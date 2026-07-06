@@ -82,9 +82,9 @@
         <!-- Menu -->
         <menuitem id="menu_charge_power"
                   name="Dữ liệu công suất sạc"
-                  parent="smartsolar.menu_smartsolar_root"
+                  parent="menu_smartsolar_raw"
                   action="action_charge_power"
-                  sequence="30"/>
+                  sequence="10"/>
 
     </data>
 </odoo>

@@ -111,5 +111,19 @@
                   action="action_smartsolar_system"
                   sequence="10"/>
 
+        <!-- Menu cha gom dữ liệu gốc (raw) — mỗi bảng raw là 1 menu con.
+             Định nghĩa tại đây (module gốc) để module smartsolar_environment
+             tham chiếu tới được và gắn thêm menu con môi trường vào cùng nhóm. -->
+        <menuitem id="menu_smartsolar_raw"
+                  name="Dữ liệu raw"
+                  parent="menu_smartsolar_root"
+                  sequence="30"/>
+
+        <!-- Menu cha gom dữ liệu tổng hợp (summary) — mỗi bảng summary là 1 menu con. -->
+        <menuitem id="menu_smartsolar_summary"
+                  name="Dữ liệu summary"
+                  parent="menu_smartsolar_root"
+                  sequence="40"/>
+
     </data>
 </odoo>

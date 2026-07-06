@@ -104,7 +104,7 @@
         <!-- Menu (gắn vào menu gốc Smart Solar của module smartsolar) -->
         <menuitem id="menu_smartsolar_environment"
                   name="Môi trường"
-                  parent="smartsolar.menu_smartsolar_root"
+                  parent="smartsolar.menu_smartsolar_raw"
                   action="action_smartsolar_environment"
                   sequence="30"/>
 

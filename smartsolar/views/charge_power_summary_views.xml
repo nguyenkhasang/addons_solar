@@ -31,9 +31,9 @@
 
         <menuitem id="menu_charge_power_summary"
                   name="Tổng hợp Charge Power"
-                  parent="smartsolar.menu_smartsolar_root"
+                  parent="menu_smartsolar_summary"
                   action="action_charge_power_summary"
-                  sequence="50"/>
+                  sequence="10"/>
 
     </data>
 </odoo>

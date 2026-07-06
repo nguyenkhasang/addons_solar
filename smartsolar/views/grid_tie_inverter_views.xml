@@ -87,9 +87,9 @@
         <!-- Menu -->
         <menuitem id="menu_grid_tie_inverter"
                   name="Dữ liệu Grid Tie Inverter"
-                  parent="smartsolar.menu_smartsolar_root"
+                  parent="menu_smartsolar_raw"
                   action="action_grid_tie_inverter"
-                  sequence="40"/>
+                  sequence="20"/>
 
     </data>
 </odoo>
