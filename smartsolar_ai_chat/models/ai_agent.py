@@ -254,6 +254,39 @@ class SmartSolarAIAgent(models.AbstractModel):
             return ''
         return '\n\n%s\n%s' % (_STATS_MARKER, '\n'.join('- ' + l for l in lines))
 
+    # Các khóa usage CỘNG DỒN được qua nhiều lượt LLM (token đếm + thời gian ns).
+    # load_duration KHÔNG cộng: model chỉ nạp một lần (lượt đầu), các lượt sau ~0;
+    # cộng lại sẽ vô nghĩa. Ta lấy GIÁ TRỊ LỚN NHẤT của load_duration thay vì tổng.
+    _USAGE_SUM_KEYS = (
+        'prompt_tokens', 'completion_tokens', 'total_tokens',
+        'prompt_eval_count', 'eval_count',
+        'total_duration', 'prompt_eval_duration', 'eval_duration',
+    )
+
+    @api.model
+    def _merge_usage(self, acc, usage):
+        """Cộng dồn `usage` của MỘT lượt LLM vào bộ tích lũy `acc` (sửa tại chỗ).
+
+        Vì sao cần: luồng text chạy tool loop nhiều vòng, MỖI vòng là một lời gọi
+        LLM riêng tốn token/thời gian. Nếu chỉ lấy usage lượt cuối, số liệu hiển
+        thị THẤP hơn thực tế. Hàm này gộp mọi lượt để thống kê phản ánh đúng tổng
+        chi phí của cả câu hỏi.
+
+        - Các khóa đếm/thời-gian (_USAGE_SUM_KEYS): cộng dồn.
+        - load_duration: lấy MAX (model nạp một lần, không cộng qua các vòng).
+        Bỏ qua giá trị None (provider/lượt không trả trường đó).
+        """
+        if not usage:
+            return acc
+        for k in self._USAGE_SUM_KEYS:
+            v = usage.get(k)
+            if v is not None:
+                acc[k] = acc.get(k, 0) + v
+        load = usage.get('load_duration')
+        if load is not None:
+            acc['load_duration'] = max(acc.get('load_duration', 0), load)
+        return acc
+
     @api.model
     def strip_stats(self, text):
         """Cắt bỏ khối thống kê (từ marker tới hết) khỏi một câu trả lời cũ.
@@ -303,9 +336,14 @@ class SmartSolarAIAgent(models.AbstractModel):
             _logger.info('SmartSolar AI: nạp %d tin ngữ cảnh hội thoại trước', len(history))
         messages.append({'role': 'user', 'content': question})
 
+        # Bộ tích lũy usage: gộp MỌI lượt LLM trong loop để thống kê phản ánh
+        # đúng tổng chi phí cả câu hỏi (không chỉ lượt cuối). Xem _merge_usage.
+        usage_total = {}
+
         try:
             for _i in range(cfg['max_iterations']):
                 response = provider.chat(ChatRequest(messages=messages, tools=tools))
+                self._merge_usage(usage_total, response.usage)
 
                 # LLM trả lời cuối (không gọi thêm tool) -> xong.
                 if not response.has_tool_calls:
@@ -313,7 +351,7 @@ class SmartSolarAIAgent(models.AbstractModel):
                                  'gọi tool), độ dài content=%d', _i, len(response.content or ''))
                     answer = response.content or _("(LLM không trả về nội dung)")
                     if self._stats_enabled():
-                        answer += self._format_stats_block(response.usage)
+                        answer += self._format_stats_block(usage_total)
                     return answer
 
                 _logger.info('SmartSolar AI: AGENT vòng %d: LLM yêu cầu %d tool -> %s', _i,
@@ -330,9 +368,10 @@ class SmartSolarAIAgent(models.AbstractModel):
 
             # Chạm giới hạn vòng lặp: gọi LLM lần cuối (không tool) để chốt câu trả lời.
             final = provider.chat(ChatRequest(messages=messages))
+            self._merge_usage(usage_total, final.usage)
             answer = final.content or _("(Đã đạt giới hạn số bước)")
             if self._stats_enabled():
-                answer += self._format_stats_block(final.usage)
+                answer += self._format_stats_block(usage_total)
             return answer
         except ProviderError as e:
             _logger.warning('SmartSolar AI: lỗi provider: %s', e)
