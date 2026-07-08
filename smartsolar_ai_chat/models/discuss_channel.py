@@ -8,10 +8,11 @@ onboarding logic của Odoo, không vỡ khi nâng cấp.
 from __future__ import annotations
 
 import logging
+import threading
 
 from markupsafe import Markup
 
-from odoo import models
+from odoo import models, api
 
 _logger = logging.getLogger(__name__)
 
@@ -66,24 +67,60 @@ class DiscussChannel(models.Model):
         # Nạp ngữ cảnh hội thoại (các tin trước) để AI "nhớ" câu hỏi/đáp trước đó.
         history = self._smartsolar_build_history(message, bot_partner)
 
-        Agent = self.env['smartsolar.ai.agent']
-        if images:
-            _logger.info('SmartSolar AI: nhận %d ảnh (text="%s") -> phân tích ảnh',
-                         len(images), question)
-            answer = Agent.analyze_images(question, images, history=history)
-        else:
-            _logger.info('SmartSolar AI: nhận câu hỏi "%s" -> chạy planner (history=%d tin)',
-                         question, len(history))
-            answer = Agent.chat(question, history=history)
-        _logger.info('SmartSolar AI: trả lời (%d ký tự)', len(answer or ''))
-
-        # Đăng câu trả lời dưới danh nghĩa bot.
-        self.sudo().message_post(
+        # Post NGAY một bong bóng placeholder (commit cùng transaction của user ->
+        # hiện tức thì). Planner chạy ở THREAD NỀN và cập nhật dần chính bong bóng
+        # này. Lý do phải tách thread: bus của Odoo chỉ phát notification SAU khi
+        # transaction commit; nếu update nhiều lần trong cùng transaction đồng bộ,
+        # client chỉ thấy trạng thái cuối -> không có hiệu ứng "log dần". Mỗi bước
+        # trong thread nền là một commit riêng nên bus bắn ra được từng lần.
+        placeholder = self.sudo().message_post(
             author_id=bot_partner.id,
-            body=self._smartsolar_text_to_html(answer),
+            body=self._smartsolar_text_to_html('🤔 Đang phân tích...'),
             message_type='comment',
             subtype_xmlid='mail.mt_comment',
         )
+        _logger.info('SmartSolar AI: nhận %s (text="%s") -> chạy planner nền (msg=%s)',
+                     ('%d ảnh' % len(images)) if images else 'câu hỏi', question, placeholder.id)
+
+        # Gom dữ liệu NGUYÊN THỦY để truyền qua thread (KHÔNG truyền recordset/env
+        # vì cursor request sẽ đóng khi hook trả về).
+        params = {
+            'dbname': self.env.cr.dbname,
+            'uid': self.env.uid,
+            'context': dict(self.env.context),
+            'channel_id': self.id,
+            'message_id': placeholder.id,
+            'bot_partner_id': bot_partner.id,
+            'question': question,
+            'images': images,
+            'history': history,
+        }
+        # Spawn thread SAU KHI transaction hiện tại commit. Nếu start ngay bây giờ,
+        # thread mở cursor riêng (transaction mới) có thể CHƯA thấy placeholder vừa
+        # post (nó chưa commit) -> browse ra rỗng, write hỏng. postcommit đảm bảo
+        # placeholder đã nằm trong DB trước khi thread nền chạy.
+        def _spawn():
+            threading.Thread(
+                target=_run_planner_async, args=(params,),
+                name='smartsolar-ai-planner', daemon=True).start()
+
+        self.env.cr.postcommit.add(_spawn)
+
+    def _smartsolar_update_bot_message(self, message, text):
+        """Ghi đè nội dung bong bóng bot rồi ĐẨY BUS NGAY để client cập nhật realtime.
+
+        KHÔNG dùng _message_update_content của core vì nó luôn chèn span "(edited)".
+        Ta write thẳng body rồi tự phát Store('mail.record/insert') — cùng cơ chế mà
+        UI Discuss dùng để re-render đúng bong bóng đó (không tạo tin mới).
+
+        QUAN TRỌNG: hàm này chạy trong THREAD NỀN với cursor riêng; commit sau khi
+        phát bus để flush postcommit -> notification tới client ngay cho từng bước.
+        """
+        from odoo.addons.mail.tools.discuss import Store
+        message.sudo().write({'body': self._smartsolar_text_to_html(text)})
+        Store(bus_channel=message._bus_channel()).add(
+            message, ['body', 'write_date']).bus_send()
+        self.env.cr.commit()
 
     def _smartsolar_build_history(self, current_message, bot_partner):
         """Dựng danh sách ngữ cảnh hội thoại cho LLM từ các tin TRƯỚC trong kênh.
@@ -183,3 +220,54 @@ class DiscussChannel(models.Model):
         """Chuyển câu trả lời text sang HTML an toàn (giữ xuống dòng)."""
         escaped = (text or '').replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
         return Markup(escaped.replace('\n', '<br/>'))
+
+
+def _run_planner_async(params):
+    """Chạy planner loop ở THREAD NỀN với cursor/registry riêng.
+
+    Vì sao là hàm module-level (không phải method): thread cần environment MỚI hoàn
+    toàn — cursor request của hook đã đóng khi hook trả về. Ta mở registry.cursor()
+    riêng, dựng env mới từ các tham số nguyên thủy trong `params`.
+
+    Mỗi lần callback on_progress được gọi -> _smartsolar_update_bot_message write +
+    phát bus + commit trên cursor riêng này -> client thấy từng bước realtime.
+    """
+    from odoo.modules.registry import Registry
+
+    dbname = params['dbname']
+    # Một số internal của Odoo đọc dbname từ thread hiện tại (vd để mở cursor).
+    threading.current_thread().dbname = dbname
+
+    # check_signaling(): đảm bảo dùng registry mới nhất (giống ir_cron worker nền).
+    registry = Registry(dbname).check_signaling()
+    try:
+        with registry.cursor() as cr:
+            env = api.Environment(cr, params['uid'], params['context'])
+            channel = env['discuss.channel'].browse(params['channel_id'])
+            message = env['mail.message'].browse(params['message_id'])
+            Agent = env['smartsolar.ai.agent']
+
+            def on_progress(text):
+                # Cập nhật dần chính bong bóng placeholder (write + bus + commit).
+                channel._smartsolar_update_bot_message(message, text)
+
+            question = params['question']
+            images = params['images']
+            history = params['history']
+            try:
+                if images:
+                    answer = Agent.analyze_images(
+                        question, images, history=history, on_progress=on_progress)
+                else:
+                    answer = Agent.chat(
+                        question, history=history, on_progress=on_progress)
+            except Exception as e:  # noqa: BLE001 - báo lỗi vào bong bóng, không để im lặng
+                _logger.exception('SmartSolar AI: planner nền lỗi: %s', e)
+                answer = 'Xin lỗi, đã có lỗi khi xử lý câu hỏi.\nChi tiết: %s' % e
+
+            # Ghi đè trạng thái CUỐI: chỉ còn câu trả lời (+ khối thống kê); các
+            # dòng log tiến trình bị thay thế hoàn toàn.
+            _logger.info('SmartSolar AI: trả lời nền (%d ký tự)', len(answer or ''))
+            channel._smartsolar_update_bot_message(message, answer)
+    except Exception as e:  # noqa: BLE001 - lỗi tầng cursor/registry
+        _logger.exception('SmartSolar AI: thread nền lỗi ở tầng cursor: %s', e)

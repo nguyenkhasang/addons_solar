@@ -303,10 +303,14 @@ class SmartSolarAIAgent(models.AbstractModel):
     # Entry point: hỏi 1 câu, nhận câu trả lời cuối cùng (chuỗi)
     # ------------------------------------------------------------------
     @api.model
-    def chat(self, question, history=None):
+    def chat(self, question, history=None, on_progress=None):
         """Chạy planner loop cho một câu hỏi. Trả về chuỗi trả lời.
 
         history: danh sách message trước đó (tùy chọn) để giữ ngữ cảnh hội thoại.
+        on_progress: callback(text) tùy chọn — được gọi mỗi bước để báo tiến trình
+            (vd hiển thị "Đang phân tích...", "Vòng 1: gọi tool X") lên UI theo thời
+            gian thực. None = chạy im lặng (tương thích ngược). Là hàm thuần nên
+            provider layer KHÔNG cần biết tới nó.
 
         Business layer chỉ làm việc với chuẩn ChatRequest/ChatResponse của Provider
         Layer — KHÔNG biết đang chạy Ollama, OpenAI, NVIDIA hay gì. Đổi provider =
@@ -340,6 +344,22 @@ class SmartSolarAIAgent(models.AbstractModel):
         # đúng tổng chi phí cả câu hỏi (không chỉ lượt cuối). Xem _merge_usage.
         usage_total = {}
 
+        # Log tiến trình CỘNG DỒN: giữ các dòng bước trước để tạo cảm giác "log dần"
+        # (vòng 1 -> vòng 2 -> ...). Chỉ dùng khi có on_progress.
+        progress_lines = []
+
+        def _emit(line):
+            """Thêm một dòng vào log tiến trình rồi đẩy toàn bộ qua on_progress."""
+            if not on_progress:
+                return
+            progress_lines.append(line)
+            try:
+                on_progress('\n'.join(progress_lines))
+            except Exception as e:  # noqa: BLE001 - báo tiến trình không được làm chết luồng
+                _logger.warning('SmartSolar AI: on_progress lỗi (bỏ qua): %s', e)
+
+        _emit(_('🔍 Đang phân tích câu hỏi...'))
+
         try:
             for _i in range(cfg['max_iterations']):
                 response = provider.chat(ChatRequest(messages=messages, tools=tools))
@@ -357,6 +377,10 @@ class SmartSolarAIAgent(models.AbstractModel):
                 _logger.info('SmartSolar AI: AGENT vòng %d: LLM yêu cầu %d tool -> %s', _i,
                              len(response.tool_calls),
                              [tc.name for tc in response.tool_calls])
+                _emit(_('🔧 Vòng %(round)s: đang gọi %(tools)s') % {
+                    'round': _i + 1,
+                    'tools': ', '.join(tc.name for tc in response.tool_calls),
+                })
 
                 # Nối lượt assistant (giữ tool_calls) theo shape của provider.
                 messages.append(provider.assistant_message(response))
@@ -382,7 +406,7 @@ class SmartSolarAIAgent(models.AbstractModel):
     # Chế độ PHÂN TÍCH ẢNH: user gửi ảnh -> LLM mô tả/nhận định, KHÔNG gọi tool.
     # ------------------------------------------------------------------
     @api.model
-    def analyze_images(self, question, images, history=None):
+    def analyze_images(self, question, images, history=None, on_progress=None):
         """Phân tích ảnh do user gửi. Trả về chuỗi trả lời.
 
         Khác hẳn chat(): CHỈ gọi LLM MỘT lượt và KHÔNG truyền tools -> không chạy
@@ -395,13 +419,20 @@ class SmartSolarAIAgent(models.AbstractModel):
         qua build_image_message() -> business layer không cần biết provider nào.
 
         history vẫn là text-only (không nhồi lại ảnh cũ) để tiết kiệm token.
+        on_progress: callback(text) tùy chọn để báo tiến trình lên UI (xem chat()).
         """
         from ..providers.base import ChatRequest, ProviderError
         from ..providers.factory import get_provider
 
         if not images:
             # Không có ảnh -> quay về luồng chat thường (an toàn nếu bị gọi nhầm).
-            return self.chat(question, history=history)
+            return self.chat(question, history=history, on_progress=on_progress)
+
+        if on_progress:
+            try:
+                on_progress(_('🖼️ Đang phân tích ảnh...'))
+            except Exception as e:  # noqa: BLE001 - báo tiến trình không được làm chết luồng
+                _logger.warning('SmartSolar AI: on_progress lỗi (bỏ qua): %s', e)
 
         cfg = self._get_config()
         provider = get_provider(self.env)
