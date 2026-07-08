@@ -45,6 +45,15 @@ class ResConfigSettings(models.TransientModel):
              "thoại trước. 0 = tắt trí nhớ (mỗi câu hỏi độc lập). Đặt cao sẽ tốn "
              "nhiều token hơn.",
     )
+    smartsolar_ai_show_stats = fields.Boolean(
+        string="Hiện thống kê hiệu năng",
+        config_parameter="smartsolar_ai.show_stats",
+        default=True,
+        help="Nối khối thống kê (số token, thời gian xử lý, tốc độ sinh) vào cuối "
+             "mỗi câu trả lời của AI. Ollama trả đầy đủ token + thời gian; provider "
+             "OpenAI-compatible chỉ có số token. Khối này tự bị gỡ khỏi lịch sử khi "
+             "nạp lại cho AI (không ảnh hưởng chất lượng trả lời).",
+    )
     # Char (không phải Text) vì res.config.settings chỉ cho phép các type map 1-1 với
     # config_parameter (boolean/integer/float/char/selection/many2one/datetime).
     # Char không giới hạn độ dài nên prompt dài vẫn lưu được; view dùng widget="text"
