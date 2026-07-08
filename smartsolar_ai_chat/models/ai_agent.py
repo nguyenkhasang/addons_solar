@@ -17,10 +17,20 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 
 from odoo import models, api, _
 
 _logger = logging.getLogger(__name__)
+
+# Marker phân tách khối THỐNG KÊ hiệu năng ở cuối câu trả lời của AI.
+# Dùng chuỗi cố định, hiếm gặp trong văn bản tự nhiên để:
+#   1. Nhận diện chắc chắn khi cần CẮT BỎ trước lúc nạp lại lịch sử cho LLM
+#      (không để LLM học theo và tự bịa số liệu thống kê ở các lượt sau).
+#   2. Không đụng nội dung thật do model sinh ra.
+_STATS_MARKER = '⎯⎯⎯ 📊 Thống kê ⎯⎯⎯'
+# Regex cắt từ marker tới hết chuỗi (kèm mọi khoảng trắng đứng trước marker).
+_STATS_RE = re.compile(r'\s*' + re.escape(_STATS_MARKER) + r'.*\Z', re.DOTALL)
 
 # System prompt định hướng vai trò cho LLM (kỹ sư giám sát, không phải chatbot).
 _SYSTEM_PROMPT = (
@@ -170,6 +180,93 @@ class SmartSolarAIAgent(models.AbstractModel):
         ) % (now_local_iso(), default_line, catalog)
 
     # ------------------------------------------------------------------
+    # Khối THỐNG KÊ hiệu năng nối vào cuối câu trả lời
+    # ------------------------------------------------------------------
+    @api.model
+    def _stats_enabled(self):
+        """Bật/tắt khối thống kê qua config (mặc định BẬT)."""
+        Param = self.env['ir.config_parameter'].sudo()
+        val = (Param.get_param('smartsolar_ai.show_stats', 'True') or '').strip().lower()
+        return val not in ('0', 'false', 'no', 'off', '')
+
+    @api.model
+    def _format_stats_block(self, usage):
+        """Dựng khối thống kê (text) từ dict `usage` mà provider trả về.
+
+        Ollama trả token count + timing (NANOSECOND); OpenAI-compatible chỉ trả
+        token count. Trường nào thiếu thì bỏ dòng đó -> khối tự co theo provider.
+        Trả về '' nếu không có gì để hiển thị (khỏi nối marker rỗng).
+        """
+        if not usage:
+            return ''
+
+        # Token: ưu tiên tên chuẩn nội bộ, fallback tên native Ollama.
+        prompt_tok = usage.get('prompt_tokens')
+        if prompt_tok is None:
+            prompt_tok = usage.get('prompt_eval_count')
+        completion_tok = usage.get('completion_tokens')
+        if completion_tok is None:
+            completion_tok = usage.get('eval_count')
+        total_tok = usage.get('total_tokens')
+        if total_tok is None and (prompt_tok is not None or completion_tok is not None):
+            total_tok = (prompt_tok or 0) + (completion_tok or 0)
+
+        def _sec(ns):
+            """Nanosecond -> chuỗi giây gọn (Ollama dùng ns). None -> None."""
+            if ns is None:
+                return None
+            return '%.2f s' % (ns / 1e9)
+
+        lines = []
+        if prompt_tok is not None:
+            lines.append(_('Token đầu vào (prompt): %s') % prompt_tok)
+        if completion_tok is not None:
+            lines.append(_('Token đầu ra (completion): %s') % completion_tok)
+        if total_tok is not None:
+            lines.append(_('Tổng token: %s') % total_tok)
+
+        # Timing native của Ollama (chỉ có ở provider này).
+        total_dur = _sec(usage.get('total_duration'))
+        load_dur = _sec(usage.get('load_duration'))
+        prompt_dur_ns = usage.get('prompt_eval_duration')
+        prompt_dur = _sec(prompt_dur_ns)
+        eval_dur_ns = usage.get('eval_duration')
+        eval_dur = _sec(eval_dur_ns)
+        if total_dur is not None:
+            lines.append(_('Tổng thời gian: %s') % total_dur)
+        if load_dur is not None:
+            lines.append(_('Thời gian nạp model: %s') % load_dur)
+        if prompt_dur is not None:
+            lines.append(_('Thời gian xử lý prompt: %s') % prompt_dur)
+        # Tốc độ xử lý prompt (tokens/giây) — tính khi có đủ prompt_eval_count +
+        # prompt_eval_duration.
+        if prompt_tok and prompt_dur_ns:
+            pps = prompt_tok / (prompt_dur_ns / 1e9)
+            lines.append(_('Tốc độ xử lý prompt: %.1f token/giây') % pps)
+        if eval_dur is not None:
+            lines.append(_('Thời gian sinh trả lời: %s') % eval_dur)
+        # Tốc độ sinh token (tokens/giây) — tính khi có đủ eval_count + eval_duration.
+        if completion_tok and eval_dur_ns:
+            tps = completion_tok / (eval_dur_ns / 1e9)
+            lines.append(_('Tốc độ sinh: %.1f token/giây') % tps)
+
+        if not lines:
+            return ''
+        return '\n\n%s\n%s' % (_STATS_MARKER, '\n'.join('- ' + l for l in lines))
+
+    @api.model
+    def strip_stats(self, text):
+        """Cắt bỏ khối thống kê (từ marker tới hết) khỏi một câu trả lời cũ.
+
+        Dùng khi nạp LẠI lịch sử hội thoại cho LLM: khối thống kê là dữ liệu phụ
+        do hệ thống chèn, KHÔNG phải nội dung model sinh -> phải gỡ để model không
+        học theo và bịa lại số liệu ở các lượt sau. An toàn với chuỗi rỗng/None.
+        """
+        if not text:
+            return text
+        return _STATS_RE.sub('', text)
+
+    # ------------------------------------------------------------------
     # Entry point: hỏi 1 câu, nhận câu trả lời cuối cùng (chuỗi)
     # ------------------------------------------------------------------
     @api.model
@@ -214,7 +311,10 @@ class SmartSolarAIAgent(models.AbstractModel):
                 if not response.has_tool_calls:
                     _logger.info('SmartSolar AI: AGENT vòng %d: LLM trả lời cuối (không '
                                  'gọi tool), độ dài content=%d', _i, len(response.content or ''))
-                    return response.content or _("(LLM không trả về nội dung)")
+                    answer = response.content or _("(LLM không trả về nội dung)")
+                    if self._stats_enabled():
+                        answer += self._format_stats_block(response.usage)
+                    return answer
 
                 _logger.info('SmartSolar AI: AGENT vòng %d: LLM yêu cầu %d tool -> %s', _i,
                              len(response.tool_calls),
@@ -230,7 +330,10 @@ class SmartSolarAIAgent(models.AbstractModel):
 
             # Chạm giới hạn vòng lặp: gọi LLM lần cuối (không tool) để chốt câu trả lời.
             final = provider.chat(ChatRequest(messages=messages))
-            return final.content or _("(Đã đạt giới hạn số bước)")
+            answer = final.content or _("(Đã đạt giới hạn số bước)")
+            if self._stats_enabled():
+                answer += self._format_stats_block(final.usage)
+            return answer
         except ProviderError as e:
             _logger.warning('SmartSolar AI: lỗi provider: %s', e)
             return _("Không kết nối được tới LLM.\nChi tiết: %s\n\nKiểm tra cấu hình "
@@ -264,12 +367,22 @@ class SmartSolarAIAgent(models.AbstractModel):
         cfg = self._get_config()
         provider = get_provider(self.env)
 
-        messages = [{'role': 'system', 'content': _VISION_SYSTEM_PROMPT}]
-        if history:
-            messages.extend(history)
-        img_msg = provider.build_image_message(
-            question or _("Mô tả và phân tích ảnh này."), images)
-        messages.append(img_msg)
+        # QUAN TRỌNG (bài học gỡ lỗi): Gemma KHÔNG có 'system' role native — template
+        # Ollama phải gộp system vào lượt user đầu, và với model vision, message
+        # 'system' đứng trước có thể khiến ảnh bị bỏ. Payload chạy tay thành công
+        # của user chỉ có DUY NHẤT 1 message user + images. Vì vậy KHÔNG tạo message
+        # system riêng: gộp chỉ dẫn vision thẳng vào phần text của message chứa ảnh
+        # -> payload khớp đúng cấu trúc đã kiểm chứng chạy được.
+        user_text = question or _("Mô tả và phân tích ảnh này.")
+        prompt_text = '%s\n\n---\n%s' % (_VISION_SYSTEM_PROMPT, user_text)
+
+        # KHÔNG ghép history vào lượt phân tích ảnh: payload chạy tay thành công
+        # của user chỉ có DUY NHẤT 1 message user + images. Thêm bất kỳ message
+        # nào đứng trước (system HOẶC history) đều là biến số có thể làm template
+        # Gemma vision bỏ ảnh. Giữ payload tối giản đúng bằng cái đã kiểm chứng;
+        # bổ sung history lại sau khi xác nhận ảnh chạy.
+        img_msg = provider.build_image_message(prompt_text, images)
+        messages = [img_msg]
 
         # Chẩn đoán: in CẤU TRÚC message ảnh (không đổ base64) để biết ảnh có được
         # nhúng đúng chuẩn provider không. 'images' field = Ollama; content-array
@@ -288,7 +401,10 @@ class SmartSolarAIAgent(models.AbstractModel):
                      type(provider).__name__, provider.model, shape)
         try:
             response = provider.chat(ChatRequest(messages=messages))
-            return response.content or _("(LLM không trả về nội dung)")
+            answer = response.content or _("(LLM không trả về nội dung)")
+            if self._stats_enabled():
+                answer += self._format_stats_block(response.usage)
+            return answer
         except ProviderError as e:
             _logger.warning('SmartSolar AI: lỗi provider khi phân tích ảnh: %s', e)
             return _("Không phân tích được ảnh.\nChi tiết: %s\n\nLưu ý: model phải hỗ "

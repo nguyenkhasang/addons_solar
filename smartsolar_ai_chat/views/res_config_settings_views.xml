@@ -40,6 +40,10 @@
                                  help="Số tin nhắn gần nhất được nạp làm ngữ cảnh để AI nhớ hội thoại trước. 0 = tắt trí nhớ (mỗi câu độc lập). Đặt cao tốn nhiều token hơn.">
                             <field name="smartsolar_ai_history_limit"/>
                         </setting>
+                        <setting string="Hiện thống kê hiệu năng"
+                                 help="Nối khối thống kê (số token, thời gian xử lý, tốc độ sinh) vào cuối mỗi câu trả lời. Ollama có đầy đủ token + thời gian; provider OpenAI-compatible chỉ có số token. Khối này tự bị gỡ khỏi lịch sử khi nạp lại cho AI.">
+                            <field name="smartsolar_ai_show_stats"/>
+                        </setting>
                     </block>
                     <block title="System Prompt"
                            help="Định hướng vai trò/văn phong của AI. ĐỂ TRỐNG để dùng prompt mặc định (khuyến nghị). Nhập văn bản thuần, xuống dòng thật — KHÔNG dán mã nguồn có dấu ngoặc kép hay ký tự \n. Cách gọi tool do mô tả tool quyết định, không phải prompt này.">

@@ -109,12 +109,20 @@ class DiscussChannel(models.Model):
         recent = self.env['mail.message'].sudo().search(
             domain, order='id desc', limit=limit)
 
+        Agent = self.env['smartsolar.ai.agent']
         history = []
         for msg in reversed(recent):
             content = self._smartsolar_html_to_text(msg.body or '').strip()
             if not content:
                 continue
             is_bot = msg.author_id and msg.author_id.id == bot_partner.id
+            if is_bot:
+                # Gỡ khối thống kê hiệu năng do hệ thống chèn ở cuối câu trả lời:
+                # nó KHÔNG phải nội dung model sinh -> không nạp lại cho LLM để
+                # tránh model học theo và tự bịa số liệu thống kê ở lượt sau.
+                content = Agent.strip_stats(content).strip()
+                if not content:
+                    continue
             history.append({
                 'role': 'assistant' if is_bot else 'user',
                 'content': content,
