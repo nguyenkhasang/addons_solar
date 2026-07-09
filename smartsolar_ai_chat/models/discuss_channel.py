@@ -154,9 +154,11 @@ class DiscussChannel(models.Model):
                 continue
             is_bot = msg.author_id and msg.author_id.id == bot_partner.id
             if is_bot:
-                # Gỡ khối thống kê hiệu năng do hệ thống chèn ở cuối câu trả lời:
-                # nó KHÔNG phải nội dung model sinh -> không nạp lại cho LLM để
-                # tránh model học theo và tự bịa số liệu thống kê ở lượt sau.
+                # Gỡ các khối phụ do hệ thống chèn ở cuối câu trả lời (thống kê hiệu
+                # năng + tiến trình gọi tool): chúng KHÔNG phải nội dung model sinh ->
+                # không nạp lại cho LLM, tránh model học theo và bịa lại ở lượt sau.
+                # Gỡ tiến trình trước (nó đứng trước khối thống kê), rồi gỡ thống kê.
+                content = Agent.strip_progress(content)
                 content = Agent.strip_stats(content).strip()
                 if not content:
                     continue
