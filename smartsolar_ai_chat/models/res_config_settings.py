@@ -54,6 +54,15 @@ class ResConfigSettings(models.TransientModel):
              "OpenAI-compatible chỉ có số token. Khối này tự bị gỡ khỏi lịch sử khi "
              "nạp lại cho AI (không ảnh hưởng chất lượng trả lời).",
     )
+    smartsolar_ai_show_progress = fields.Boolean(
+        string="Giữ tiến trình gọi tool",
+        config_parameter="smartsolar_ai.show_progress",
+        default=False,
+        help="Giữ lại khối tiến trình (các bước 'Đang phân tích', 'Vòng N gọi "
+             "tool...') ở cuối câu trả lời cuối cùng. Mặc định tắt: tiến trình chỉ "
+             "hiện tạm trong lúc chờ rồi bị câu trả lời ghi đè. Giống khối thống kê, "
+             "khối này tự bị gỡ khỏi lịch sử khi nạp lại cho AI.",
+    )
     # Char (không phải Text) vì res.config.settings chỉ cho phép các type map 1-1 với
     # config_parameter (boolean/integer/float/char/selection/many2one/datetime).
     # Char không giới hạn độ dài nên prompt dài vẫn lưu được; view dùng widget="text"

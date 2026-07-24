@@ -26,14 +26,9 @@ from ..services.health_service import HealthService
 # Các mảnh JSON-schema tái sử dụng (để không lặp mô tả tham số ở mọi tool).
 _ISO = {'type': 'string',
         'description': (
-            'Mốc thời gian. VỚI CÂU HỎI TƯƠNG ĐỐI (gần nhất, hôm nay, hôm qua, N '
-            'ngày/giờ qua) HÃY DÙNG TOKEN, đừng tự tính giờ: '
-            '"now" (bây giờ), "now-2h" (2 giờ trước), "now-30m", "now-7d" (7 ngày '
-            'trước), "today" (00:00 hôm nay), "yesterday", "tomorrow" (dùng làm end '
-            'cho trọn ngày hôm nay). '
-            'Chỉ khi người dùng nêu NGÀY/GIỜ CỤ THỂ mới dùng ISO 8601 giờ Việt Nam '
-            'KHÔNG kèm hậu tố múi giờ, vd "2026-07-02T00:00:00" (không viết Z hay '
-            '+07:00). TUYỆT ĐỐI KHÔNG tự trừ 7 giờ — server tự quy đổi.')}
+            'Mốc thời gian. Câu hỏi tương đối: dùng token (now, now-2h, now-30m, '
+            'now-7d, today, yesterday, tomorrow). Ngày/giờ cụ thể: ISO giờ VN '
+            'không kèm múi giờ (vd "2026-07-02T00:00:00"). Không tự trừ 7 giờ.')}
 _DEVICE = {'type': 'integer', 'description': 'ID thiết bị (tùy chọn) để giới hạn truy vấn'}
 _SYSTEM = {'type': 'integer', 'description': 'ID hệ thống (tùy chọn) để giới hạn truy vấn'}
 _METRIC = {'type': 'string',
@@ -54,11 +49,9 @@ class ListMetricsTool(Tool):
 
 class GetTimeseriesTool(Tool):
     name = 'get_timeseries'
-    description = ('Chuỗi thời gian của một metric trên một khoảng. Thay cho các '
-                   'endpoint theo từng metric: chỉ cần truyền khóa metric. Độ phân '
-                   'giải được chọn tự động. NÊN dùng tool này (thay cho get_aggregate) '
-                   'khi hỏi metric thời tiết trên nhiều ngày — nó tự đọc bảng tổng hợp '
-                   'theo ngày; metric thời tiết chỉ trả điểm theo NGÀY, không theo giờ.')
+    description = ('Chuỗi thời gian của một metric trên một khoảng (độ phân giải tự '
+                   'chọn). Nên dùng thay get_aggregate cho metric thời tiết nhiều '
+                   'ngày — tự đọc bảng tổng hợp theo ngày.')
 
     def parameters(self):
         return {
@@ -68,18 +61,13 @@ class GetTimeseriesTool(Tool):
                 'start': _ISO, 'end': _ISO,
                 'aggregation': {'type': 'string',
                                 'enum': [a.value for a in AggregationType],
-                                'description': 'Cách gộp mẫu trong mỗi bucket: '
-                                               'avg=trung bình, max=đỉnh, min=đáy, '
-                                               'sum=tổng, last=giá trị cuối, '
-                                               'first=giá trị đầu. Bỏ trống để dùng '
-                                               'mặc định phù hợp theo metric.'},
+                                'description': 'Cách gộp mẫu mỗi bucket (avg/max/min/'
+                                               'sum/last/first). Bỏ trống dùng mặc '
+                                               'định theo metric.'},
                 'interval': {'type': 'string',
                              'enum': [g.value for g in Granularity],
-                             'description': "Độ phân giải bucket thời gian: "
-                                            "auto=tự chọn tối ưu (nên dùng), "
-                                            "raw=từng bản ghi gốc (~1 phút), "
-                                            "hour=theo giờ, day=theo ngày. "
-                                            "Mặc định 'auto'."},
+                             'description': "Độ phân giải bucket: auto (nên dùng), "
+                                            "raw (~1 phút), hour, day."},
                 'device_id': _DEVICE, 'system_id': _SYSTEM,
             },
             'required': ['metric', 'start', 'end'],
@@ -103,14 +91,12 @@ class GetTimeseriesTool(Tool):
 
 class GetAggregateTool(Tool):
     name = 'get_aggregate'
-    description = ('Thống kê vô hướng (trung bình/nhỏ nhất/lớn nhất/năng lượng) cho '
-                   'một hoặc nhiều metric trên một khoảng. Dùng cho báo cáo tổng kết. '
-                   'Truyền NHIỀU metric cùng lúc trong "metrics" (vd '
-                   '["pv_input","output_power","irradiance"]) thay vì gọi nhiều lần — '
-                   'nhanh và nhất quán hơn. LƯU Ý: đọc dữ liệu CHI TIẾT (raw); với '
-                   'metric thời tiết (chỉ giữ raw ~7 ngày) khoảng dài hơn có thể trả '
-                   'count=0 — khi đó dùng get_timeseries. Luôn kiểm tra "count": '
-                   'count=0 nghĩa là KHÔNG có dữ liệu, đừng coi 0 là giá trị đo được.')
+    description = ('Thống kê vô hướng (avg/min/max/năng lượng) cho một hoặc nhiều '
+                   'metric trên một khoảng — dùng cho báo cáo tổng kết. Truyền nhiều '
+                   'metric cùng lúc trong "metrics" thay vì gọi nhiều lần. Đọc dữ '
+                   'liệu raw nên metric thời tiết khoảng dài (>~7 ngày) có thể '
+                   'count=0 — khi đó dùng get_timeseries. count=0 nghĩa là KHÔNG có '
+                   'dữ liệu, đừng coi 0 là giá trị đo được.')
 
     def parameters(self):
         return {

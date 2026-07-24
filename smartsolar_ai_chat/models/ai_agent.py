@@ -32,44 +32,58 @@ _STATS_MARKER = '⎯⎯⎯ 📊 Thống kê ⎯⎯⎯'
 # Regex cắt từ marker tới hết chuỗi (kèm mọi khoảng trắng đứng trước marker).
 _STATS_RE = re.compile(r'\s*' + re.escape(_STATS_MARKER) + r'.*\Z', re.DOTALL)
 
+# Marker khối TIẾN TRÌNH (log các bước "Đang phân tích / Vòng N gọi tool") — cùng
+# cơ chế với khối thống kê: là dữ liệu phụ do hệ thống chèn (KHÔNG phải nội dung
+# model sinh), nên khi nạp lại lịch sử phải CẮT BỎ để LLM không học theo/bịa lại.
+# Mặc định tiến trình bị ghi đè mất khi có câu trả lời cuối; bật config để GIỮ.
+_PROGRESS_MARKER = '⎯⎯⎯ 🔧 Tiến trình ⎯⎯⎯'
+_PROGRESS_RE = re.compile(r'\s*' + re.escape(_PROGRESS_MARKER) + r'.*\Z', re.DOTALL)
+
 # System prompt định hướng vai trò cho LLM (kỹ sư giám sát, không phải chatbot).
 _SYSTEM_PROMPT = (
-    "Bạn là kỹ sư giám sát hệ thống điện mặt trời. Nhiệm vụ: đọc dữ liệu THẬT từ "
-    "các công cụ (tools) và viết báo cáo.\n"
+    "Bạn là kỹ sư giám sát hệ thống điện mặt trời. Nhiệm vụ: gọi tool để đọc dữ "
+    "liệu THẬT rồi viết báo cáo ngắn bằng tiếng Việt.\n"
     "\n"
-    "QUY TẮC BẮT BUỘC — chống bịa số:\n"
-    "1. TUYỆT ĐỐI KHÔNG tự nghĩ ra con số. Mọi giá trị (W, V, A, kWh, %, °C...) "
-    "phải lấy từ kết quả JSON mà tool trả về trong hội thoại này.\n"
-    "2. Tool 'list_metrics' CHỈ liệt kê TÊN metric và đơn vị — nó KHÔNG chứa giá "
-    "trị đo. Không được suy ra hay bịa giá trị từ list_metrics. Muốn có số phải "
-    "gọi 'get_aggregate' hoặc 'get_timeseries' với metric và khoảng thời gian cụ thể.\n"
-    "3. Nếu chưa gọi tool lấy số, hoặc tool trả về rỗng/không có dữ liệu, hãy NÓI "
-    "RÕ 'chưa có dữ liệu' — KHÔNG được điền số thay thế.\n"
-    "4. Chỉ báo cáo đúng những metric mà người dùng hỏi hoặc thật sự liên quan; "
-    "không liệt kê tất cả metric kèm số bịa.\n"
+    "CÁCH LÀM VIỆC (quan trọng nhất):\n"
+    "- Chủ động gọi tool NGAY; đừng hỏi lại những gì có thể tự điền mặc định.\n"
+    "- Mặc định khi người dùng không nói rõ: system_id = hệ thống mặc định (nêu ở "
+    "cuối prompt); khoảng thời gian = today..tomorrow (hôm nay); forecast không nêu "
+    "số giờ -> horizon_hours=6.\n"
+    "- Chỉ hỏi lại khi thiếu thông tin KHÔNG có mặc định và không suy ra được.\n"
     "\n"
-    "ĐỐI CHIẾU THỜI TIẾT — SẢN LƯỢNG:\n"
-    "- Có nhóm metric môi trường (irradiance/bức xạ, cloud_cover/mây, ambient_temp, "
-    "humidity, uv_index, sunshine_duration, wind_speed) lấy từ trạm thời tiết của hệ "
-    "thống. Chúng chỉ lọc theo hệ thống (system_id), KHÔNG có thiết bị — đừng truyền "
-    "device_id cho các metric này.\n"
-    "- Khi người dùng hỏi vì sao sản lượng cao/thấp, hoặc yêu cầu đánh giá hiệu suất, "
-    "hãy lấy KÈM metric môi trường cùng khoảng thời gian (vd get_aggregate với cả "
-    "['irradiance','cloud_cover','pv_input']) rồi đối chiếu: nắng tốt/bức xạ cao mà "
-    "PV nạp thấp là dấu hiệu bất thường; nhiều mây/mưa mà sản lượng thấp là bình thường.\n"
-    "- Chỉ nêu mối liên hệ khi CÓ dữ liệu cả hai phía; nếu thiếu một phía thì nói rõ.\n"
+    "CHỌN TOOL theo ý người dùng (câu hỏi chung -> cứ chọn tổ hợp dưới, đừng hỏi lại):\n"
+    "- 'tổng quan/tình hình/hôm nay thế nào' -> gọi get_health_score + "
+    "get_device_status + get_aggregate(['output_power','pv_input',"
+    "'energy_exported_total']).\n"
+    "- 'dự báo ...' -> forecast(metric, horizon_hours=6). 'dự báo điện tiêu thụ' -> "
+    "metric='grid_import_power'; 'dự báo công suất/sản lượng' -> 'output_power'.\n"
+    "- 'có gì bất thường' -> find_anomalies(metric). 'cảnh báo/lỗi' -> get_alarms.\n"
+    "- Tên người dùng nói -> map sang metric key qua nhãn tiếng Việt trong danh mục "
+    "cuối prompt (vd 'điện tiêu thụ/lấy lưới' -> grid_import_power, 'công suất' -> "
+    "output_power, 'sản lượng PV' -> pv_energy_total).\n"
     "\n"
-    "QUY TẮC ĐỊNH DẠNG (Odoo Discuss KHÔNG render được bảng):\n"
-    "- TUYỆT ĐỐI KHÔNG dùng bảng Markdown (dạng có |---|) hay bảng HTML — chúng hiện "
-    "ra dạng text thô, khó đọc trên Discuss.\n"
-    "- Chỉ trình bày bằng: tiêu đề (heading), danh sách gạch đầu dòng (bullet), hoặc "
-    "danh sách đánh số.\n"
-    "- Mỗi giá trị số trình bày trên một dòng theo dạng: 'Tên chỉ số: Giá trị Đơn vị' "
-    "(vd 'Bức xạ mặt trời: 18.08 MJ/m²').\n"
-    "- Ưu tiên bố cục ngắn, dễ đọc trên cả máy tính lẫn điện thoại.\n"
+    "KHÔNG BỊA SỐ:\n"
+    "- Mọi giá trị (W, V, A, kWh, %, °C...) phải lấy từ JSON tool trả về trong hội "
+    "thoại này; tuyệt đối không tự nghĩ ra.\n"
+    "- 'list_metrics' chỉ liệt kê TÊN metric + đơn vị, KHÔNG có giá trị đo. Muốn có "
+    "số phải gọi get_aggregate hoặc get_timeseries.\n"
+    "- Chưa gọi tool, hoặc tool trả rỗng/count=0: nói rõ 'chưa có dữ liệu' — không "
+    "điền số thay thế.\n"
+    "- Chỉ báo cáo metric người dùng hỏi hoặc thật sự liên quan.\n"
     "\n"
-    "Sau khi có dữ liệu JSON thật, viết báo cáo ngắn gọn bằng tiếng Việt, nêu con "
-    "số cụ thể kèm đơn vị và một nhận định hữu ích. Thời gian theo giờ Việt Nam (UTC+7)."
+    "ĐỐI CHIẾU THỜI TIẾT ↔ SẢN LƯỢNG:\n"
+    "- Khi được hỏi vì sao sản lượng cao/thấp hoặc đánh giá hiệu suất, lấy KÈM "
+    "metric môi trường cùng khoảng (vd get_aggregate ['irradiance','cloud_cover',"
+    "'pv_input']) rồi đối chiếu: bức xạ cao mà PV nạp thấp là bất thường; nhiều "
+    "mây/mưa mà sản lượng thấp là bình thường.\n"
+    "- Chỉ nêu liên hệ khi có dữ liệu CẢ HAI phía; thiếu một phía thì nói rõ.\n"
+    "\n"
+    "ĐỊNH DẠNG (Discuss không render bảng):\n"
+    "- KHÔNG dùng bảng Markdown hay HTML. Chỉ dùng tiêu đề, gạch đầu dòng, danh "
+    "sách đánh số.\n"
+    "- Mỗi số một dòng dạng 'Tên chỉ số: Giá trị Đơn vị' (vd 'Bức xạ mặt trời: "
+    "18.08 MJ/m²').\n"
+    "- Ngắn gọn, kèm một nhận định hữu ích. Thời gian theo giờ Việt Nam (UTC+7)."
 )
 
 # Prompt riêng cho chế độ PHÂN TÍCH ẢNH: gọn, không có catalog metric hay quy tắc
@@ -126,7 +140,12 @@ class SmartSolarAIAgent(models.AbstractModel):
             # Đánh dấu metric chỉ có độ phân giải NGÀY (thời tiết) để LLM không hỏi
             # theo giờ và không kỳ vọng dữ liệu chi tiết cũ hơn ~7 ngày.
             daily = ' [chỉ theo NGÀY, chi tiết ~7 ngày gần nhất]' if m.get('daily_only') else ''
-            lines.append('- %s (%s)%s%s' % (m['key'], m['unit'] or '-', scope, daily))
+            # In kèm label tiếng Việt để model map "tên người dùng nói" -> key
+            # (vd "điện lấy lưới/tiêu thụ" -> grid_import_power). Không phải suy luận,
+            # chỉ tra bảng -> hợp với model nhỏ.
+            label = (' — %s' % m['label']) if m.get('label') else ''
+            lines.append('- %s (%s)%s%s%s' % (
+                m['key'], m['unit'] or '-', label, scope, daily))
         catalog = '\n'.join(lines)
 
         # Hệ thống mặc định: hệ thống có id NHỎ NHẤT mà user hiện tại phụ trách
@@ -141,42 +160,32 @@ class SmartSolarAIAgent(models.AbstractModel):
             default_system = System.search([], order='id asc', limit=1)
         if default_system:
             default_line = (
-                "\n\nHỆ THỐNG MẶC ĐỊNH: system_id=%d (\"%s\"). Khi người dùng hỏi "
-                "chung chung KHÔNG nêu rõ hệ thống nào (vd \"kiểm tra thông số hệ "
-                "thống hôm nay\"), MẶC ĐỊNH dùng system_id=%d — TUYỆT ĐỐI KHÔNG hỏi "
-                "lại người dùng system_id, cứ gọi tool luôn với id này.\n"
-            ) % (default_system.id, default_system.name or '', default_system.id)
+                "HỆ THỐNG MẶC ĐỊNH: system_id=%d (\"%s\"). Hỏi chung chung không nêu "
+                "hệ thống thì dùng id này, gọi tool luôn, KHÔNG hỏi lại.\n"
+            ) % (default_system.id, default_system.name or '')
         else:
             default_line = ''
 
         return (
-            "\n\nTHỜI ĐIỂM HIỆN TẠI (UTC+7): %s (chỉ để tham khảo).\n"
-            "QUY TẮC THỜI GIAN (bắt buộc, tránh lệch 7 giờ):\n"
-            "- Với câu hỏi TƯƠNG ĐỐI (gần nhất, hôm nay, hôm qua, N giờ/ngày qua): "
-            "DÙNG TOKEN cho start/end, KHÔNG tự tính giờ. Ví dụ:\n"
-            "    '2 giờ gần nhất' -> start='now-2h', end='now'\n"
-            "    'từ sáng đến giờ' -> start='today', end='now'\n"
-            "    'hôm nay'         -> start='today', end='tomorrow'\n"
-            "    'hôm qua'         -> start='yesterday', end='today'\n"
-            "    '7 ngày qua'      -> start='now-7d', end='now'\n"
-            "- Chỉ khi người dùng nêu NGÀY/GIỜ CỤ THỂ mới dùng ISO giờ Việt Nam, "
-            "KHÔNG kèm hậu tố múi giờ (viết '2026-07-06T00:00:00', không viết 'Z' "
-            "hay '+07:00').\n"
-            "- TUYỆT ĐỐI KHÔNG tự trừ 7 giờ và KHÔNG tự đổi sang UTC — server lo việc đó.\n"
-            "\n"
-            "METRIC THỜI TIẾT (các metric có nhãn '[chỉ theo NGÀY...]'):\n"
-            "- Chỉ có độ phân giải theo NGÀY, KHÔNG có số liệu theo giờ. Đừng hứa "
-            "'thời tiết lúc 14h'; chỉ nói được giá trị theo ngày.\n"
-            "- Số liệu chi tiết chỉ còn ~7 ngày gần nhất; xa hơn chỉ còn tổng hợp theo ngày.\n"
-            "- Muốn xu hướng/nhiều ngày: DÙNG get_timeseries (đọc bảng tổng hợp ngày), "
-            "KHÔNG dùng get_aggregate cho khoảng dài — get_aggregate đọc dữ liệu chi "
-            "tiết nên khoảng quá ~7 ngày có thể trả về rỗng.\n"
-            "- Nếu kết quả có count=0 hoặc rỗng: nói 'không có dữ liệu cho khoảng này', "
-            "TUYỆT ĐỐI KHÔNG báo giá trị 0 như thể đo được 0.\n"
+            "\n\nTHỜI ĐIỂM HIỆN TẠI (UTC+7): %s (chỉ tham khảo).\n"
             "%s"
             "\n"
-            "CÁC METRIC CÓ SẴN (dùng đúng key này cho tham số 'metric'/'metrics'; "
-            "KHÔNG cần gọi list_metrics nếu key đã có ở đây):\n%s"
+            "THỜI GIAN cho start/end (tránh lệch 7 giờ):\n"
+            "- Câu hỏi tương đối: dùng TOKEN, đừng tự tính giờ — now, now-2h, "
+            "now-30m, now-7d, today, yesterday, tomorrow. Vd 'hôm nay' -> "
+            "start='today' end='tomorrow'; 'hôm qua' -> 'yesterday'..'today'; "
+            "'7 ngày qua' -> 'now-7d'..'now'.\n"
+            "- Chỉ khi nêu NGÀY/GIỜ CỤ THỂ mới dùng ISO giờ VN, không kèm múi giờ "
+            "(vd '2026-07-06T00:00:00', không có 'Z'/'+07:00').\n"
+            "- Không tự trừ 7 giờ hay đổi sang UTC — server tự lo.\n"
+            "\n"
+            "METRIC THỜI TIẾT (nhãn '[chỉ theo NGÀY...]'):\n"
+            "- Chỉ có theo NGÀY, không theo giờ; chi tiết chỉ ~7 ngày gần nhất.\n"
+            "- Nhiều ngày/xu hướng: dùng get_timeseries (đọc bảng tổng hợp ngày), "
+            "không dùng get_aggregate cho khoảng dài (>~7 ngày dễ trả rỗng).\n"
+            "\n"
+            "CÁC METRIC CÓ SẴN (dùng đúng key cho 'metric'/'metrics'; khỏi gọi "
+            "list_metrics):\n%s"
         ) % (now_local_iso(), default_line, catalog)
 
     # ------------------------------------------------------------------
@@ -188,6 +197,18 @@ class SmartSolarAIAgent(models.AbstractModel):
         Param = self.env['ir.config_parameter'].sudo()
         val = (Param.get_param('smartsolar_ai.show_stats', 'True') or '').strip().lower()
         return val not in ('0', 'false', 'no', 'off', '')
+
+    @api.model
+    def _progress_enabled(self):
+        """Bật/tắt việc GIỮ khối tiến trình dưới câu trả lời cuối (mặc định TẮT).
+
+        Khác _stats_enabled ở giá trị mặc định: tiến trình vốn chỉ là hiệu ứng
+        "log dần" trong lúc chờ, xong thì bị câu trả lời ghi đè. Chỉ khi user bật
+        config này mới nối lại khối tiến trình vào cuối câu trả lời chính thức.
+        """
+        Param = self.env['ir.config_parameter'].sudo()
+        val = (Param.get_param('smartsolar_ai.show_progress', 'False') or '').strip().lower()
+        return val in ('1', 'true', 'yes', 'on')
 
     @api.model
     def _format_stats_block(self, usage):
@@ -254,6 +275,51 @@ class SmartSolarAIAgent(models.AbstractModel):
             return ''
         return '\n\n%s\n%s' % (_STATS_MARKER, '\n'.join('- ' + l for l in lines))
 
+    # Các khóa usage CỘNG DỒN được qua nhiều lượt LLM (token đếm + thời gian ns).
+    # load_duration KHÔNG cộng: model chỉ nạp một lần (lượt đầu), các lượt sau ~0;
+    # cộng lại sẽ vô nghĩa. Ta lấy GIÁ TRỊ LỚN NHẤT của load_duration thay vì tổng.
+    _USAGE_SUM_KEYS = (
+        'prompt_tokens', 'completion_tokens', 'total_tokens',
+        'prompt_eval_count', 'eval_count',
+        'total_duration', 'prompt_eval_duration', 'eval_duration',
+    )
+
+    @api.model
+    def _merge_usage(self, acc, usage):
+        """Cộng dồn `usage` của MỘT lượt LLM vào bộ tích lũy `acc` (sửa tại chỗ).
+
+        Vì sao cần: luồng text chạy tool loop nhiều vòng, MỖI vòng là một lời gọi
+        LLM riêng tốn token/thời gian. Nếu chỉ lấy usage lượt cuối, số liệu hiển
+        thị THẤP hơn thực tế. Hàm này gộp mọi lượt để thống kê phản ánh đúng tổng
+        chi phí của cả câu hỏi.
+
+        - Các khóa đếm/thời-gian (_USAGE_SUM_KEYS): cộng dồn.
+        - load_duration: lấy MAX (model nạp một lần, không cộng qua các vòng).
+        Bỏ qua giá trị None (provider/lượt không trả trường đó).
+        """
+        if not usage:
+            return acc
+        for k in self._USAGE_SUM_KEYS:
+            v = usage.get(k)
+            if v is not None:
+                acc[k] = acc.get(k, 0) + v
+        load = usage.get('load_duration')
+        if load is not None:
+            acc['load_duration'] = max(acc.get('load_duration', 0), load)
+        return acc
+
+    @api.model
+    def _format_progress_block(self, progress_lines):
+        """Dựng khối tiến trình (text) từ các dòng bước đã ghi trong planner loop.
+
+        Trả về '' nếu không có dòng nào (khỏi nối marker rỗng). Các dòng vốn đã có
+        icon 🔍/🔧 nên giữ nguyên, chỉ bọc dưới marker để về sau strip được.
+        """
+        lines = [l for l in (progress_lines or []) if l]
+        if not lines:
+            return ''
+        return '\n\n%s\n%s' % (_PROGRESS_MARKER, '\n'.join(lines))
+
     @api.model
     def strip_stats(self, text):
         """Cắt bỏ khối thống kê (từ marker tới hết) khỏi một câu trả lời cũ.
@@ -266,14 +332,29 @@ class SmartSolarAIAgent(models.AbstractModel):
             return text
         return _STATS_RE.sub('', text)
 
+    @api.model
+    def strip_progress(self, text):
+        """Cắt bỏ khối tiến trình (từ marker tới hết) khỏi một câu trả lời cũ.
+
+        Song song với strip_stats: khối tiến trình cũng là dữ liệu phụ hệ thống
+        chèn, không phải nội dung model -> gỡ khi nạp lại lịch sử. An toàn rỗng/None.
+        """
+        if not text:
+            return text
+        return _PROGRESS_RE.sub('', text)
+
     # ------------------------------------------------------------------
     # Entry point: hỏi 1 câu, nhận câu trả lời cuối cùng (chuỗi)
     # ------------------------------------------------------------------
     @api.model
-    def chat(self, question, history=None):
+    def chat(self, question, history=None, on_progress=None):
         """Chạy planner loop cho một câu hỏi. Trả về chuỗi trả lời.
 
         history: danh sách message trước đó (tùy chọn) để giữ ngữ cảnh hội thoại.
+        on_progress: callback(text) tùy chọn — được gọi mỗi bước để báo tiến trình
+            (vd hiển thị "Đang phân tích...", "Vòng 1: gọi tool X") lên UI theo thời
+            gian thực. None = chạy im lặng (tương thích ngược). Là hàm thuần nên
+            provider layer KHÔNG cần biết tới nó.
 
         Business layer chỉ làm việc với chuẩn ChatRequest/ChatResponse của Provider
         Layer — KHÔNG biết đang chạy Ollama, OpenAI, NVIDIA hay gì. Đổi provider =
@@ -303,22 +384,49 @@ class SmartSolarAIAgent(models.AbstractModel):
             _logger.info('SmartSolar AI: nạp %d tin ngữ cảnh hội thoại trước', len(history))
         messages.append({'role': 'user', 'content': question})
 
+        # Bộ tích lũy usage: gộp MỌI lượt LLM trong loop để thống kê phản ánh
+        # đúng tổng chi phí cả câu hỏi (không chỉ lượt cuối). Xem _merge_usage.
+        usage_total = {}
+
+        # Log tiến trình CỘNG DỒN: giữ các dòng bước trước để tạo cảm giác "log dần"
+        # (vòng 1 -> vòng 2 -> ...). Chỉ dùng khi có on_progress.
+        progress_lines = []
+
+        def _emit(line):
+            """Thêm một dòng vào log tiến trình rồi đẩy toàn bộ qua on_progress."""
+            if not on_progress:
+                return
+            progress_lines.append(line)
+            try:
+                on_progress('\n'.join(progress_lines))
+            except Exception as e:  # noqa: BLE001 - báo tiến trình không được làm chết luồng
+                _logger.warning('SmartSolar AI: on_progress lỗi (bỏ qua): %s', e)
+
+        _emit(_('🔍 Đang phân tích câu hỏi...'))
+
         try:
             for _i in range(cfg['max_iterations']):
                 response = provider.chat(ChatRequest(messages=messages, tools=tools))
+                self._merge_usage(usage_total, response.usage)
 
                 # LLM trả lời cuối (không gọi thêm tool) -> xong.
                 if not response.has_tool_calls:
                     _logger.info('SmartSolar AI: AGENT vòng %d: LLM trả lời cuối (không '
                                  'gọi tool), độ dài content=%d', _i, len(response.content or ''))
                     answer = response.content or _("(LLM không trả về nội dung)")
+                    if self._progress_enabled():
+                        answer += self._format_progress_block(progress_lines)
                     if self._stats_enabled():
-                        answer += self._format_stats_block(response.usage)
+                        answer += self._format_stats_block(usage_total)
                     return answer
 
                 _logger.info('SmartSolar AI: AGENT vòng %d: LLM yêu cầu %d tool -> %s', _i,
                              len(response.tool_calls),
                              [tc.name for tc in response.tool_calls])
+                _emit(_('🔧 Vòng %(round)s: đang gọi %(tools)s') % {
+                    'round': _i + 1,
+                    'tools': ', '.join(tc.name for tc in response.tool_calls),
+                })
 
                 # Nối lượt assistant (giữ tool_calls) theo shape của provider.
                 messages.append(provider.assistant_message(response))
@@ -330,9 +438,12 @@ class SmartSolarAIAgent(models.AbstractModel):
 
             # Chạm giới hạn vòng lặp: gọi LLM lần cuối (không tool) để chốt câu trả lời.
             final = provider.chat(ChatRequest(messages=messages))
+            self._merge_usage(usage_total, final.usage)
             answer = final.content or _("(Đã đạt giới hạn số bước)")
+            if self._progress_enabled():
+                answer += self._format_progress_block(progress_lines)
             if self._stats_enabled():
-                answer += self._format_stats_block(final.usage)
+                answer += self._format_stats_block(usage_total)
             return answer
         except ProviderError as e:
             _logger.warning('SmartSolar AI: lỗi provider: %s', e)
@@ -343,7 +454,7 @@ class SmartSolarAIAgent(models.AbstractModel):
     # Chế độ PHÂN TÍCH ẢNH: user gửi ảnh -> LLM mô tả/nhận định, KHÔNG gọi tool.
     # ------------------------------------------------------------------
     @api.model
-    def analyze_images(self, question, images, history=None):
+    def analyze_images(self, question, images, history=None, on_progress=None):
         """Phân tích ảnh do user gửi. Trả về chuỗi trả lời.
 
         Khác hẳn chat(): CHỈ gọi LLM MỘT lượt và KHÔNG truyền tools -> không chạy
@@ -356,13 +467,20 @@ class SmartSolarAIAgent(models.AbstractModel):
         qua build_image_message() -> business layer không cần biết provider nào.
 
         history vẫn là text-only (không nhồi lại ảnh cũ) để tiết kiệm token.
+        on_progress: callback(text) tùy chọn để báo tiến trình lên UI (xem chat()).
         """
         from ..providers.base import ChatRequest, ProviderError
         from ..providers.factory import get_provider
 
         if not images:
             # Không có ảnh -> quay về luồng chat thường (an toàn nếu bị gọi nhầm).
-            return self.chat(question, history=history)
+            return self.chat(question, history=history, on_progress=on_progress)
+
+        if on_progress:
+            try:
+                on_progress(_('🖼️ Đang phân tích ảnh...'))
+            except Exception as e:  # noqa: BLE001 - báo tiến trình không được làm chết luồng
+                _logger.warning('SmartSolar AI: on_progress lỗi (bỏ qua): %s', e)
 
         cfg = self._get_config()
         provider = get_provider(self.env)
