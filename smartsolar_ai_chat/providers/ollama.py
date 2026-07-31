@@ -24,6 +24,20 @@ from .base import (
 _logger = logging.getLogger('smartsolar_ai.provider')
 
 
+def _redact_images_for_log(payload):
+    """Trả bản sao payload để LOG: base64 trong 'images' bị cắt còn 32 ký tự đầu
+    + độ dài, để không tràn log mà vẫn thấy cấu trúc và đầu chuỗi base64 (bắt lỗi
+    prefix 'data:' lọt vào, chuỗi rỗng, hay ký tự lạ)."""
+    import copy
+    clone = copy.deepcopy(payload)
+    for msg in clone.get('messages', []):
+        imgs = msg.get('images')
+        if isinstance(imgs, list):
+            msg['images'] = ['<%d ký tự, đầu: %r>' % (len(i or ''), (i or '')[:32])
+                             for i in imgs]
+    return json.dumps(clone, ensure_ascii=False)
+
+
 class OllamaProvider(AIProvider):
 
     def chat(self, request: ChatRequest) -> ChatResponse:
@@ -44,10 +58,32 @@ class OllamaProvider(AIProvider):
         if options:
             payload['options'] = options
 
-        # DEBUG: JSON đầy đủ gửi cho LLM (system prompt + lịch sử + câu hỏi + kết
-        # quả tool + schema tool). Bật log level DEBUG cho logger này để thấy.
-        # _logger.debug('SmartSolar AI -> LLM payload:\n%s',
-        #               json.dumps(payload, ensure_ascii=False, indent=2))
+        # Chẩn đoán ảnh: in payload THẬT gửi tới Ollama, nhưng CẮT base64 trong
+        # 'images' để không tràn log. Giúp so trực tiếp với payload chạy tay của
+        # bạn (kiểm tra: có message system không? images nằm đúng message user
+        # không? base64 dài bao nhiêu, có ký tự lạ đầu chuỗi không?).
+        _logger.info('SmartSolar AI -> Ollama /api/chat payload: %s',
+                     _redact_images_for_log(payload))
+
+        # CHẨN ĐOÁN QUYẾT ĐỊNH: nếu payload có ảnh, ghi NGUYÊN payload (full
+        # base64) ra file để bạn nạp lại ĐÚNG payload đó qua curl vào cùng
+        # endpoint HTTP. Nếu curl với file này cũng "không thấy ảnh" -> chứng
+        # minh base64 của ta + đường HTTP là thủ phạm (không phải model). Nếu
+        # curl thấy ảnh -> lỗi nằm ở transport 'requests' phía Python.
+        # Xóa đoạn này sau khi chẩn đoán xong.
+        if any(m.get('images') for m in payload['messages']):
+            try:
+                import os
+                dump_path = os.path.join(
+                    os.environ.get('TEMP') or os.environ.get('TMP') or '/tmp',
+                    'smartsolar_ollama_payload.json')
+                with open(dump_path, 'w', encoding='utf-8') as f:
+                    json.dump(payload, f, ensure_ascii=False)
+                _logger.info('SmartSolar AI: đã dump payload FULL (có ảnh) -> %s '
+                             '(nạp lại: curl %s/api/chat -d @%s)',
+                             dump_path, self.base_url, dump_path)
+            except Exception as e:
+                _logger.warning('SmartSolar AI: không dump được payload: %s', e)
         try:
             resp = requests.post(
                 self.base_url + '/api/chat',
@@ -93,9 +129,19 @@ class OllamaProvider(AIProvider):
                 content = leftover
 
         finish = 'tool_calls' if tool_calls else (data.get('done_reason') or 'stop')
+        # Giữ prompt_tokens/completion_tokens (tên chuẩn nội bộ) + toàn bộ trường
+        # native của Ollama (timing tính bằng NANOSECOND) để business layer dựng
+        # khối thống kê hiệu năng ở cuối câu trả lời. Trường nào Ollama không trả
+        # (vd prompt phục vụ từ cache có thể thiếu prompt_eval_count) sẽ bị lọc bỏ.
         usage = {
             'prompt_tokens': data.get('prompt_eval_count'),
             'completion_tokens': data.get('eval_count'),
+            'total_duration': data.get('total_duration'),
+            'load_duration': data.get('load_duration'),
+            'prompt_eval_count': data.get('prompt_eval_count'),
+            'prompt_eval_duration': data.get('prompt_eval_duration'),
+            'eval_count': data.get('eval_count'),
+            'eval_duration': data.get('eval_duration'),
         }
         return ChatResponse(
             content=content,
