@@ -25,6 +25,9 @@
           smartsolar_ai.api_key   (cho provider cloud)
           smartsolar_ai.model     (phải hỗ trợ tool calling)
           smartsolar_ai.max_tool_iterations (mặc định 5)
+          smartsolar_ai.temperature (mặc định 0.1)
+          smartsolar_ai.max_tokens (mặc định 1000)
+          smartsolar_ai.context_window (mặc định 32768 cho Ollama)
     """,
     'author': 'Sangnk',
     'website': 'https://www.sangnk.vn',

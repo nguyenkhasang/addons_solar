@@ -37,27 +37,38 @@ class AnomalyService:
         spec = MetricRegistry.get(metric)
         series = self._analytics.get_timeseries(
             metric, time_range, granularity=Granularity.AUTO,
-            device_id=device_id, system_id=system_id)
+            device_id=device_id, system_id=system_id, max_points=None)
         values = [p['v'] for p in series.points]
         events, baseline = [], {}
 
-        if len(values) >= 3:
-            if method == AnomalyMethod.ZSCORE:
-                events, baseline = self._zscore(series.points, sensitivity)
-            elif method == AnomalyMethod.IQR:
-                events, baseline = self._iqr(series.points, sensitivity)
-            else:  # THRESHOLD: sensitivity chính là ngưỡng tuyệt đối
-                baseline = {'threshold': sensitivity}
-                events = [
-                    {'t': p['t'], 'v': p['v'], 'score': round(p['v'] - sensitivity, 3)}
-                    for p in series.points if p['v'] > sensitivity
-                ]
+        if not series.available or len(values) < 3:
+            reason = series.reason if not series.available else (
+                'Không đủ dữ liệu: cần tối thiểu 3 điểm, hiện có %d.' % len(values))
+            return AnomalyResult(
+                metric=metric, unit=spec.unit, method=method.value,
+                sensitivity=sensitivity,
+                range_local=[time_range.start_local_iso(), time_range.end_local_iso()],
+                baseline={}, events=[], available=False, reason=reason,
+                sample_count=len(values), min_required=3,
+            )
+
+        if method == AnomalyMethod.ZSCORE:
+            events, baseline = self._zscore(series.points, sensitivity)
+        elif method == AnomalyMethod.IQR:
+            events, baseline = self._iqr(series.points, sensitivity)
+        else:  # THRESHOLD: sensitivity chính là ngưỡng tuyệt đối
+            baseline = {'threshold': sensitivity}
+            events = [
+                {'t': p['t'], 'v': p['v'], 'score': round(p['v'] - sensitivity, 3)}
+                for p in series.points if p['v'] > sensitivity
+            ]
 
         return AnomalyResult(
             metric=metric, unit=spec.unit, method=method.value,
             sensitivity=sensitivity,
             range_local=[time_range.start_local_iso(), time_range.end_local_iso()],
-            baseline=baseline, events=events,
+            baseline=baseline, events=events, available=True, reason=None,
+            sample_count=len(values), min_required=3,
         )
 
     @staticmethod

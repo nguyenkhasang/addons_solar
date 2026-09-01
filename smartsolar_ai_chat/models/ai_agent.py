@@ -39,6 +39,18 @@ _STATS_RE = re.compile(r'\s*' + re.escape(_STATS_MARKER) + r'.*\Z', re.DOTALL)
 _PROGRESS_MARKER = '⎯⎯⎯ 🔧 Tiến trình ⎯⎯⎯'
 _PROGRESS_RE = re.compile(r'\s*' + re.escape(_PROGRESS_MARKER) + r'.*\Z', re.DOTALL)
 
+# Chỉ dùng để retry MỘT lần nếu model local trả lời thẳng mà chưa gọi bất kỳ tool
+# nào cho một câu hỏi rõ ràng cần dữ liệu hệ thống. Không bắt các câu hỏi kiến thức
+# chung để tránh ép tool không cần thiết.
+_DATA_INTENT_RE = re.compile(
+    r'(bao nhiêu|hiện tại|bây giờ|kiểm tra|xem số liệu|báo cáo|tình trạng|'
+    r'online|offline|cảnh báo|bất thường|sức khỏe|dự báo|so sánh|'
+    r'hôm nay|hôm qua|tuần này|tháng này)',
+    re.IGNORECASE,
+)
+_CONCEPTUAL_INTENT_RE = re.compile(
+    r'(là gì|khái niệm|giải thích|cách hoạt động|nguyên lý)', re.IGNORECASE)
+
 # System prompt định hướng vai trò cho LLM (kỹ sư giám sát, không phải chatbot).
 _SYSTEM_PROMPT = (
     "Bạn là kỹ sư giám sát hệ thống điện mặt trời. Nhiệm vụ: gọi tool để đọc dữ "
@@ -56,7 +68,8 @@ _SYSTEM_PROMPT = (
     "get_device_status + get_aggregate(['output_power','pv_input',"
     "'energy_exported_total']).\n"
     "- 'dự báo ...' -> forecast(metric, horizon_hours=6). 'dự báo điện tiêu thụ' -> "
-    "metric='grid_import_power'; 'dự báo công suất/sản lượng' -> 'output_power'.\n"
+    "metric='grid_import_power'; 'dự báo công suất' -> 'output_power'. Dự báo sản "
+    "lượng kWh hiện CHƯA hỗ trợ; không đánh tráo sản lượng kWh thành công suất W.\n"
     "- 'có gì bất thường' -> find_anomalies(metric). 'cảnh báo/lỗi' -> get_alarms.\n"
     "- Tên người dùng nói -> map sang metric key qua nhãn tiếng Việt trong danh mục "
     "cuối prompt (vd 'điện tiêu thụ/lấy lưới' -> grid_import_power, 'công suất' -> "
@@ -65,10 +78,13 @@ _SYSTEM_PROMPT = (
     "KHÔNG BỊA SỐ:\n"
     "- Mọi giá trị (W, V, A, kWh, %, °C...) phải lấy từ JSON tool trả về trong hội "
     "thoại này; tuyệt đối không tự nghĩ ra.\n"
-    "- 'list_metrics' chỉ liệt kê TÊN metric + đơn vị, KHÔNG có giá trị đo. Muốn có "
-    "số phải gọi get_aggregate hoặc get_timeseries.\n"
-    "- Chưa gọi tool, hoặc tool trả rỗng/count=0: nói rõ 'chưa có dữ liệu' — không "
-    "điền số thay thế.\n"
+    "- 'list_metrics' chỉ mô tả metric/cảnh báo, KHÔNG có giá trị đo. Muốn có số "
+    "phải gọi get_aggregate hoặc get_timeseries.\n"
+    "- Metric có supported=false, hoặc tool trả available=false/value=null/rỗng/"
+    "count=0: nói rõ chưa hỗ trợ hoặc chưa có dữ liệu; không biến thành số 0 và "
+    "không dùng để kết luận.\n"
+    "- Timeseries có truncated=true là chuỗi đã được lấy mẫu; vẫn dùng để nhận xét "
+    "xu hướng nhưng không được nói là đã liệt kê mọi điểm đo.\n"
     "- Chỉ báo cáo metric người dùng hỏi hoặc thật sự liên quan.\n"
     "\n"
     "ĐỐI CHIẾU THỜI TIẾT ↔ SẢN LƯỢNG:\n"
@@ -111,13 +127,31 @@ class SmartSolarAIAgent(models.AbstractModel):
     @api.model
     def _get_config(self):
         Param = self.env['ir.config_parameter'].sudo()
+        custom_prompt = (Param.get_param('smartsolar_ai.system_prompt') or '').strip()
+        system_prompt = _SYSTEM_PROMPT
+        if custom_prompt:
+            system_prompt += '\n\nYÊU CẦU BỔ SUNG CỦA QUẢN TRỊ VIÊN:\n' + custom_prompt
         return {
-            'max_iterations': int(Param.get_param('smartsolar_ai.max_tool_iterations', 5) or 5),
-            # System prompt cấu hình được; rỗng -> dùng mặc định _SYSTEM_PROMPT.
-            'system_prompt': (Param.get_param('smartsolar_ai.system_prompt') or '').strip() or _SYSTEM_PROMPT,
+            'max_iterations': max(
+                2, min(10, int(Param.get_param('smartsolar_ai.max_tool_iterations', 5) or 5))),
+            # Custom prompt chỉ được NỐI THÊM; không thể xóa quy tắc an toàn mặc định.
+            'system_prompt': system_prompt,
             # Số cặp hỏi-đáp gần nhất được nạp làm ngữ cảnh hội thoại (0 = tắt trí nhớ).
             'history_limit': int(Param.get_param('smartsolar_ai.history_limit', 6) or 0),
+            'temperature': max(
+                0.0, min(2.0, float(Param.get_param('smartsolar_ai.temperature', 0.1) or 0.1))),
+            'max_tokens': max(
+                128, min(8192, int(Param.get_param('smartsolar_ai.max_tokens', 1000) or 1000))),
+            'context_window': max(
+                4096, min(131072, int(
+                    Param.get_param('smartsolar_ai.context_window', 32768) or 32768))),
         }
+
+    @staticmethod
+    def _question_requires_tool(question):
+        text = question or ''
+        return (not _CONCEPTUAL_INTENT_RE.search(text)
+                and bool(_DATA_INTENT_RE.search(text)))
 
     @api.model
     def _runtime_context(self):
@@ -126,7 +160,7 @@ class SmartSolarAIAgent(models.AbstractModel):
         Gồm 2 phần, đều là dữ liệu ĐỘNG nên không thể để cứng trong _SYSTEM_PROMPT:
           1. Thời điểm hiện tại (UTC+7) — để LLM tự suy 'hôm nay/hôm qua/tuần này'
              thay vì đoán ngày (model nhỏ hay đoán sai -> truy vấn lệch khoảng).
-          2. Danh mục metric hợp lệ (key + đơn vị + có lọc theo thiết bị không) sinh
+          2. Danh mục metric hợp lệ (key + đơn vị + loại + trạng thái chất lượng) sinh
              động từ MetricRegistry -> LLM biết ngay tham số 'metric' nào dùng được,
              khỏi tốn một vòng gọi list_metrics trước mỗi câu hỏi. Vì sinh động nên
              thêm metric mới vào registry là prompt tự cập nhật, không lệch.
@@ -140,12 +174,15 @@ class SmartSolarAIAgent(models.AbstractModel):
             # Đánh dấu metric chỉ có độ phân giải NGÀY (thời tiết) để LLM không hỏi
             # theo giờ và không kỳ vọng dữ liệu chi tiết cũ hơn ~7 ngày.
             daily = ' [chỉ theo NGÀY, chi tiết ~7 ngày gần nhất]' if m.get('daily_only') else ''
+            support = '' if m.get('supported', True) else ' [KHÔNG HỖ TRỢ — KHÔNG BÁO SỐ]'
+            note = (' — LƯU Ý: %s' % m['note']) if m.get('note') else ''
             # In kèm label tiếng Việt để model map "tên người dùng nói" -> key
             # (vd "điện lấy lưới/tiêu thụ" -> grid_import_power). Không phải suy luận,
             # chỉ tra bảng -> hợp với model nhỏ.
             label = (' — %s' % m['label']) if m.get('label') else ''
-            lines.append('- %s (%s)%s%s%s' % (
-                m['key'], m['unit'] or '-', label, scope, daily))
+            lines.append('- %s (%s; %s; gộp mặc định=%s)%s%s%s%s%s' % (
+                m['key'], m['unit'] or '-', m['kind'], m['default_aggregation'],
+                label, support, scope, daily, note))
         catalog = '\n'.join(lines)
 
         # Hệ thống mặc định: hệ thống có id NHỎ NHẤT mà user hiện tại phụ trách
@@ -387,6 +424,9 @@ class SmartSolarAIAgent(models.AbstractModel):
         # Bộ tích lũy usage: gộp MỌI lượt LLM trong loop để thống kê phản ánh
         # đúng tổng chi phí cả câu hỏi (không chỉ lượt cuối). Xem _merge_usage.
         usage_total = {}
+        tool_cache = {}
+        has_successful_tool_result = False
+        forced_tool_retry = False
 
         # Log tiến trình CỘNG DỒN: giữ các dòng bước trước để tạo cảm giác "log dần"
         # (vòng 1 -> vòng 2 -> ...). Chỉ dùng khi có on_progress.
@@ -406,11 +446,33 @@ class SmartSolarAIAgent(models.AbstractModel):
 
         try:
             for _i in range(cfg['max_iterations']):
-                response = provider.chat(ChatRequest(messages=messages, tools=tools))
+                response = provider.chat(ChatRequest(
+                    messages=messages, tools=tools,
+                    temperature=cfg['temperature'], max_tokens=cfg['max_tokens'],
+                    context_window=cfg['context_window']))
                 self._merge_usage(usage_total, response.usage)
 
                 # LLM trả lời cuối (không gọi thêm tool) -> xong.
                 if not response.has_tool_calls:
+                    if (not has_successful_tool_result and not forced_tool_retry
+                            and self._question_requires_tool(question)):
+                        forced_tool_retry = True
+                        messages.append(provider.assistant_message(response))
+                        messages.append({
+                            'role': 'user',
+                            'content': ('Bạn chưa gọi tool. Câu hỏi này cần dữ liệu hệ thống '
+                                        'thật; hãy gọi tool phù hợp trước khi trả lời.'),
+                        })
+                        _logger.info('SmartSolar AI: buộc retry vì model chưa gọi tool')
+                        continue
+                    if (not has_successful_tool_result and forced_tool_retry
+                            and self._question_requires_tool(question)):
+                        answer = _(
+                            'Model chưa gọi được tool nên không thể đưa ra số liệu đáng tin cậy. '
+                            'Vui lòng thử lại hoặc kiểm tra model có hỗ trợ tool calling.')
+                        if self._stats_enabled():
+                            answer += self._format_stats_block(usage_total)
+                        return answer
                     _logger.info('SmartSolar AI: AGENT vòng %d: LLM trả lời cuối (không '
                                  'gọi tool), độ dài content=%d', _i, len(response.content or ''))
                     answer = response.content or _("(LLM không trả về nội dung)")
@@ -432,12 +494,38 @@ class SmartSolarAIAgent(models.AbstractModel):
                 messages.append(provider.assistant_message(response))
                 # Chạy từng tool qua registry (đã có log), gửi kết quả lại đúng chuẩn.
                 for tc in response.tool_calls:
-                    envelope = registry.execute(tc.name, tc.arguments)
+                    cache_key = (tc.name, json.dumps(
+                        tc.arguments or {}, ensure_ascii=False, sort_keys=True, default=str))
+                    if cache_key in tool_cache:
+                        # Sao chép qua JSON để không sửa envelope cache gốc.
+                        envelope = json.loads(tool_cache[cache_key])
+                        envelope.setdefault('meta', {})['cached'] = True
+                        envelope['meta']['instruction'] = (
+                            'Kết quả này đã được trả trước đó; không gọi lại cùng tham số, '
+                            'hãy tổng hợp câu trả lời hoặc đổi tham số.')
+                    else:
+                        envelope = registry.execute(tc.name, tc.arguments)
+                        tool_cache[cache_key] = json.dumps(
+                            envelope, ensure_ascii=False, default=str)
+                    # Một tool trả lỗi không phải là bằng chứng dữ liệu. Model local
+                    # phải sửa tham số/gọi tool khác, nếu không agent sẽ fail closed.
+                    if envelope.get('ok'):
+                        has_successful_tool_result = True
                     content = json.dumps(envelope, ensure_ascii=False, default=str)
                     messages.append(provider.tool_result_message(tc, content))
 
             # Chạm giới hạn vòng lặp: gọi LLM lần cuối (không tool) để chốt câu trả lời.
-            final = provider.chat(ChatRequest(messages=messages))
+            if (self._question_requires_tool(question)
+                    and not has_successful_tool_result):
+                answer = _(
+                    'Model chưa lấy được dữ liệu hợp lệ từ tool nên không thể đưa ra '
+                    'số liệu đáng tin cậy. Vui lòng thử lại hoặc kiểm tra tham số/tool.')
+                if self._stats_enabled():
+                    answer += self._format_stats_block(usage_total)
+                return answer
+            final = provider.chat(ChatRequest(
+                messages=messages, temperature=cfg['temperature'],
+                max_tokens=cfg['max_tokens'], context_window=cfg['context_window']))
             self._merge_usage(usage_total, final.usage)
             answer = final.content or _("(Đã đạt giới hạn số bước)")
             if self._progress_enabled():
@@ -518,7 +606,9 @@ class SmartSolarAIAgent(models.AbstractModel):
                      [(i.get('mime'), len(i.get('b64') or '')) for i in images],
                      type(provider).__name__, provider.model, shape)
         try:
-            response = provider.chat(ChatRequest(messages=messages))
+            response = provider.chat(ChatRequest(
+                messages=messages, temperature=cfg['temperature'],
+                max_tokens=cfg['max_tokens'], context_window=cfg['context_window']))
             answer = response.content or _("(LLM không trả về nội dung)")
             if self._stats_enabled():
                 answer += self._format_stats_block(response.usage)

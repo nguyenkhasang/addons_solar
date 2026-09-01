@@ -67,6 +67,12 @@ class Tool(ABC):
           - còn lại     -> internal_error
         """
         try:
+            schema = self.parameters() or {}
+            allowed = set((schema.get('properties') or {}).keys())
+            unknown = sorted(set(kwargs) - allowed)
+            if unknown:
+                raise ValueError(
+                    'Tham số không hợp lệ cho %s: %s' % (self.name, ', '.join(unknown)))
             data = self.run(**kwargs)
             # Cho phép run() gắn kèm meta riêng qua khóa '_meta'.
             meta = data.pop('_meta', {}) if isinstance(data, dict) else {}

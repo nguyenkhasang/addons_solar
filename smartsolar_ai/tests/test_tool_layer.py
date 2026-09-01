@@ -11,7 +11,13 @@ from odoo.tests import TransactionCase, tagged
 
 from odoo.addons.smartsolar_ai.domain.value_objects import TimeRange, UTC7
 from odoo.addons.smartsolar_ai.domain.metric_registry import MetricRegistry
-from odoo.addons.smartsolar_ai.domain.enums import MetricKind
+from odoo.addons.smartsolar_ai.domain.enums import (
+    AggregationType, Granularity, MetricKind,
+)
+from odoo.addons.smartsolar_ai.repositories.metric_repository import MetricRepository
+from odoo.addons.smartsolar_ai.services.analytics_service import AnalyticsService
+from odoo.addons.smartsolar_ai.services.forecast_service import ForecastService
+from odoo.addons.smartsolar_ai.services.health_service import HealthService
 
 
 @tagged('post_install', '-at_install', 'smartsolar_ai')
@@ -72,6 +78,140 @@ class TestDomain(TransactionCase):
         self.assertEqual(spec.kind, MetricKind.DERIVED)
         self.assertTrue(spec.is_derived)
 
+    def test_unsupported_metric_is_described_with_warning(self):
+        metrics = {m['key']: m for m in MetricRegistry.describe()}
+        grid_dependency = metrics['grid_dependency_pct']
+        self.assertFalse(grid_dependency['supported'])
+        self.assertIn('Chưa có công-tơ', grid_dependency['note'])
+        self.assertEqual(
+            grid_dependency['depends_on'],
+            ['grid_import_energy', 'load_energy'])
+
+    def test_first_last_aggregation_does_not_fall_back_to_avg(self):
+        last_expr = MetricRepository._aggregation_expr(
+            'energy_total_end', AggregationType.LAST, 'bucket_start')
+        first_expr = MetricRepository._aggregation_expr(
+            'energy_total_end', AggregationType.FIRST, 'bucket_start')
+        self.assertIn('ORDER BY bucket_start DESC', last_expr)
+        self.assertIn('ORDER BY bucket_start ASC', first_expr)
+        self.assertNotIn('AVG', last_expr)
+
+    def test_counter_summary_last_sums_each_device(self):
+        class FakeCursor:
+            sql = ''
+            params = []
+
+            def execute(self, sql, params):
+                self.sql = sql
+                self.params = params
+
+            @staticmethod
+            def fetchall():
+                return []
+
+        class FakeModel:
+            _table = 'charge_power_summary'
+
+        class FakeEnv:
+            cr = FakeCursor()
+
+            @staticmethod
+            def __getitem__(key):
+                return FakeModel()
+
+        class FakeRange:
+            start_utc = 'start'
+            end_utc = 'end'
+
+        repo = MetricRepository(FakeEnv())
+        repo._fetch_series_summary(
+            MetricRegistry.get('pv_energy_total'), FakeRange(),
+            AggregationType.LAST, Granularity.DAY, None, 1)
+        sql = ' '.join(repo.env.cr.sql.split())
+        self.assertIn('SUM(val)', sql)
+        self.assertIn('GROUP BY bucket, device_id', sql)
+        self.assertIn('ORDER BY bucket_start DESC', sql)
+
+    def test_counter_scalar_sums_first_last_per_device(self):
+        class FakeCursor:
+            sql = ''
+            params = []
+
+            def execute(self, sql, params):
+                self.sql = sql
+                self.params = params
+
+            @staticmethod
+            def fetchone():
+                # avg, min, max, sum, sum(last/device), sum(first/device), count
+                return (15.0, 10.0, 20.0, 60.0, 220.0, 200.0, 4)
+
+        class FakeModel:
+            _table = 'charger_reading'
+
+        class FakeEnv:
+            cr = FakeCursor()
+
+            @staticmethod
+            def __getitem__(name):
+                return FakeModel()
+
+        repo = MetricRepository(FakeEnv())
+        tr = TimeRange.from_iso('2026-07-01T00:00:00',
+                                '2026-07-02T00:00:00')
+        result = repo.fetch_scalar(MetricRegistry.get('pv_energy_total'), tr)
+        sql = ' '.join(FakeEnv.cr.sql.split())
+        self.assertIn('GROUP BY device_id', sql)
+        self.assertIn('SUM(last_v)', sql)
+        self.assertIn('SUM(first_v)', sql)
+        self.assertEqual(result['last'] - result['first'], 20.0)
+
+    def test_timeseries_downsample_caps_points_and_keeps_edges(self):
+        points = list(range(1000))
+        sampled = AnalyticsService._downsample(points, 240)
+        self.assertEqual(len(sampled), 240)
+        self.assertEqual(sampled[0], 0)
+        self.assertEqual(sampled[-1], 999)
+
+    def test_health_without_coverage_has_no_score(self):
+        class EmptyMetricRepo:
+            @staticmethod
+            def fetch_scalar(*args, **kwargs):
+                return {'avg': 0.0, 'min': 0.0, 'max': 0.0, 'sum': 0.0,
+                        'last': 0.0, 'first': 0.0, 'count': 0}
+
+        class EmptyDeviceRepo:
+            @staticmethod
+            def fetch_devices(*args, **kwargs):
+                return []
+
+        svc = HealthService.__new__(HealthService)
+        svc._metric_repo = EmptyMetricRepo()
+        svc._device_repo = EmptyDeviceRepo()
+        result = svc.get_health_score(
+            TimeRange.from_iso('2020-01-01T00:00:00', '2020-01-02T00:00:00'))
+        self.assertFalse(result.available)
+        self.assertIsNone(result.score)
+        self.assertEqual(result.coverage_pct, 0.0)
+
+    def test_forecast_missing_history_has_no_zero_points(self):
+        class EmptySeries:
+            available = False
+            reason = 'Không có lịch sử'
+            points = []
+
+        class EmptyAnalytics:
+            @staticmethod
+            def get_timeseries(*args, **kwargs):
+                return EmptySeries()
+
+        svc = ForecastService.__new__(ForecastService)
+        svc._analytics = EmptyAnalytics()
+        result = svc.forecast('output_power', 6, lookback_days=7)
+        self.assertFalse(result.available)
+        self.assertEqual(result.points, [])
+        self.assertIsNone(result.confidence_pct)
+
 
 @tagged('post_install', '-at_install', 'smartsolar_ai')
 class TestToolLayer(TransactionCase):
@@ -86,6 +226,9 @@ class TestToolLayer(TransactionCase):
         self.assertTrue(env['ok'])
         self.assertIn('metrics', env['data'])
         self.assertGreater(len(env['data']['metrics']), 0)
+        metrics = {m['key']: m for m in env['data']['metrics']}
+        self.assertFalse(metrics['grid_dependency_pct']['supported'])
+        self.assertTrue(metrics['grid_dependency_pct']['note'])
 
     def test_unknown_tool_returns_error_envelope(self):
         env = self.reg.execute('nope', {})
@@ -107,13 +250,104 @@ class TestToolLayer(TransactionCase):
         self.assertFalse(env['ok'])
         self.assertEqual(env['error']['code'], 'unknown_metric')
 
-    def test_aggregate_empty_range_returns_zeroed(self):
+    def test_aggregate_empty_range_returns_unavailable(self):
         env = self.reg.execute('get_aggregate',
                                {'metrics': ['output_power'],
                                 'start': '2020-01-01T00:00:00',
                                 'end': '2020-01-02T00:00:00'})
         self.assertTrue(env['ok'])
         self.assertIn('output_power', env['data']['metrics'])
+        metric = env['data']['metrics']['output_power']
+        self.assertFalse(metric['available'])
+        self.assertIsNone(metric['avg'])
+        self.assertIsNone(metric['last'])
+
+    def test_unsupported_derived_metric_returns_no_number(self):
+        env = self.reg.execute(
+            'get_aggregate',
+            {'metrics': ['grid_dependency_pct'],
+             'start': '2026-07-01T00:00:00',
+             'end': '2026-07-02T00:00:00'})
+        self.assertTrue(env['ok'])
+        metric = env['data']['metrics']['grid_dependency_pct']
+        self.assertFalse(metric['available'])
+        self.assertIsNone(metric['value'])
+        self.assertIn('Chưa có công-tơ', metric['reason'])
+
+    def test_unsupported_derived_timeseries_has_no_fake_point(self):
+        env = self.reg.execute(
+            'get_timeseries',
+            {'metric': 'grid_dependency_pct',
+             'start': '2026-07-01T00:00:00',
+             'end': '2026-07-02T00:00:00'})
+        self.assertTrue(env['ok'])
+        self.assertFalse(env['data']['available'])
+        self.assertEqual(env['data']['count'], 0)
+        self.assertEqual(env['data']['points'], [])
+
+    def test_missing_derived_inputs_return_unavailable(self):
+        env = self.reg.execute(
+            'get_aggregate',
+            {'metrics': ['self_consumption_pct'],
+             'start': '2020-01-01T00:00:00',
+             'end': '2020-01-02T00:00:00'})
+        self.assertTrue(env['ok'])
+        metric = env['data']['metrics']['self_consumption_pct']
+        self.assertFalse(metric['available'])
+        self.assertIsNone(metric['value'])
+        self.assertTrue(metric['missing_inputs'])
+
+    def test_aggregation_description_uses_counter_safe_guidance(self):
+        params = self.reg.get('get_timeseries').parameters()
+        description = params['properties']['aggregation']['description']
+        self.assertIn('get_aggregate', description)
+        self.assertIn('Không dùng sum', description)
+        self.assertIn('auto (nên dùng)',
+                      params['properties']['interval']['description'])
+
+    def test_counter_timeseries_rejects_sum_aggregation(self):
+        env = self.reg.execute(
+            'get_timeseries',
+            {'metric': 'pv_energy_total',
+             'start': '2026-07-01T00:00:00',
+             'end': '2026-07-02T00:00:00',
+             'aggregation': 'sum'})
+        self.assertFalse(env['ok'])
+        self.assertEqual(env['error']['code'], 'bad_request')
+        self.assertIn('get_aggregate', env['error']['message'])
+
+    def test_timeseries_rejects_unknown_parameter(self):
+        env = self.reg.execute(
+            'get_timeseries',
+            {'metric': 'output_power', 'start': 'today', 'end': 'tomorrow',
+             'unexpected': True})
+        self.assertFalse(env['ok'])
+        self.assertEqual(env['error']['code'], 'bad_request')
+
+    def test_tool_specs_disallow_additional_properties(self):
+        specs = self.reg.specs()
+        self.assertTrue(all(
+            spec['parameters']['additionalProperties'] is False for spec in specs))
+        timeseries = next(s for s in specs if s['name'] == 'get_timeseries')
+        max_points = timeseries['parameters']['properties']['max_points']
+        self.assertEqual(max_points['maximum'], 500)
+
+    def test_forecast_rejects_counter_metric(self):
+        env = self.reg.execute(
+            'forecast', {'metric': 'pv_energy_total', 'horizon_hours': 6})
+        self.assertFalse(env['ok'])
+        self.assertEqual(env['error']['code'], 'bad_request')
+        self.assertIn('tức thời', env['error']['message'])
+
+    def test_anomaly_empty_range_is_unavailable_not_clean(self):
+        env = self.reg.execute(
+            'find_anomalies',
+            {'metric': 'output_power', 'start': '2020-01-01T00:00:00',
+             'end': '2020-01-02T00:00:00'})
+        self.assertTrue(env['ok'])
+        self.assertFalse(env['data']['available'])
+        self.assertEqual(env['data']['event_count'], 0)
+        self.assertEqual(env['data']['sample_count'], 0)
 
     def test_device_status_tool(self):
         env = self.reg.execute('get_device_status', {})

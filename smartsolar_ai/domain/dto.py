@@ -26,6 +26,10 @@ class SeriesResult:
     range_local: List[str]              # [đầu, cuối] theo giờ UTC+7
     points: List[dict]                  # [{"t": iso_utc7, "v": số}, ...]
     device_id: Optional[int] = None     # None = toàn hệ thống
+    available: bool = True              # False = thiếu dữ liệu/cảm biến, không phải số 0
+    reason: Optional[str] = None        # lý do không khả dụng, dành cho LLM/người dùng
+    original_count: Optional[int] = None  # số điểm trước khi giới hạn/downsample
+    truncated: bool = False             # True nếu points đã được rút gọn
 
     def to_dict(self) -> dict:
         return {
@@ -35,7 +39,12 @@ class SeriesResult:
             'granularity': self.granularity,
             'range': self.range_local,
             'device_id': self.device_id,
+            'available': self.available,
+            'reason': self.reason,
             'count': len(self.points),
+            'original_count': (self.original_count if self.original_count is not None
+                               else len(self.points)),
+            'truncated': self.truncated,
             'points': self.points,
         }
 
@@ -85,6 +94,10 @@ class AnomalyResult:
     range_local: List[str]
     baseline: dict                      # thông số nền: {mean, std, q1, q3, ...}
     events: List[dict]                  # [{"t": iso, "v": số, "score": mức lệch}]
+    available: bool = True
+    reason: Optional[str] = None
+    sample_count: int = 0
+    min_required: int = 3
 
     def to_dict(self) -> dict:
         return {
@@ -93,6 +106,10 @@ class AnomalyResult:
             'method': self.method,
             'sensitivity': self.sensitivity,
             'range': self.range_local,
+            'available': self.available,
+            'reason': self.reason,
+            'sample_count': self.sample_count,
+            'min_required': self.min_required,
             'baseline': self.baseline,
             'event_count': len(self.events),
             'events': self.events,
@@ -103,15 +120,21 @@ class AnomalyResult:
 class HealthResult:
     """Điểm sức khỏe tổng hợp 0..100 của hệ thống trên một khoảng."""
     range_local: List[str]
-    score: float                        # điểm tổng hợp 0..100
+    score: Optional[float]              # điểm tổng hợp 0..100; None nếu thiếu coverage
     components: dict                    # {tên thành phần: {score, weight, detail}}
     device_id: Optional[int] = None
+    available: bool = True
+    reason: Optional[str] = None
+    coverage_pct: float = 100.0
 
     def to_dict(self) -> dict:
         return {
             'range': self.range_local,
             'device_id': self.device_id,
             'score': self.score,
+            'available': self.available,
+            'reason': self.reason,
+            'coverage_pct': self.coverage_pct,
             'components': self.components,
         }
 
@@ -125,6 +148,10 @@ class ForecastResult:
     horizon_hours: int                  # số giờ dự báo tới
     points: List[dict]                  # [{"t": iso, "v": số}]
     device_id: Optional[int] = None
+    available: bool = True
+    reason: Optional[str] = None
+    sample_count: int = 0
+    confidence_pct: Optional[float] = None
 
     def to_dict(self) -> dict:
         return {
@@ -133,6 +160,10 @@ class ForecastResult:
             'method': self.method,
             'horizon_hours': self.horizon_hours,
             'device_id': self.device_id,
+            'available': self.available,
+            'reason': self.reason,
+            'sample_count': self.sample_count,
+            'confidence_pct': self.confidence_pct,
             'points': self.points,
         }
 
@@ -144,13 +175,21 @@ class DeviceStatusResult:
     ``to_dict`` tự tính sẵn tổng số / số online / số offline để AI khỏi phải đếm.
     """
     devices: List[dict]                 # [{id, name, type, online, offline_minutes, last_sync}]
+    original_count: Optional[int] = None
+    online_count: Optional[int] = None
+    truncated: bool = False
 
     def to_dict(self) -> dict:
-        online = sum(1 for d in self.devices if d.get('online'))
+        returned_online = sum(1 for d in self.devices if d.get('online'))
+        total = (self.original_count if self.original_count is not None
+                 else len(self.devices))
+        online = self.online_count if self.online_count is not None else returned_online
         return {
-            'total': len(self.devices),
+            'total': total,
+            'returned_count': len(self.devices),
+            'truncated': self.truncated,
             'online': online,
-            'offline': len(self.devices) - online,
+            'offline': total - online,
             'devices': self.devices,
         }
 
@@ -160,10 +199,15 @@ class AlarmResult:
     """Danh sách cảnh báo/sự kiện trên một khoảng."""
     range_local: List[str]
     alarms: List[dict]
+    original_count: Optional[int] = None
+    truncated: bool = False
 
     def to_dict(self) -> dict:
         return {
             'range': self.range_local,
-            'count': len(self.alarms),
+            'count': (self.original_count if self.original_count is not None
+                      else len(self.alarms)),
+            'returned_count': len(self.alarms),
+            'truncated': self.truncated,
             'alarms': self.alarms,
         }

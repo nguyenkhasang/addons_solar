@@ -55,6 +55,8 @@ class OllamaProvider(AIProvider):
             options['temperature'] = request.temperature
         if request.max_tokens is not None:
             options['num_predict'] = request.max_tokens
+        if request.context_window is not None:
+            options['num_ctx'] = request.context_window
         if options:
             payload['options'] = options
 
@@ -62,28 +64,11 @@ class OllamaProvider(AIProvider):
         # 'images' để không tràn log. Giúp so trực tiếp với payload chạy tay của
         # bạn (kiểm tra: có message system không? images nằm đúng message user
         # không? base64 dài bao nhiêu, có ký tự lạ đầu chuỗi không?).
-        _logger.info('SmartSolar AI -> Ollama /api/chat payload: %s',
-                     _redact_images_for_log(payload))
-
-        # CHẨN ĐOÁN QUYẾT ĐỊNH: nếu payload có ảnh, ghi NGUYÊN payload (full
-        # base64) ra file để bạn nạp lại ĐÚNG payload đó qua curl vào cùng
-        # endpoint HTTP. Nếu curl với file này cũng "không thấy ảnh" -> chứng
-        # minh base64 của ta + đường HTTP là thủ phạm (không phải model). Nếu
-        # curl thấy ảnh -> lỗi nằm ở transport 'requests' phía Python.
-        # Xóa đoạn này sau khi chẩn đoán xong.
-        if any(m.get('images') for m in payload['messages']):
-            try:
-                import os
-                dump_path = os.path.join(
-                    os.environ.get('TEMP') or os.environ.get('TMP') or '/tmp',
-                    'smartsolar_ollama_payload.json')
-                with open(dump_path, 'w', encoding='utf-8') as f:
-                    json.dump(payload, f, ensure_ascii=False)
-                _logger.info('SmartSolar AI: đã dump payload FULL (có ảnh) -> %s '
-                             '(nạp lại: curl %s/api/chat -d @%s)',
-                             dump_path, self.base_url, dump_path)
-            except Exception as e:
-                _logger.warning('SmartSolar AI: không dump được payload: %s', e)
+        # Payload chứa câu hỏi và kết quả tool; chỉ ghi ở DEBUG và luôn cắt base64.
+        # Không dump payload ảnh đầy đủ ra file tạm vì có thể làm lộ dữ liệu người dùng.
+        if _logger.isEnabledFor(logging.DEBUG):
+            _logger.debug('SmartSolar AI -> Ollama /api/chat payload: %s',
+                          _redact_images_for_log(payload))
         try:
             resp = requests.post(
                 self.base_url + '/api/chat',

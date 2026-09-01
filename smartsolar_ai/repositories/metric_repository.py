@@ -40,6 +40,19 @@ _PG_AGG = {
 
 class MetricRepository(BaseRepository):
 
+    @staticmethod
+    def _aggregation_expr(field: str, aggregation: AggregationType,
+                          order_field: str) -> str:
+        """Biểu thức SQL gộp đúng cả FIRST/LAST thay vì âm thầm rơi về AVG."""
+        if aggregation == AggregationType.FIRST:
+            return '(ARRAY_AGG(%s ORDER BY %s ASC))[1]' % (field, order_field)
+        if aggregation == AggregationType.LAST:
+            return '(ARRAY_AGG(%s ORDER BY %s DESC))[1]' % (field, order_field)
+        sql_agg = _PG_AGG.get(aggregation)
+        if sql_agg is None:
+            raise ValueError("Kiểu aggregation không được hỗ trợ: %s" % aggregation)
+        return '%s(%s)' % (sql_agg, field)
+
     # ---- Chọn độ phân giải -------------------------------------------------
     def resolve_granularity(self, spec: MetricSpec, time_range: TimeRange,
                             requested: Granularity) -> Granularity:
@@ -95,7 +108,7 @@ class MetricRepository(BaseRepository):
         model = self.env[spec.raw_model]
         table = model._table
         field = spec.raw_field
-        agg = _PG_AGG.get(aggregation, 'AVG')
+        agg_expr = self._aggregation_expr(field, aggregation, 'record_date')
 
         params = [time_range.start_utc, time_range.end_utc]
         where = ["record_date >= %s", "record_date < %s"]
@@ -107,14 +120,34 @@ class MetricRepository(BaseRepository):
             where.append("system_id = %s")
             params.append(system_id)
 
+        # Counter cấp hệ thống phải cộng giá trị cuối/đầu của TỪNG thiết bị. Nếu
+        # ARRAY_AGG trực tiếp trên mọi thiết bị, ta chỉ lấy ngẫu nhiên một thiết bị.
+        if (spec.kind == MetricKind.COUNTER and spec.has_device
+                and aggregation in (AggregationType.FIRST, AggregationType.LAST)):
+            sql = """
+                SELECT bucket, SUM(val) AS val
+                  FROM (
+                        SELECT date_trunc('minute', record_date) AS bucket,
+                               device_id, {agg_expr} AS val
+                          FROM {table}
+                         WHERE {where}
+                      GROUP BY bucket, device_id
+                       ) per_device
+              GROUP BY bucket
+              ORDER BY bucket
+            """.format(agg_expr=agg_expr, table=table, where=' AND '.join(where))
+            self.env.cr.execute(sql, params)
+            return [DataPoint(row[0], float(row[1] or 0.0))
+                    for row in self.env.cr.fetchall()]
+
         sql = """
             SELECT date_trunc('minute', record_date) AS bucket,
-                   {agg}({field}) AS val
+                   {agg_expr} AS val
               FROM {table}
              WHERE {where}
           GROUP BY bucket
           ORDER BY bucket
-        """.format(agg=agg, field=field, table=table, where=' AND '.join(where))
+        """.format(agg_expr=agg_expr, table=table, where=' AND '.join(where))
         self.env.cr.execute(sql, params)
         return [DataPoint(row[0], float(row[1] or 0.0)) for row in self.env.cr.fetchall()]
 
@@ -123,19 +156,16 @@ class MetricRepository(BaseRepository):
         """Truy vấn chuỗi thời gian từ BẢNG SUMMARY (đã tổng hợp sẵn theo giờ).
 
         Bảng summary lưu sẵn theo giờ; nếu cần theo ngày thì gom (roll-up) tiếp.
-        Chọn đúng cột summary theo kiểu gộp: MAX -> cột *_max, còn lại -> cột *_avg.
+        MAX dùng cột *_max khi có; FIRST/LAST giữ đúng thứ tự bucket, các kiểu còn
+        lại gộp trên summary_field đã khai báo trong MetricSpec.
         """
         model = self.env[spec.summary_model]
         table = model._table
         if aggregation == AggregationType.MAX and spec.summary_max_field:
             col = spec.summary_max_field
-            outer = 'MAX'
-        elif aggregation == AggregationType.SUM:
-            col = spec.summary_field
-            outer = 'SUM'
         else:
             col = spec.summary_field
-            outer = 'AVG'
+        agg_expr = self._aggregation_expr(col, aggregation, 'bucket_start')
 
         params = [time_range.start_utc, time_range.end_utc]
         where = ["bucket_start >= %s", "bucket_start < %s"]
@@ -152,13 +182,32 @@ class MetricRepository(BaseRepository):
             params.append(system_id)
 
         bucket_expr = self._bucket_expr(gran, 'bucket_start')
+        if (spec.kind == MetricKind.COUNTER and spec.has_device
+                and aggregation in (AggregationType.FIRST, AggregationType.LAST)):
+            sql = """
+                SELECT bucket, SUM(val) AS val
+                  FROM (
+                        SELECT {bucket} AS bucket, device_id,
+                               {agg_expr} AS val
+                          FROM {table}
+                         WHERE {where}
+                      GROUP BY bucket, device_id
+                       ) per_device
+              GROUP BY bucket
+              ORDER BY bucket
+            """.format(bucket=bucket_expr, agg_expr=agg_expr, table=table,
+                       where=' AND '.join(where))
+            self.env.cr.execute(sql, params)
+            return [DataPoint(row[0], float(row[1] or 0.0))
+                    for row in self.env.cr.fetchall()]
+
         sql = """
-            SELECT {bucket} AS bucket, {outer}({col}) AS val
+            SELECT {bucket} AS bucket, {agg_expr} AS val
               FROM {table}
              WHERE {where}
           GROUP BY bucket
           ORDER BY bucket
-        """.format(bucket=bucket_expr, outer=outer, col=col, table=table,
+        """.format(bucket=bucket_expr, agg_expr=agg_expr, table=table,
                    where=' AND '.join(where))
         self.env.cr.execute(sql, params)
         return [DataPoint(row[0], float(row[1] or 0.0)) for row in self.env.cr.fetchall()]
@@ -188,6 +237,38 @@ class MetricRepository(BaseRepository):
             params.append(system_id)
         whr = ' AND '.join(where)
 
+        # Counter của toàn hệ thống phải lấy first/last RIÊNG từng thiết bị rồi
+        # cộng lại. Lấy một dòng first/last trên toàn bảng sẽ trộn hai thiết bị và
+        # tạo ra delta kWh sai. Các thống kê còn lại vẫn được gộp trên mọi mẫu.
+        if spec.kind == MetricKind.COUNTER and spec.has_device:
+            sql = """
+                SELECT SUM(sum_v) / NULLIF(SUM(n), 0) AS avg_v,
+                       MIN(min_v) AS min_v, MAX(max_v) AS max_v,
+                       SUM(sum_v) AS sum_v, SUM(last_v) AS last_v,
+                       SUM(first_v) AS first_v, SUM(n) AS n
+                  FROM (
+                        SELECT device_id, MIN({f}) AS min_v, MAX({f}) AS max_v,
+                               SUM({f}) AS sum_v,
+                               (ARRAY_AGG({f} ORDER BY record_date DESC))[1] AS last_v,
+                               (ARRAY_AGG({f} ORDER BY record_date ASC))[1] AS first_v,
+                               COUNT(*) AS n
+                          FROM {table}
+                         WHERE {whr}
+                      GROUP BY device_id
+                       ) per_device
+            """.format(f=f, table=table, whr=whr)
+            self.env.cr.execute(sql, params)
+            row = self.env.cr.fetchone()
+            if not row or not row[6]:
+                return {'avg': 0.0, 'min': 0.0, 'max': 0.0, 'sum': 0.0,
+                        'last': 0.0, 'first': 0.0, 'count': 0}
+            return {
+                'avg': float(row[0] or 0.0), 'min': float(row[1] or 0.0),
+                'max': float(row[2] or 0.0), 'sum': float(row[3] or 0.0),
+                'last': float(row[4] or 0.0), 'first': float(row[5] or 0.0),
+                'count': int(row[6]),
+            }
+
         sql = """
             SELECT AVG({f}) AS avg_v, MIN({f}) AS min_v, MAX({f}) AS max_v,
                    SUM({f}) AS sum_v,
@@ -211,14 +292,9 @@ class MetricRepository(BaseRepository):
             'count': int(row[6]),
         }
 
-    def fetch_energy(self, spec: MetricSpec, time_range: TimeRange,
-                     device_id=None, system_id=None) -> float:
-        """Năng lượng (kWh) tích lũy TRONG khoảng, từ một metric kiểu COUNTER.
-
-        Ưu tiên cột energy_kwh của bảng summary (đã là tích phân từng bucket) khi
-        có sẵn — chính xác và nhanh. Nếu không có thì tính dự phòng bằng
-        last - first trên bộ đếm thô (kẹp về >= 0 phòng khi bộ đếm bị reset).
-        """
+    def fetch_energy_result(self, spec: MetricSpec, time_range: TimeRange,
+                            device_id=None, system_id=None) -> dict:
+        """Trả năng lượng cùng trạng thái để phân biệt số 0 thật với thiếu dữ liệu."""
         if spec.summary_model:
             energy_col = 'energy_kwh'
             table = self.env[spec.summary_model]._table
@@ -230,11 +306,36 @@ class MetricRepository(BaseRepository):
             if system_id:
                 where.append("system_id = %s")
                 params.append(system_id)
-            sql = "SELECT SUM({col}) FROM {table} WHERE {whr}".format(
+            sql = "SELECT SUM({col}), COUNT({col}) FROM {table} WHERE {whr}".format(
                 col=energy_col, table=table, whr=' AND '.join(where))
             self.env.cr.execute(sql, params)
-            val = self.env.cr.fetchone()[0]
-            if val is not None:
-                return float(val)
+            row = self.env.cr.fetchone() or (None, 0)
+            if row[0] is not None and row[1]:
+                return {
+                    'available': True,
+                    'value': float(row[0]),
+                    'count': int(row[1]),
+                    'source': 'summary',
+                }
+
         stats = self.fetch_scalar(spec, time_range, device_id, system_id)
-        return max(0.0, stats['last'] - stats['first'])
+        if not stats['count']:
+            return {'available': False, 'value': None, 'count': 0, 'source': None}
+        return {
+            'available': True,
+            'value': max(0.0, stats['last'] - stats['first']),
+            'count': stats['count'],
+            'source': 'raw',
+        }
+
+    def fetch_energy(self, spec: MetricSpec, time_range: TimeRange,
+                     device_id=None, system_id=None) -> float:
+        """Năng lượng (kWh) tích lũy TRONG khoảng, từ một metric kiểu COUNTER.
+
+        Ưu tiên cột energy_kwh của bảng summary (đã là tích phân từng bucket) khi
+        có sẵn — chính xác và nhanh. Nếu không có thì tính dự phòng bằng
+        last - first trên bộ đếm thô (kẹp về >= 0 phòng khi bộ đếm bị reset).
+        """
+        result = self.fetch_energy_result(
+            spec, time_range, device_id=device_id, system_id=system_id)
+        return float(result['value']) if result['available'] else 0.0

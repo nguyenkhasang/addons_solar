@@ -41,6 +41,9 @@ def get_provider(env) -> AIProvider:
       smartsolar_ai.api_key    -> cho provider cloud (nvidia/openrouter/openai)
       smartsolar_ai.model      -> tên model; fallback smartsolar_ai.ollama_model
       smartsolar_ai.timeout    -> giây (mặc định 120)
+      smartsolar_ai.temperature -> độ ngẫu nhiên (planner truyền theo từng request)
+      smartsolar_ai.max_tokens -> giới hạn output mỗi lượt
+      smartsolar_ai.context_window -> Ollama num_ctx
     """
     Param = env['ir.config_parameter'].sudo()
 
@@ -52,7 +55,7 @@ def get_provider(env) -> AIProvider:
     # model: key mới, fallback key cũ 'ollama_model' để tương thích ngược.
     model = ((Param.get_param('smartsolar_ai.model') or '').strip()
              or (Param.get_param('smartsolar_ai.ollama_model') or '').strip()
-             or 'llama3.2:3b')
+             or 'gpt-oss:20b')
     timeout = int(Param.get_param('smartsolar_ai.timeout', 120) or 120)
 
     return provider_cls(base_url=base_url, api_key=api_key, model=model, timeout=timeout)

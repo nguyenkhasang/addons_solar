@@ -27,7 +27,19 @@
                         <setting string="Model"
                                  help="Phải hỗ trợ tool calling.">
                             <field name="smartsolar_ai_model"
-                                   placeholder="llama3.2:3b / gpt-4o-mini / meta/llama-3.1-70b-instruct"/>
+                                   placeholder="gpt-oss:20b / gpt-4o-mini / meta/llama-3.1-70b-instruct"/>
+                        </setting>
+                        <setting string="Temperature"
+                                 help="Tool calling local nên dùng 0.0–0.2 để ổn định lựa chọn tool và tham số.">
+                            <field name="smartsolar_ai_temperature"/>
+                        </setting>
+                        <setting string="Max output tokens"
+                                 help="Giới hạn độ dài mỗi lượt model sinh. Khuyến nghị khoảng 800–1200.">
+                            <field name="smartsolar_ai_max_tokens"/>
+                        </setting>
+                        <setting string="Context window"
+                                 help="Ollama num_ctx; khuyến nghị 16384–32768 cho model local dùng tool.">
+                            <field name="smartsolar_ai_context_window"/>
                         </setting>
                     </block>
                     <block title="Hành vi Trợ lý"
@@ -49,12 +61,12 @@
                             <field name="smartsolar_ai_show_progress"/>
                         </setting>
                     </block>
-                    <block title="System Prompt"
-                           help="Định hướng vai trò/văn phong của AI. ĐỂ TRỐNG để dùng prompt mặc định (khuyến nghị). Nhập văn bản thuần, xuống dòng thật — KHÔNG dán mã nguồn có dấu ngoặc kép hay ký tự \n. Cách gọi tool do mô tả tool quyết định, không phải prompt này.">
+                    <block title="System Prompt bổ sung"
+                           help="Định hướng thêm vai trò/văn phong. Nội dung này được nối sau prompt an toàn mặc định, không thể thay thế quy tắc gọi tool và không bịa số.">
                         <div class="w-100 o_smartsolar_prompt">
                             <field name="smartsolar_ai_system_prompt" widget="text"
                                    class="w-100"
-                                   placeholder="Để trống để dùng prompt mặc định (kỹ sư giám sát, luôn gọi tool trước khi kết luận, trả lời tiếng Việt, không dùng bảng...)."/>
+                                   placeholder="Ví dụ: ưu tiên trả lời rất ngắn cho đội vận hành ca đêm."/>
                         </div>
                     </block>
                 </app>

@@ -61,6 +61,12 @@ class MetricSpec:
     formula: Optional[Callable[[dict], float]] = None
     depends_on: tuple = field(default_factory=tuple)
 
+    # Metadata chất lượng/capability được công bố cho LLM. ``supported=False``
+    # nghĩa là hệ thống chưa có đủ cảm biến để tạo ra con số đáng tin cậy; service
+    # phải trả trạng thái unavailable thay vì một giá trị placeholder.
+    supported: bool = True
+    note: str = ''
+
     @property
     def is_derived(self) -> bool:
         """True nếu đây là metric dẫn xuất (tính bằng công thức, không có cột riêng)."""
@@ -98,6 +104,8 @@ _METRICS = {
         kind=MetricKind.INSTANTANEOUS,
         raw_model='grid.tie.inverter', raw_field='limiter_power',
         summary_model='grid.tie.inverter.summary', summary_field='limiter_power_avg',
+        note=('Đây là công suất tức thời (W), không phải điện năng lấy lưới (kWh); '
+              'không dùng để tính tổng điện lưới hoặc tỷ lệ phụ thuộc lưới.'),
     ),
     'dc_voltage': MetricSpec(
         key='dc_voltage', label='Điện áp DC', unit='V',
@@ -262,6 +270,9 @@ _METRICS = {
         key='grid_dependency_pct', label='Phụ thuộc lưới', unit='%',
         kind=MetricKind.DERIVED,
         depends_on=('grid_import_energy', 'load_energy'),
+        supported=False,
+        note=('CẢNH BÁO: Chưa có công-tơ điện lấy lưới và công-tơ tải riêng. '
+              'Metric này hiện không khả dụng và không được dùng để kết luận.'),
         # Phụ thuộc lưới = điện lấy từ lưới / (lấy lưới + tự dùng) * 100
         formula=lambda c: _safe_div(
             c.get('grid_import_energy', 0.0),
@@ -324,6 +335,9 @@ class MetricRegistry:
                 'kind': spec.kind.value,
                 'default_aggregation': spec.default_aggregation.value,
                 'derived': spec.is_derived,
+                'supported': spec.supported,
+                'note': spec.note,
+                'depends_on': list(spec.depends_on),
                 # False -> metric cấp hệ thống (vd môi trường), đừng truyền device_id.
                 'has_device': spec.has_device,
                 # True -> metric CHỈ tổng hợp tới NGÀY (vd thời tiết): không có dữ

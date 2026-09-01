@@ -149,14 +149,15 @@ POST /solar/ai/mcp {method, params}  → MCP
 
 ---
 
-## 7. Chỗ cần hoàn thiện (placeholder)
+## 7. Metric chưa đủ cảm biến
 
-Ba mapping trong `services/analytics_service.py` (`_ENERGY_SOURCES`) đang trỏ **tạm** vì DB
-chưa có cảm biến tương ứng:
-- `grid_import_energy` — chưa có công-tơ lấy lưới dạng kWh (chỉ có `limiter_power` tức thời)
-- `load_energy` — chưa có đo tải riêng
+`grid_dependency_pct` hiện có `supported=false` vì DB chưa có công-tơ lấy lưới dạng
+kWh và công-tơ tải riêng. Tool trả `value=null`, `available=false` cùng lý do cụ thể;
+không dùng `limiter_power`, điện xuất lưới hoặc điện PV làm số thay thế.
 
-Khi bổ sung cảm biến: thêm `MetricSpec` + sửa mapping → các KPI dẫn xuất tự đúng.
+Khi bổ sung cảm biến thật: thêm `MetricSpec` cho hai counter, khai báo mapping trong
+`services/analytics_service.py::_ENERGY_SOURCES`, rồi mới chuyển metric sang
+`supported=true`.
 
 ---
 
@@ -167,3 +168,12 @@ odoo -i smartsolar_ai --test-enable --test-tags smartsolar_ai
 ```
 
 Test domain chạy không cần DB; test tool/service dùng `TransactionCase`.
+
+### Lưu ý cho LLM local
+
+- `get_timeseries` mặc định tối đa 240 điểm; AUTO dùng bucket giờ khi khoảng dài
+  hơn 6 giờ. Kết quả có `original_count` và `truncated`.
+- `forecast`, `find_anomalies`, `get_health_score` trả `available=false` và
+  `reason` khi không đủ dữ liệu; không diễn giải `value=null`/`score=null` thành 0.
+- Với Ollama nên dùng context 16K–32K, temperature 0.0–0.2 và model có native
+  tool calling.

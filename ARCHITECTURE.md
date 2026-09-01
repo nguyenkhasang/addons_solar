@@ -207,7 +207,8 @@ Chi tiết đầy đủ: xem [`smartsolar_ai/README.md`](smartsolar_ai/README.md
 - **Hybrid:** không cộng GTI + MPPT. Hòa lưới = GTI `output_power`; PV thu = MPPT.
 - **Realtime:** đi qua `bus.bus`, KHÔNG lưu DB. Dữ liệu lịch sử mới nằm ở bảng thô/summary.
 - **Hiệu năng:** truy vấn dài dùng bảng `*_summary`; raw SQL `date_trunc` chỉ ở tầng Repository/model.
-- **Placeholder trong AI:** `grid_import_energy` và `load_energy` đang trỏ tạm (chưa có công-tơ lấy lưới/tải riêng) — xem `smartsolar_ai/services/analytics_service.py::_ENERGY_SOURCES`.
+- **Metric chưa đủ cảm biến:** `grid_dependency_pct` có `supported=false` và trả
+  `available=false` (không trả số placeholder) cho tới khi có công-tơ lấy lưới/tải riêng.
 - **Phụ thuộc Python:** `websocket-client` (module `smartsolar`).
 
 ---

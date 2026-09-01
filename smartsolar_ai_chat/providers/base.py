@@ -40,6 +40,7 @@ class ChatRequest:
     tool_choice: Optional[str] = None           # 'auto' | 'none' | ... (tùy provider)
     temperature: Optional[float] = None
     max_tokens: Optional[int] = None
+    context_window: Optional[int] = None         # Ollama num_ctx; provider khác có thể bỏ qua
     model: Optional[str] = None
 
 
@@ -154,6 +155,12 @@ def _coerce_scalar(text: str):
         return low == 'true'
     if low in ('null', 'none'):
         return None
+    # XML fallback vẫn có thể chứa array/object JSON cho tham số như metrics.
+    if s.startswith(('[', '{')):
+        try:
+            return json.loads(s)
+        except json.JSONDecodeError:
+            pass
     try:
         return int(s)
     except (TypeError, ValueError):

@@ -49,6 +49,9 @@ class ToolRegistry:
             _logger.warning('SmartSolar AI: TOOL CALL <- %s | unknown_tool: %s', name, e)
             return err(str(e), code='unknown_tool')
 
+        if arguments is not None and not isinstance(arguments, dict):
+            from .base_tool import err
+            return err('arguments của tool phải là JSON object', code='bad_request')
         envelope = tool.execute(**(arguments or {}))
         if envelope.get('ok'):
             data = envelope.get('data') or {}
@@ -67,8 +70,13 @@ class ToolRegistry:
         Cả OpenAIAdapter và MCPAdapter đều đọc TỪ ĐÂY, nên mô tả tool chỉ khai báo
         một lần, không lặp cho từng giao thức.
         """
-        return [{
-            'name': t.name,
-            'description': t.description,
-            'parameters': t.parameters(),
-        } for t in self._tools.values()]
+        specs = []
+        for tool in self._tools.values():
+            parameters = dict(tool.parameters())
+            parameters.setdefault('additionalProperties', False)
+            specs.append({
+                'name': tool.name,
+                'description': tool.description,
+                'parameters': parameters,
+            })
+        return specs

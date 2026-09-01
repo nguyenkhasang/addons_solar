@@ -18,7 +18,8 @@ class DeviceService:
         self._device_repo = DeviceRepository(env)
         self._alarm_repo = AlarmRepository(env)
 
-    def get_device_status(self, device_id=None, system_id=None) -> DeviceStatusResult:
+    def get_device_status(self, device_id=None, system_id=None,
+                          limit=100) -> DeviceStatusResult:
         """Trạng thái hiện tại của các thiết bị (kèm thời lượng offline).
 
         Truyền ``device_id`` để lọc còn đúng 1 thiết bị; ``system_id`` để lọc theo
@@ -27,14 +28,22 @@ class DeviceService:
         devices = self._device_repo.fetch_devices(system_id)
         if device_id:
             devices = [d for d in devices if d['id'] == device_id]
-        return DeviceStatusResult(devices=devices)
+        original_count = len(devices)
+        online_count = sum(1 for d in devices if d.get('online'))
+        devices = devices[:limit]
+        return DeviceStatusResult(
+            devices=devices, original_count=original_count, online_count=online_count,
+            truncated=original_count > len(devices))
 
     def get_alarms(self, time_range: TimeRange, severity=None,
-                   device_id=None, system_id=None) -> AlarmResult:
+                   device_id=None, system_id=None, limit=50) -> AlarmResult:
         """Lịch sử cảnh báo/sự kiện trên một khoảng (có thể lọc theo mức độ)."""
         alarms = self._alarm_repo.fetch_alarms(
             time_range, severity=severity, device_id=device_id, system_id=system_id)
+        original_count = len(alarms)
+        alarms = alarms[:limit]
         return AlarmResult(
             range_local=[time_range.start_local_iso(), time_range.end_local_iso()],
-            alarms=alarms,
+            alarms=alarms, original_count=original_count,
+            truncated=original_count > len(alarms),
         )
