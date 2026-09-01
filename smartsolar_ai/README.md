@@ -3,6 +3,9 @@
 Tầng Tool (Function/Tool Calling) để AI đọc dữ liệu điện mặt trời và tự viết báo cáo.
 **AI KHÔNG chạm database, KHÔNG sinh SQL — chỉ gọi các Tool đã định nghĩa.**
 
+Tài liệu tổng quan repo nằm tại [README root](../README.md); cách cấu hình và dùng
+bot Discuss nằm tại [smartsolar_ai_chat/README.md](../smartsolar_ai_chat/README.md).
+
 ```
 User → AI Planner (Ollama/LM Studio/OpenAI) → Tool Layer
      → Business Service → Repository → Odoo ORM → PostgreSQL → JSON → AI → Báo cáo
@@ -95,7 +98,7 @@ controllers/    REST/JSON-RPC — Web/Mobile cũng dùng chung tool
 
 ---
 
-## 4. Chuẩn JSON trả về (phong bì)
+## 4. Chuẩn JSON trả về (phong bì và availability)
 
 Mọi tool trả về cấu trúc thống nhất — **chỉ số và chuỗi, không markdown/HTML/câu chữ**.
 LLM đọc cái này rồi tự viết báo cáo.
@@ -111,6 +114,19 @@ LLM đọc cái này rồi tự viết báo cáo.
 
 Lỗi được phân loại: `unknown_metric`, `unknown_tool`, `bad_request`, `internal_error`.
 Tool không bao giờ ném ngoại lệ ra ngoài — luôn trả JSON hợp lệ.
+
+Kết quả có dữ liệu đo sử dụng thêm hợp đồng trạng thái:
+
+| Trường | Ý nghĩa |
+|---|---|
+| `available` | Có đủ dữ liệu để kết luận hay không |
+| `reason` | Lý do không khả dụng; model phải trình bày thay vì tạo số thay thế |
+| `count` / `sample_count` | Số mẫu thực sự dùng |
+| `original_count` | Số điểm trước khi giới hạn context |
+| `truncated` | Danh sách/chuỗi đã bị rút gọn |
+
+`ok=true` chỉ có nghĩa tool chạy đúng. Dữ liệu vẫn có thể trả `available=false`
+nếu khoảng thời gian rỗng hoặc thiếu cảm biến. `value=null`/`score=null` không phải 0.
 
 ---
 
@@ -164,7 +180,8 @@ Khi bổ sung cảm biến thật: thêm `MetricSpec` cho hai counter, khai báo
 ## 8. Chạy test
 
 ```bash
-odoo -i smartsolar_ai --test-enable --test-tags smartsolar_ai
+odoo-bin -d <test_database> --test-enable --stop-after-init \
+  -i smartsolar_ai --test-tags smartsolar_ai
 ```
 
 Test domain chạy không cần DB; test tool/service dùng `TransactionCase`.
@@ -177,3 +194,20 @@ Test domain chạy không cần DB; test tool/service dùng `TransactionCase`.
   `reason` khi không đủ dữ liệu; không diễn giải `value=null`/`score=null` thành 0.
 - Với Ollama nên dùng context 16K–32K, temperature 0.0–0.2 và model có native
   tool calling.
+
+## 9. Quy tắc aggregation
+
+- Metric tức thời (W, V, A, °C): dùng `avg` cho mức điển hình, `max` cho đỉnh.
+- Counter kWh: dùng `get_aggregate`; service tính năng lượng trong khoảng từ
+  summary hoặc chênh lệch counter. Không dùng `sum` trên timeseries counter.
+- Không cộng mẫu công suất W để tuyên bố đó là kWh nếu chưa tích phân theo thời gian.
+- Counter toàn hệ thống được tính first/last riêng từng thiết bị rồi mới cộng,
+  tránh trộn counter của hai thiết bị.
+
+## 10. Giới hạn đầu ra dành cho LLM
+
+- `get_timeseries`: mặc định 240, tối đa 500 điểm.
+- `get_aggregate` và `compare_periods`: tối đa 10 metric mỗi lượt.
+- `get_device_status`: mặc định 100, tối đa 200 thiết bị.
+- `get_alarms`: mặc định 50, tối đa 200 cảnh báo.
+- Mọi schema tool có `additionalProperties=false`; tham số lạ trả `bad_request`.

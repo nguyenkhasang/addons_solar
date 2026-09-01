@@ -29,7 +29,7 @@
         </record>
         <record id="config_model" model="ir.config_parameter">
             <field name="key">smartsolar_ai.model</field>
-            <field name="value">llama3.2:3b</field>
+            <field name="value">gpt-oss:20b</field>
         </record>
         <record id="config_max_iterations" model="ir.config_parameter">
             <field name="key">smartsolar_ai.max_tool_iterations</field>
