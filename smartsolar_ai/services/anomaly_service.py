@@ -35,6 +35,15 @@ class AnomalyService:
         về danh sách sự kiện rỗng (không đủ dữ liệu để kết luận).
         """
         spec = MetricRegistry.get(metric)
+        # Metric DERIVED không có chuỗi thô -> không dò được bất thường theo thời
+        # gian. Chặn ở đây với hướng dẫn ĐÚNG NGỮ CẢNH: trước đây nó lặng lẽ trả
+        # event_count=0 (LLM hiểu sai thành "không có bất thường").
+        if spec.is_derived:
+            raise ValueError(
+                "Metric '%s' là DERIVED (tính theo công thức, không có chuỗi dữ "
+                "liệu thô) nên không dò được bất thường theo thời gian. Hãy dò trên "
+                "các metric NGUỒN của nó, vd pv_input, output_power, "
+                "energy_exported_total." % metric)
         series = self._analytics.get_timeseries(
             metric, time_range, granularity=Granularity.AUTO,
             device_id=device_id, system_id=system_id, max_points=None)
@@ -59,7 +68,9 @@ class AnomalyService:
         else:  # THRESHOLD: sensitivity chính là ngưỡng tuyệt đối
             baseline = {'threshold': sensitivity}
             events = [
-                {'t': p['t'], 'v': p['v'], 'score': round(p['v'] - sensitivity, 3)}
+                {'t': p['t'], 'v': p['v'],
+                 'score': round(p['v'] - sensitivity, 3),
+                 'direction': 'above'}
                 for p in series.points if p['v'] > sensitivity
             ]
 
@@ -76,7 +87,9 @@ class AnomalyService:
         """Phương pháp Z-score. score = (giá trị - trung bình) / độ lệch chuẩn.
 
         std = 0 (dữ liệu phẳng) -> không có bất thường, tránh chia 0.
-        Trả về (danh sách sự kiện, thông số nền {mean, std}).
+        Trả về (danh sách sự kiện, thông số nền {mean, std}). Mỗi event có
+        field ``direction`` = 'above' (giá trị > mean) hoặc 'below' (giá trị < mean),
+        để LLM biết hướng lệch khi viết nhận định.
         """
         values = [p['v'] for p in points]
         mean = statistics.fmean(values)
@@ -88,7 +101,9 @@ class AnomalyService:
         for p in points:
             z = (p['v'] - mean) / std
             if abs(z) >= sensitivity:
-                events.append({'t': p['t'], 'v': p['v'], 'score': round(z, 3)})
+                direction = 'above' if p['v'] > mean else 'below'
+                events.append({'t': p['t'], 'v': p['v'], 'score': round(z, 3),
+                               'direction': direction})
         return events, baseline
 
     @staticmethod
@@ -97,7 +112,8 @@ class AnomalyService:
 
         Q1/Q3 là tứ phân vị 25%/75%; IQR = Q3 - Q1. Điểm bị coi là bất thường nếu
         nằm dưới (Q1 - k*IQR) hoặc trên (Q3 + k*IQR), với k = sensitivity.
-        score = mức vượt ra ngoài biên gần nhất.
+        score = mức vượt ra ngoài biên gần nhất. Trường ``direction`` cho biết
+        điểm nằm 'above' (trên Q3+upper fence) hay 'below' (dưới Q1-lower fence).
         """
         values = sorted(p['v'] for p in points)
         n = len(values)
@@ -110,7 +126,8 @@ class AnomalyService:
                     'lower': round(lower, 3), 'upper': round(upper, 3)}
         events = [
             {'t': p['t'], 'v': p['v'],
-             'score': round(max(p['v'] - upper, lower - p['v']), 3)}
+             'score': round(max(p['v'] - upper, lower - p['v']), 3),
+             'direction': 'above' if p['v'] > upper else 'below'}
             for p in points if p['v'] < lower or p['v'] > upper
         ]
         return events, baseline

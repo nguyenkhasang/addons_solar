@@ -72,6 +72,21 @@ class MetricSpec:
         """True nếu đây là metric dẫn xuất (tính bằng công thức, không có cột riêng)."""
         return self.kind == MetricKind.DERIVED
 
+    # --- Cờ cảnh báo --------------------------------------------------------
+    # True nếu kết quả hiện KHÔNG đáng tin (vd do thiếu cảm biến thật, dữ liệu
+    # đầu vào bị ánh xạ tạm sang metric khác loại...). ``describe()`` sẽ đưa cờ
+    # này vào prompt để LLM nói rõ "chưa đủ dữ liệu" thay vì bịa con số.
+    unreliable: bool = False
+
+    # --- CHIỀU DÒNG NĂNG LƯỢNG ---------------------------------------------
+    # Mô tả ngắn NĂNG LƯỢNG ĐI THEO HƯỚNG NÀO, đưa thẳng vào catalog trong prompt.
+    # Lý do bắt buộc phải có: các metric đo dòng công suất NGƯỢC CHIỀU nhau lại
+    # trùng nhau ở mọi trường khác (cùng đơn vị W, cùng kind, cùng bảng nguồn), nên
+    # nếu chỉ dựa vào nhãn thì model nhỏ không phân biệt được "điện lấy TỪ lưới"
+    # với "điện inverter PHÁT RA" -> báo cáo ngược nghĩa.
+    # Để None cho metric không mang chiều (điện áp, nhiệt độ, thời tiết...).
+    flow: Optional[str] = None
+
 
 def _safe_div(numerator, denominator, default=0.0):
     """Chia an toàn: mẫu số bằng 0 hoặc lỗi kiểu -> trả về giá trị mặc định.
@@ -92,20 +107,27 @@ def _safe_div(numerator, denominator, default=0.0):
 _METRICS = {
 
     # ---- Grid Tie Inverter: phía HÒA LƯỚI của chuỗi hybrid ----
+    # ĐỌC KỸ TRƯỚC KHI SỬA: output_power và grid_import_power là hai dòng công suất
+    # NGƯỢC CHIỀU nhau nhưng trùng nhau ở mọi trường khác (cùng W, cùng
+    # INSTANTANEOUS, cùng bảng grid.tie.inverter). Chiều được phân biệt DUY NHẤT
+    # bằng trường ``flow`` -> đừng bỏ nó, nếu không LLM sẽ báo cáo ngược nghĩa.
+    # Quan hệ (theo dashboard): tải nhà = output_power + grid_import_power.
     'output_power': MetricSpec(
-        key='output_power', label='Công suất hòa lưới', unit='W',
+        key='output_power', label='Công suất inverter phát ra', unit='W',
         kind=MetricKind.INSTANTANEOUS, default_aggregation=AggregationType.AVG,
         raw_model='grid.tie.inverter', raw_field='output_power',
         summary_model='grid.tie.inverter.summary',
         summary_field='output_power_avg', summary_max_field='output_power_max',
+        flow='inverter PHÁT RA, cấp cho tải trong nhà (điện tự sản xuất)',
     ),
     'grid_import_power': MetricSpec(
-        key='grid_import_power', label='Công suất lấy lưới', unit='W',
+        key='grid_import_power', label='Công suất lấy từ lưới', unit='W',
         kind=MetricKind.INSTANTANEOUS,
         raw_model='grid.tie.inverter', raw_field='limiter_power',
         summary_model='grid.tie.inverter.summary', summary_field='limiter_power_avg',
         note=('Đây là công suất tức thời (W), không phải điện năng lấy lưới (kWh); '
               'không dùng để tính tổng điện lưới hoặc tỷ lệ phụ thuộc lưới.'),
+        flow='LẤY TỪ lưới điện quốc gia vào nhà (điện phải mua, KHÔNG phải điện PV)',
     ),
     'dc_voltage': MetricSpec(
         key='dc_voltage', label='Điện áp DC', unit='V',
@@ -127,20 +149,40 @@ _METRICS = {
         summary_model='grid.tie.inverter.summary',
         summary_field='temperature_avg', summary_max_field='temperature_max',
     ),
+    # Bộ đếm sản lượng tích lũy của inverter. GIỮ NGUYÊN key cũ để không phá hợp
+    # đồng tool, nhưng nhãn đã sửa: cột nguồn là energy_total (sản lượng inverter),
+    # KHÔNG phải công-tơ đo điện bán lên lưới — tên key 'exported' là di sản đặt sai.
     'energy_exported_total': MetricSpec(
-        key='energy_exported_total', label='Tổng năng lượng hòa lưới', unit='kWh',
+        key='energy_exported_total', label='Tổng sản lượng inverter (tích lũy)',
+        unit='kWh',
         kind=MetricKind.COUNTER, default_aggregation=AggregationType.LAST,
         raw_model='grid.tie.inverter', raw_field='energy_total',
         summary_model='grid.tie.inverter.summary', summary_field='energy_total_end',
+        flow='inverter PHÁT RA (điện tự sản xuất tích lũy). Dù key có chữ '
+             '"exported", đây KHÔNG phải điện bán lên lưới',
+    ),
+    # Công-tơ ĐIỆN LẤY TỪ LƯỚI (kWh). Nguồn: cột limiter_total, có dữ liệu thật từ
+    # payload MQTT ('limmiter_total'). summary_model=None vì bảng
+    # grid.tie.inverter.summary CHƯA có cột cho limiter_total -> chỉ truy vấn được
+    # trên bảng raw (giới hạn theo thời gian lưu raw). Khi bổ sung cột vào summary
+    # + cron, khai báo thêm summary_model/summary_field ở đây là dùng được dài ngày.
+    'grid_import_energy_total': MetricSpec(
+        key='grid_import_energy_total', label='Tổng điện lấy từ lưới (tích lũy)',
+        unit='kWh',
+        kind=MetricKind.COUNTER, default_aggregation=AggregationType.LAST,
+        raw_model='grid.tie.inverter', raw_field='limiter_total',
+        flow='LẤY TỪ lưới điện quốc gia (điện phải mua, tích lũy)',
     ),
 
     # ---- Charge Power / MPPT: phía PV NẠP + PIN ----
     'pv_input': MetricSpec(
-        key='pv_input', label='Công suất PV nạp', unit='W',
+        key='pv_input', label='Công suất PV nạp pin', unit='W',
         kind=MetricKind.INSTANTANEOUS,
         raw_model='charge.power', raw_field='charge_power',
         summary_model='charge.power.summary',
         summary_field='charge_power_avg', summary_max_field='charge_power_max',
+        flow='TỪ tấm pin mặt trời vào bộ sạc MPPT để nạp pin (điện thu từ PV, '
+             'nhánh nạp pin — KHÁC nhánh inverter cấp tải)',
     ),
     'pv_voltage': MetricSpec(
         key='pv_voltage', label='Điện áp PV', unit='V',
@@ -175,10 +217,12 @@ _METRICS = {
         summary_field='temperature_avg', summary_max_field='temperature_max',
     ),
     'pv_energy_total': MetricSpec(
-        key='pv_energy_total', label='Tổng năng lượng PV', unit='kWh',
+        key='pv_energy_total', label='Tổng điện PV nạp pin (tích lũy)', unit='kWh',
         kind=MetricKind.COUNTER, default_aggregation=AggregationType.LAST,
         raw_model='charge.power', raw_field='total_kwh',
         summary_model='charge.power.summary', summary_field='total_kwh_end',
+        flow='TỪ tấm pin mặt trời qua MPPT vào pin (điện thu từ PV tích lũy, '
+             'nhánh nạp pin)',
     ),
 
     # ---- Môi trường (thời tiết): nguồn smartsolar.environment ----
@@ -257,6 +301,11 @@ _METRICS = {
     # Ngữ nghĩa năng lượng: trong một khoảng, các cột energy_kwh đã là tích phân
     # năng lượng của từng bucket, nên các công thức này thao tác trên SUM(energy)
     # của cả khoảng — do AnalyticsService cung cấp làm "context" tính toán.
+    #
+    # LƯU Ý: ``unreliable=True`` đánh dấu KPI chưa đủ căn cứ đo để tin tuyệt đối.
+    # Biến phụ thuộc nào KHÔNG có nguồn đo thật thì nằm trong
+    # ``analytics_service._PLACEHOLDER_DEPS`` -> KPI đó trả value=None kèm 'note',
+    # LLM phải nói "chưa đủ dữ liệu" thay vì báo con số sai.
     'self_consumption_pct': MetricSpec(
         key='self_consumption_pct', label='Tỷ lệ tự dùng', unit='%',
         kind=MetricKind.DERIVED,
@@ -265,6 +314,9 @@ _METRICS = {
         formula=lambda c: _safe_div(
             (c.get('pv_energy', 0.0) - c.get('grid_export_energy', 0.0)),
             c.get('pv_energy', 0.0)) * 100.0,
+        # Hệ có limiter chống xuất lưới ngược nên KHÔNG có công-tơ đo điện bán lên
+        # lưới -> 'grid_export_energy' là placeholder -> KPI này trả None.
+        unreliable=True,
     ),
     'grid_dependency_pct': MetricSpec(
         key='grid_dependency_pct', label='Phụ thuộc lưới', unit='%',
@@ -272,11 +324,21 @@ _METRICS = {
         depends_on=('grid_import_energy', 'load_energy'),
         supported=False,
         note=('CẢNH BÁO: Chưa có công-tơ điện lấy lưới và công-tơ tải riêng. '
+              'limiter_total chưa được xác minh là điện lấy riêng từ lưới. '
               'Metric này hiện không khả dụng và không được dùng để kết luận.'),
-        # Phụ thuộc lưới = điện lấy từ lưới / (lấy lưới + tự dùng) * 100
+        # Phụ thuộc lưới = điện lấy từ lưới / tổng tiêu thụ * 100,
+        # với tổng tiêu thụ = điện lấy lưới + điện inverter tự cấp.
         formula=lambda c: _safe_div(
             c.get('grid_import_energy', 0.0),
             c.get('grid_import_energy', 0.0) + c.get('load_energy', 0.0)) * 100.0,
+        # Cả hai biến phụ thuộc GIỜ ĐÃ có nguồn đo thật (limiter_total và
+        # energy_total), nên KPI này tính ra được số. Vẫn giữ unreliable=True vì
+        # còn MỘT giả thuyết chưa loại được bằng code: limiter_power/limiter_total
+        # có thể là số đo của CT clamp cho TOÀN BỘ TẢI (kiểu inverter GTIL) chứ
+        # không riêng phần lấy từ lưới — nếu vậy mẫu số đếm trùng và % này thấp
+        # hơn thực tế. Muốn bỏ cờ: đối chiếu một payload MQTT thật hoặc tài liệu
+        # firmware để chốt ngữ nghĩa limiter_*.
+        unreliable=True,
     ),
 }
 
@@ -343,5 +405,12 @@ class MetricRegistry:
                 # True -> metric CHỈ tổng hợp tới NGÀY (vd thời tiết): không có dữ
                 # liệu theo giờ, và chi tiết (raw) chỉ giữ vài ngày gần nhất.
                 'daily_only': spec.summary_bucket == 'day',
+                # True -> kết quả hiện KHÔNG đáng tin (thiếu cảm biến / ánh xạ tạm).
+                # LLM phải nói "chưa đủ dữ liệu" thay vì đưa con số cho user.
+                'unreliable': spec.unreliable,
+                # Chiều dòng năng lượng — thứ DUY NHẤT phân biệt các metric ngược
+                # chiều mà mọi trường khác đều giống nhau (vd điện lấy từ lưới vs
+                # điện inverter phát ra: cùng W, cùng kind, cùng bảng nguồn).
+                'flow': spec.flow,
             })
         return out

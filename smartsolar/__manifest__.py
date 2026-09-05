@@ -29,7 +29,8 @@
         'data/scheduled_action.xml',
     ],
     'external_dependencies': {
-        'python': ['websocket'],
+        # Tên distribution trên PyPI; module được import trong code là ``websocket``.
+        'python': ['websocket-client'],
     },
     'installable': True,
     'application': True,

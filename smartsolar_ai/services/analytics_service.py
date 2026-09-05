@@ -28,13 +28,25 @@ _MAX_ALLOWED_POINTS = 500
 _AUTO_RAW_MAX_HOURS = 6
 
 
-# Bảng tra nguồn năng lượng thật cho metric dẫn xuất. Không ánh xạ placeholder:
-# thiếu công-tơ phải được báo là unavailable, tuyệt đối không mượn một counter khác
-# để tạo ra con số có vẻ hợp lệ nhưng sai ngữ nghĩa.
+# Bảng tra "nguồn năng lượng" cho metric dẫn xuất: ánh xạ tên biến phụ thuộc trong
+# công thức -> khóa metric COUNTER thực tế để lấy số kWh. Toàn bộ logic năng lượng
+# hybrid gom một chỗ tại đây, khớp với công thức khai báo trong metric_registry.
+#
+# Không ánh xạ placeholder sang counter khác. ``grid_export_energy`` không có
+# công-tơ thật nên nằm trong ``_PLACEHOLDER_DEPS`` và KPI phụ thuộc nó sẽ
+# unavailable. ``limiter_total`` được công bố để kiểm tra số đo thô, nhưng KPI
+# phụ thuộc lưới vẫn ``supported=False`` tới khi xác minh được ý nghĩa cảm biến.
 _ENERGY_SOURCES = {
-    'pv_energy': 'pv_energy_total',                 # PV nạp (MPPT) -> bộ đếm
-    'grid_export_energy': 'energy_exported_total',  # hòa lưới (GTI) -> bộ đếm
+    'pv_energy': 'pv_energy_total',
+    'grid_import_energy': 'grid_import_energy_total',
+    'load_energy': 'energy_exported_total',
 }
+
+# Các biến phụ thuộc KHÔNG có nguồn đo thật. KPI nào phụ thuộc chúng thì kết quả
+# VÔ NGHĨA về mặt vật lý, nên ``_compute_derived`` trả value=None kèm 'note' —
+# LLM sẽ nói "chưa đủ dữ liệu" chứ không báo số sai cho người dùng.
+# Khi có cảm biến thật: sửa ánh xạ ở trên RỒI bỏ khóa tương ứng khỏi set này.
+_PLACEHOLDER_DEPS = frozenset({'grid_export_energy'})
 
 
 class AnalyticsService:
@@ -47,7 +59,11 @@ class AnalyticsService:
                        granularity: Granularity = Granularity.AUTO,
                        device_id=None, system_id=None,
                        max_points: int = _DEFAULT_MAX_POINTS) -> SeriesResult:
-        """Lấy chuỗi thời gian của một metric trên một khoảng."""
+        """Lấy chuỗi thời gian, kèm trạng thái và giới hạn kích thước kết quả.
+
+        Metric dẫn xuất chỉ có giá trị tổng hợp cho cả khoảng, không có chuỗi
+        mịn; kết quả vì vậy tối đa một điểm với ``granularity='range'``.
+        """
         if max_points is not None:
             max_points = int(max_points or _DEFAULT_MAX_POINTS)
             if max_points < 20 or max_points > _MAX_ALLOWED_POINTS:
@@ -77,7 +93,9 @@ class AnalyticsService:
                 original_count=len(points), truncated=False,
             )
 
-        agg = aggregation or spec.default_aggregation
+        # Dùng cách gộp thực tế do Repository quyết định để nhãn kết quả không
+        # nói ``sum`` trong khi dữ liệu tức thời đã được bảo vệ bằng ``avg``.
+        agg = self._repo.resolve_aggregation(spec, aggregation)
         query_granularity = granularity
         # AUTO cho LLM ưu tiên context gọn: quá 6 giờ thì dùng summary theo giờ.
         # Người gọi vẫn có thể yêu cầu raw rõ ràng; kết quả sau đó vẫn bị giới hạn
@@ -119,7 +137,21 @@ class AnalyticsService:
     # ---- Thống kê vô hướng -------------------------------------------------
     def get_aggregate(self, metrics, time_range: TimeRange,
                       device_id=None, system_id=None) -> AggregateResult:
-        """Tính thống kê vô hướng cho một hay nhiều metric trên một khoảng."""
+        """Tính thống kê vô hướng cho một hay nhiều metric trên một khoảng.
+
+        Phân nhánh theo loại metric:
+          - DERIVED: tính bằng công thức (qua ``_compute_derived``).
+          - COUNTER: trả 'energy' (kWh tích lũy trong khoảng) + 'last'.
+          - INSTANTANEOUS: trả avg/min/max/last.
+
+        Hàm này KHÔNG nhận tham số cách gộp: mỗi loại metric trả về đúng bộ
+        thống kê hợp ngữ nghĩa của nó (nên không có chuyện "sum công suất").
+
+        Hai nhánh đo trực tiếp (COUNTER, INSTANTANEOUS) kèm 'count' — count=0
+        nghĩa là không có dữ liệu đo, KHÔNG phải giá trị 0. Nhánh DERIVED không
+        có 'count' vì không đọc bản ghi thô; thiếu dữ liệu ở đó biểu thị bằng
+        value=None kèm ``available=False`` và lý do có cấu trúc.
+        """
         result = {}
         for metric in metrics:
             spec = MetricRegistry.get(metric)
@@ -175,11 +207,20 @@ class AnalyticsService:
 
         context = {}
         input_status = {}
-        missing = []
+        missing_sensor = []
+        missing_data = []
         for dep in spec.depends_on:
             source_metric = _ENERGY_SOURCES.get(dep)
+            if dep in _PLACEHOLDER_DEPS:
+                missing_sensor.append(dep)
+                input_status[dep] = {
+                    'available': False,
+                    'source_metric': None,
+                    'reason': 'Chưa có cảm biến/bộ đếm thật.',
+                }
+                continue
             if not source_metric or not MetricRegistry.exists(source_metric):
-                missing.append(dep)
+                missing_sensor.append(dep)
                 input_status[dep] = {
                     'available': False,
                     'source_metric': source_metric,
@@ -192,16 +233,23 @@ class AnalyticsService:
                 src_spec, time_range, device_id, system_id)
             input_status[dep] = dict(energy, source_metric=source_metric)
             if not energy['available']:
-                missing.append(dep)
+                missing_data.append(dep)
                 continue
             context[dep] = energy['value']
 
+        missing = missing_sensor + missing_data
         if missing:
+            if missing_sensor:
+                reason = 'Chưa có bộ đếm thật cho: %s.' % ', '.join(missing_sensor)
+            else:
+                reason = (
+                    'Không có dữ liệu trong khoảng yêu cầu cho: %s.'
+                    % ', '.join(missing_data))
             return {
                 'unit': spec.unit,
                 'value': None,
                 'available': False,
-                'reason': 'Thiếu dữ liệu đầu vào: %s.' % ', '.join(missing),
+                'reason': reason,
                 'inputs': context,
                 'input_status': input_status,
                 'missing_inputs': missing,
@@ -223,11 +271,15 @@ class AnalyticsService:
                 'missing_inputs': [],
             }
 
+        warning = spec.note or None
+        if spec.unreliable and not warning:
+            warning = (
+                'Số liệu tham khảo: giả định dòng năng lượng chưa được xác minh.')
         return {
             'unit': spec.unit,
             'value': round(value, 3),
             'available': True,
-            'reason': spec.note or None,
+            'reason': warning,
             'inputs': context,
             'input_status': input_status,
             'missing_inputs': [],
@@ -236,7 +288,18 @@ class AnalyticsService:
     # ---- So sánh 2 kỳ ------------------------------------------------------
     def compare_periods(self, metrics, range_a: TimeRange, range_b: TimeRange,
                         device_id=None, system_id=None) -> ComparisonResult:
-        """So sánh các metric giữa hai khoảng thời gian bất kỳ."""
+        """So sánh các metric giữa 2 khoảng thời gian BẤT KỲ.
+
+        Nhờ nhận 2 khoảng tùy ý, một hàm này trả lời được vô số câu: hôm nay vs
+        hôm qua, tuần này vs tuần trước, "3 ngày gần nhất vs cùng kỳ năm ngoái"...
+
+        Trường delta được đặt tên CHỈ RÕ CHIỀU để LLM khỏi đảo ngược:
+          - a / b                : giá trị bên A / bên B (đã qua _representative)
+          - a_minus_b            : A - B (dương = A lớn hơn B)
+          - pct_change_a_vs_b    : (A - B) / B * 100 (dương = A lớn hơn B)
+        Giữ cả tên trường ngắn ``abs/pct`` của API hiện tại và tên tường minh
+        ``a_minus_b/pct_change_a_vs_b`` để tương thích với thay đổi local.
+        """
         agg_a = self.get_aggregate(metrics, range_a, device_id, system_id)
         agg_b = self.get_aggregate(metrics, range_b, device_id, system_id)
         deltas = {}
@@ -246,20 +309,25 @@ class AnalyticsService:
             a = self._representative(stats_a)
             b = self._representative(stats_b)
             if a is None or b is None:
+                reason = (stats_a.get('reason') or stats_b.get('reason')
+                          or 'Không đủ dữ liệu để so sánh.')
                 deltas[metric] = {
                     'a': a, 'b': b, 'abs': None, 'pct': None,
+                    'a_minus_b': None, 'pct_change_a_vs_b': None,
                     'available': False,
-                    'reason': stats_a.get('reason') or stats_b.get('reason')
-                              or 'Không đủ dữ liệu để so sánh.',
+                    'reason': reason, 'note': reason,
                 }
                 continue
             abs_delta = a - b
             pct = (abs_delta / b * 100.0) if b else None
+            rounded_abs = round(abs_delta, 3)
+            rounded_pct = round(pct, 2) if pct is not None else None
             deltas[metric] = {
                 'a': round(a, 3), 'b': round(b, 3),
-                'abs': round(abs_delta, 3),
-                'pct': round(pct, 2) if pct is not None else None,
-                'available': True, 'reason': None,
+                'abs': rounded_abs, 'pct': rounded_pct,
+                'a_minus_b': rounded_abs,
+                'pct_change_a_vs_b': rounded_pct,
+                'available': True, 'reason': None, 'note': None,
             }
         return ComparisonResult(
             metrics=list(metrics),
@@ -268,7 +336,7 @@ class AnalyticsService:
 
     @staticmethod
     def _representative(metric_stats: dict):
-        """Chọn một con số đại diện; unavailable luôn được giữ là ``None``."""
+        """Chọn một số đại diện; thiếu dữ liệu luôn được giữ là ``None``."""
         if metric_stats.get('available') is False:
             return None
         for key in ('energy', 'value', 'avg', 'last'):

@@ -204,11 +204,25 @@ Chi tiết đầy đủ: xem [`smartsolar_ai/README.md`](smartsolar_ai/README.md
 ## 8. Quy ước & lưu ý chung
 
 - **Múi giờ:** DB = UTC naive; hiển thị/AI = UTC+7. Luôn đổi ở tầng ngoài, đừng lưu lệch.
-- **Hybrid:** không cộng GTI + MPPT. Hòa lưới = GTI `output_power`; PV thu = MPPT.
+- **Hybrid:** không cộng GTI + MPPT (hai thiết bị đo hai đường khác nhau, cộng vào là đếm trùng).
+  Điện PV đi theo 2 nhánh: nhánh **cấp tải** qua GTI (`output_power`) và nhánh **nạp pin** qua
+  MPPT (`charge_power`).
+- **Chiều dòng điện — dễ nhầm nhất:** trên cùng bảng `grid.tie.inverter` có hai đại lượng
+  **ngược chiều**, cùng đơn vị W:
+  `output_power` = inverter **phát ra** (điện tự sản xuất) · `limiter_power` = **lấy từ lưới**
+  (điện phải mua). Tải nhà = `output_power + limiter_power`.
+  Cảnh báo tên gọi: `limiter_power` mang nhãn model gốc là "Công suất giới hạn" nhưng thực chất
+  là công suất lấy lưới; còn metric key `energy_exported_total` có chữ "exported" nhưng đọc từ
+  `energy_total` — là **sản lượng inverter**, không phải điện bán lên lưới. Trong module AI, chiều
+  được khai báo tường minh qua `MetricSpec.flow` và in vào prompt.
 - **Realtime:** đi qua `bus.bus`, KHÔNG lưu DB. Dữ liệu lịch sử mới nằm ở bảng thô/summary.
 - **Hiệu năng:** truy vấn dài dùng bảng `*_summary`; raw SQL `date_trunc` chỉ ở tầng Repository/model.
-- **Metric chưa đủ cảm biến:** `grid_dependency_pct` có `supported=false` và trả
-  `available=false` (không trả số placeholder) cho tới khi có công-tơ lấy lưới/tải riêng.
+- **Metric chưa đủ căn cứ:** `limiter_total` được công bố dưới dạng counter
+  `grid_import_energy_total`, nhưng chưa được dùng để khẳng định KPI phụ thuộc lưới cho tới khi
+  xác minh đây là điện lấy lưới chứ không phải toàn bộ tải. Vì vậy `grid_dependency_pct` có
+  `supported=false` và trả `available=false`; `unreliable/flow` vẫn mô tả giới hạn và chiều đo.
+- **Thiếu công-tơ xuất lưới:** `grid_export_energy` chưa có nguồn đo thật nên KPI
+  `self_consumption_pct` trả `available=false`, không mượn counter khác làm placeholder.
 - **Phụ thuộc Python:** `websocket-client` (module `smartsolar`).
 
 ---

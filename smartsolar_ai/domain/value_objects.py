@@ -30,11 +30,20 @@ UTC7 = timezone(timedelta(hours=7))
 #   now                -> thời điểm hiện tại
 #   now-2h / now-30m   -> lùi 2 giờ / 30 phút
 #   now-7d             -> lùi 7 ngày
+#   now-1y             -> lùi 1 năm (365 ngày)
+#   now-1y-3d          -> GHÉP nhiều đơn vị: lùi 1 năm 3 ngày. Nhờ dạng ghép này,
+#                         "3 ngày gần nhất vs cùng kỳ năm ngoái" viết được trọn vẹn:
+#                         kỳ A = now-3d..now, kỳ B = now-1y-3d..now-1y.
 #   today              -> 00:00 hôm nay (giờ VN)
 #   yesterday          -> 00:00 hôm qua (giờ VN)
 #   tomorrow           -> 00:00 ngày mai (giờ VN) — hữu ích cho end của "hôm nay"
-_RE_NOW_DELTA = re.compile(r'^now\s*-\s*(\d+)\s*([mhd])$', re.IGNORECASE)
+#
+# Lưu ý 'y' = 365 ngày cố định (không theo năm dương lịch) — đủ dùng để so sánh
+# cùng kỳ, và tránh mọi rắc rối năm nhuận/đổi giờ mà AI hay tính sai.
+_RE_NOW_SUFFIX = re.compile(r'^(?:\s*-\s*\d+\s*[mhdy])+$', re.IGNORECASE)
+_RE_NOW_TERM = re.compile(r'-\s*(\d+)\s*([mhdy])', re.IGNORECASE)
 _UNIT_KEY = {'m': 'minutes', 'h': 'hours', 'd': 'days'}
+_DAYS_PER_YEAR = 365
 
 
 @dataclass(frozen=True)
@@ -80,15 +89,23 @@ class TimeRange:
             offset_days = {'today': 0, 'yesterday': -1, 'tomorrow': 1}[s]
             local = midnight + timedelta(days=offset_days)
         else:
-            m = _RE_NOW_DELTA.match(s)
-            if not m:
+            # Phần sau tiền tố 'now' phải là một hoặc nhiều cụm '-<số><đơn vị>'.
+            suffix = s[3:]
+            if not _RE_NOW_SUFFIX.match(suffix):
                 # Bắt đầu bằng 'now' nhưng sai cú pháp -> báo lỗi rõ thay vì âm thầm sai.
                 raise ValueError(
-                    "Token thời gian '%s' không hợp lệ. Dùng: now, now-2h, now-30m, "
-                    "now-7d, today, yesterday, tomorrow." % text)
-            amount = int(m.group(1))
-            unit = _UNIT_KEY[m.group(2).lower()]
-            local = now_local - timedelta(**{unit: amount})
+                    "Token thời gian '%s' không hợp lệ. Dùng: now, now-30m, now-2h, "
+                    "now-7d, now-1y, ghép nhiều đơn vị như now-1y-3d, hoặc today, "
+                    "yesterday, tomorrow." % text)
+            # Cộng dồn từng cụm -> hỗ trợ dạng ghép (now-1y-3d = 1 năm + 3 ngày).
+            delta = timedelta()
+            for amount, unit in _RE_NOW_TERM.findall(suffix):
+                unit = unit.lower()
+                if unit == 'y':
+                    delta += timedelta(days=_DAYS_PER_YEAR * int(amount))
+                else:
+                    delta += timedelta(**{_UNIT_KEY[unit]: int(amount)})
+            local = now_local - delta
 
         # Quy về UTC naive để khớp định dạng Odoo lưu trong DB.
         return local.astimezone(timezone.utc).replace(tzinfo=None)

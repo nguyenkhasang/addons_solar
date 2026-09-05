@@ -167,13 +167,22 @@ POST /solar/ai/mcp {method, params}  → MCP
 
 ## 7. Metric chưa đủ cảm biến
 
-`grid_dependency_pct` hiện có `supported=false` vì DB chưa có công-tơ lấy lưới dạng
-kWh và công-tơ tải riêng. Tool trả `value=null`, `available=false` cùng lý do cụ thể;
-không dùng `limiter_power`, điện xuất lưới hoặc điện PV làm số thay thế.
+`grid_dependency_pct` hiện có `supported=false`: DB có cột `limiter_total`, nhưng chưa đủ
+bằng chứng để khẳng định đó là điện lấy riêng từ lưới thay vì số đo CT của toàn bộ tải.
+Tool trả `value=null`, `available=false` thay vì một KPI có vẻ hợp lệ nhưng sai vật lý.
 
-Khi bổ sung cảm biến thật: thêm `MetricSpec` cho hai counter, khai báo mapping trong
-`services/analytics_service.py::_ENERGY_SOURCES`, rồi mới chuyển metric sang
-`supported=true`.
+Các metric và giới hạn liên quan:
+
+- `grid_import_energy_total` đọc trực tiếp `limiter_total` và được công bố để kiểm tra số
+  đo thô. Metric chưa có bảng summary nên chỉ truy vấn được trong thời gian còn dữ liệu raw.
+- `grid_export_energy` không có công-tơ thật; `self_consumption_pct` phụ thuộc biến này nên
+  cũng trả `available=false`, không ánh xạ sang counter khác làm placeholder.
+- `MetricSpec.flow` phân biệt rõ điện inverter phát ra với điện lấy từ lưới;
+  `MetricSpec.unreliable` công bố các giả định chưa được xác minh cho LLM.
+
+Chỉ chuyển `grid_dependency_pct` sang `supported=true` sau khi đối chiếu payload MQTT hoặc
+tài liệu firmware, đồng thời bổ sung counter tải phù hợp nếu `limiter_total` không đo riêng
+điện lấy lưới.
 
 ---
 

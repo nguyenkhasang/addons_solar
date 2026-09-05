@@ -11,12 +11,20 @@ Mỗi thành phần trả về dict {score: 0..100, weight: trọng số, detail
 """
 from __future__ import annotations
 
+from datetime import timedelta
+
 from ..domain.dto import HealthResult
 from ..domain.enums import AggregationType
 from ..domain.metric_registry import MetricRegistry
 from ..domain.value_objects import TimeRange
 from ..repositories.device_repository import DeviceRepository
 from ..repositories.metric_repository import MetricRepository
+
+# Cửa sổ "giờ nắng" theo giờ Việt Nam (UTC+7), nửa mở [start, end).
+# Ngoài cửa sổ này thì công suất hòa lưới bằng 0 là BÌNH THƯỜNG, nên thành
+# phần "sản xuất" không được chấm điểm (xem _production_component).
+_SUN_START_HOUR = 5
+_SUN_END_HOUR = 19
 
 
 class HealthService:
@@ -86,15 +94,48 @@ class HealthService:
         return {'score': round(score, 1), 'weight': 0.2, 'available': True,
                 'detail': 'nhiệt độ đỉnh %.1f°C' % tmax}
 
+    @staticmethod
+    def _overlaps_daylight(time_range) -> bool:
+        """Khoảng thời gian có CHỒNG LẤN giờ nắng (05:00–19:00 giờ VN) không?
+
+        Phải xét chồng lấn, KHÔNG được xét một mốc đơn lẻ: khoảng "hôm nay"
+        là today..tomorrow nên mốc cuối là 00:00 ngày mai — xét mốc cuối sẽ
+        kết luận sai là "ban đêm" và bỏ qua chấm điểm cho cả ngày, che mất sự
+        cố mất điện thật.
+        """
+        # Cửa sổ ban đêm chỉ dài 10 giờ (19:00 -> 05:00), nên mọi khoảng dài
+        # hơn 10 giờ chắc chắn cắt qua giờ nắng.
+        if time_range.duration > timedelta(hours=10):
+            return True
+        start_local = time_range.start_utc + timedelta(hours=7)
+        end_local = time_range.end_utc + timedelta(hours=7)
+        cursor = start_local
+        while cursor < end_local:
+            if _SUN_START_HOUR <= cursor.hour < _SUN_END_HOUR:
+                return True
+            cursor += timedelta(hours=1)
+        # Phần dư cuối (khoảng nửa mở nên lùi 1 giây khỏi mốc end).
+        tail = end_local - timedelta(seconds=1)
+        return _SUN_START_HOUR <= tail.hour < _SUN_END_HOUR
+
     def _production_component(self, time_range, device_id, system_id):
         """Điểm sản xuất: hệ có phát điện ổn định không.
 
         Ước lượng theo tỷ lệ công suất trung bình / công suất đỉnh (avg/max). Tỷ lệ
         cao nghĩa là chuỗi PV hoạt động đều. Không có dữ liệu -> component không
         khả dụng (không tự chấm 0đ). Trọng số 0.4.
+
+        Nếu khoảng hỏi nằm HOÀN TOÀN ngoài giờ nắng (vd "2 giờ qua" lúc 22h):
+        trả weight=0 -> thành phần này KHÔNG tính vào điểm tổng, thay vì cho
+        0 điểm (phạt oan vì trời tối) hoặc 100 điểm (che mất sự cố thật).
         """
         spec = MetricRegistry.get('output_power')
         stats = self._metric_repo.fetch_scalar(spec, time_range, device_id, system_id)
+        if not self._overlaps_daylight(time_range):
+            return {'score': None, 'weight': 0.0, 'available': False,
+                    'applicable': False,
+                    'detail': 'khoảng hỏi nằm ngoài giờ nắng — không chấm điểm '
+                              'sản xuất'}
         if stats['count'] == 0:
             return {'score': None, 'weight': 0.4, 'available': False,
                     'detail': 'không có dữ liệu'}

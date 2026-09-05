@@ -28,9 +28,11 @@ from ..services.health_service import HealthService
 # Các mảnh JSON-schema tái sử dụng (để không lặp mô tả tham số ở mọi tool).
 _ISO = {'type': 'string',
         'description': (
-            'Mốc thời gian. Câu hỏi tương đối: dùng token (now, now-2h, now-30m, '
-            'now-7d, today, yesterday, tomorrow). Ngày/giờ cụ thể: ISO giờ VN '
-            'không kèm múi giờ (vd "2026-07-02T00:00:00"). Không tự trừ 7 giờ.')}
+            'Mốc thời gian. Câu hỏi tương đối: dùng token (now, now-30m, now-2h, '
+            'now-7d, now-1y, today, yesterday, tomorrow); ghép được nhiều đơn vị '
+            'như "now-1y-3d" (lùi 1 năm 3 ngày) để so sánh cùng kỳ năm ngoái. '
+            'Ngày/giờ cụ thể: ISO giờ VN không kèm múi giờ (vd '
+            '"2026-07-02T00:00:00"). Không tự trừ 7 giờ.')}
 _DEVICE = {'type': 'integer', 'description': 'ID thiết bị (tùy chọn) để giới hạn truy vấn'}
 _SYSTEM = {'type': 'integer', 'description': 'ID hệ thống (tùy chọn) để giới hạn truy vấn'}
 _METRIC = {'type': 'string',
@@ -56,7 +58,9 @@ class GetTimeseriesTool(Tool):
     description = ('Chuỗi thời gian của một metric trên một khoảng (độ phân giải tự '
                    'chọn). Nên dùng thay get_aggregate cho metric thời tiết nhiều '
                    'ngày — tự đọc bảng tổng hợp theo ngày. AUTO dùng bucket giờ khi '
-                   'khoảng dài hơn 6 giờ và giới hạn mặc định 240 điểm để bảo vệ context.')
+                   'khoảng dài hơn 6 giờ và giới hạn mặc định 240 điểm để bảo vệ '
+                   'context. Metric DERIVED chỉ trả tối đa một điểm tổng hợp cho '
+                   'cả khoảng; nên dùng get_aggregate để tránh hiểu nhầm là chuỗi.')
 
     def parameters(self):
         return {
@@ -210,8 +214,17 @@ class GetAlarmsTool(Tool):
             'type': 'object',
             'properties': {
                 'start': _ISO, 'end': _ISO,
-                'severity': {'type': 'string', 'enum': ['critical', 'warning', 'info'],
-                             'description': 'Mức cảnh báo; bỏ trống để lấy mọi mức.'},
+                'severity': {'type': 'string',
+                             'enum': ['critical', 'warning', 'info'],
+                             'description': (
+                                 'Mức độ cảnh báo cần lọc: '
+                                 "'critical' = lỗi nghiêm trọng (thiết bị mất "
+                                 "kết nối, lỗi phần cứng, quá dòng/quá áp); "
+                                 "'warning' = cảnh báo (giá trị vượt ngưỡng an "
+                                 "toàn nhưng chưa nguy hiểm); "
+                                 "'info' = thông tin (sự kiện bình thường, vd "
+                                 "khởi động lại, cập nhật firmware). "
+                                 "Không truyền = trả về tất cả mức độ.")},
                 'limit': {'type': 'integer', 'minimum': 1, 'maximum': 200,
                           'description': 'Số cảnh báo tối đa trả về. Mặc định 50.'},
                 'device_id': _DEVICE, 'system_id': _SYSTEM,
@@ -249,9 +262,19 @@ class FindAnomaliesTool(Tool):
                 'method': {'type': 'string',
                            'enum': [m.value for m in AnomalyMethod]},
                 'sensitivity': {'type': 'number',
-                                'minimum': 0.1,
-                                'description': 'Hệ số nhân cho zscore/iqr, hoặc ngưỡng '
-                                               'tuyệt đối cho threshold. Mặc định 2.0'},
+                                'description': (
+                                    'Hệ số nhạy, Ý NGHĨA KHÁC NHAU tùy method: '
+                                    'zscore/iqr -> số lần độ lệch, không phụ thuộc '
+                                    'đơn vị (đề xuất 2.0–3.0; mặc định 2.0). '
+                                    'threshold -> NGƯỠNG TRÊN tuyệt đối theo ĐÚNG '
+                                    'ĐƠN VỊ của metric, chỉ báo điểm VƯỢT QUÁ ngưỡng '
+                                    '(vd nhiệt °C -> 70 để tìm lúc quá nóng, công '
+                                    'suất W -> 5000 để tìm lúc vượt tải). KHÔNG tìm '
+                                    'được điểm thấp hơn ngưỡng — muốn tìm giá trị '
+                                    'tụt thấp (vd pin yếu) thì dùng zscore/iqr rồi '
+                                    "đọc direction='below'. "
+                                    'Với threshold BẮT BUỘC truyền (đơn vị mỗi metric '
+                                    'một khác, không có mặc định an toàn).')},
                 'device_id': _DEVICE, 'system_id': _SYSTEM,
             },
             'required': ['metric', 'start', 'end'],
@@ -262,7 +285,19 @@ class FindAnomaliesTool(Tool):
         tr = TimeRange.from_iso(self._require(kwargs, 'start'),
                                 self._require(kwargs, 'end'))
         method = AnomalyMethod(kwargs.get('method') or 'zscore')
-        sensitivity = float(kwargs.get('sensitivity') or 2.0)
+        sensitivity_raw = kwargs.get('sensitivity')
+        # THRESHOLD bắt buộc phải có sensitivity vì đơn vị khác nhau tùy metric
+        # (W, V, °C, %...): mặc định 2.0 sẽ thành "ngưỡng 2W" -> báo động mọi điểm.
+        # Với zscore/iqr vẫn cho default 2.0 vì đó là hệ số không phụ thuộc đơn vị.
+        if method == AnomalyMethod.THRESHOLD and sensitivity_raw in (None, ''):
+            raise ValueError(
+                "method='threshold' BẮT BUỘC phải truyền 'sensitivity' là NGƯỠNG "
+                "TRÊN theo đúng đơn vị của metric (vd nhiệt °C -> 70, công suất W "
+                "-> 5000, % mây che -> 90); tool chỉ báo các điểm VƯỢT ngưỡng. "
+                "Muốn tìm giá trị TỤT THẤP thì dùng method='zscore' hoặc 'iqr' rồi "
+                "lọc direction='below'.")
+        sensitivity = float(sensitivity_raw if sensitivity_raw not in (None, '')
+                            else 2.0)
         if method != AnomalyMethod.THRESHOLD and not 0.1 <= sensitivity <= 10.0:
             raise ValueError('sensitivity cho zscore/iqr phải nằm trong khoảng 0.1..10')
         svc = AnomalyService(self.env)
@@ -301,9 +336,10 @@ class GetHealthScoreTool(Tool):
 class ForecastTool(Tool):
     name = 'forecast'
     description = ('Dự báo ngắn hạn (vài giờ tới) cho metric có dữ liệu theo giờ, '
-                   'vd công suất, điện áp, nhiệt độ thiết bị. Chỉ hỗ trợ metric tức '
-                   'thời; không dùng cho counter/derived/thời tiết. Thiếu lịch sử sẽ '
-                   'trả available=false và không tạo điểm 0 giả.')
+                   'vd công suất, điện áp, nhiệt độ thiết bị. Chỉ hỗ trợ metric '
+                   'INSTANTANEOUS theo giờ; không dùng cho COUNTER, DERIVED hoặc '
+                   'thời tiết chỉ có theo ngày. Thiếu lịch sử sẽ trả '
+                   'available=false và không tạo điểm 0 giả.')
 
     def parameters(self):
         return {

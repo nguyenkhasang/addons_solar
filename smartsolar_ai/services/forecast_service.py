@@ -58,7 +58,6 @@ class ForecastService:
             raise ValueError('horizon_hours phải nằm trong khoảng 1..48')
         if lookback_days < 2 or lookback_days > 30:
             raise ValueError('lookback_days phải nằm trong khoảng 2..30')
-
         now = fields.Datetime.now()  # UTC naive
         lookback = TimeRange(now - timedelta(days=lookback_days), now)
 

@@ -67,13 +67,39 @@ _SYSTEM_PROMPT = (
     "- 'tổng quan/tình hình/hôm nay thế nào' -> gọi get_health_score + "
     "get_device_status + get_aggregate(['output_power','pv_input',"
     "'energy_exported_total']).\n"
-    "- 'dự báo ...' -> forecast(metric, horizon_hours=6). 'dự báo điện tiêu thụ' -> "
-    "metric='grid_import_power'; 'dự báo công suất' -> 'output_power'. Dự báo sản "
-    "lượng kWh hiện CHƯA hỗ trợ; không đánh tráo sản lượng kWh thành công suất W.\n"
+    "- 'dự báo ...' -> forecast(metric, horizon_hours=6). 'dự báo điện lấy lưới' -> "
+    "metric='grid_import_power'; 'dự báo công suất inverter phát' -> 'output_power'. "
+    "Dự báo tải nhà hoặc sản lượng kWh hiện CHƯA hỗ trợ; không đánh tráo kWh thành W.\n"
     "- 'có gì bất thường' -> find_anomalies(metric). 'cảnh báo/lỗi' -> get_alarms.\n"
-    "- Tên người dùng nói -> map sang metric key qua nhãn tiếng Việt trong danh mục "
-    "cuối prompt (vd 'điện tiêu thụ/lấy lưới' -> grid_import_power, 'công suất' -> "
-    "output_power, 'sản lượng PV' -> pv_energy_total).\n"
+    "\n"
+    "★ PHÂN BIỆT 2 CHIỀU ĐIỆN — SAI CHIỀU LÀ BÁO CÁO NGƯỢC NGHĨA ★\n"
+    "Hệ có HAI dòng điện NGƯỢC NHAU, cùng đơn vị W và cùng đọc từ inverter, RẤT DỄ "
+    "lẫn. Luôn xem dòng 'CHIỀU:' của metric trong danh mục cuối prompt trước khi gọi:\n"
+    "- ĐIỆN LẤY TỪ LƯỚI (điện phải MUA của điện lực, đi VÀO nhà):\n"
+    "    công suất -> grid_import_power (W) | năng lượng -> grid_import_energy_total (kWh)\n"
+    "    Người dùng nói: 'lấy lưới', 'từ lưới', 'mua điện', 'điện lưới', 'nhập lưới',\n"
+    "    'lưới điện quốc gia', 'điện nhà nước', 'tiền điện'.\n"
+    "- ĐIỆN TỰ SẢN XUẤT (inverter PHÁT RA từ PV, KHÔNG phải mua):\n"
+    "    công suất -> output_power (W) | năng lượng -> energy_exported_total (kWh)\n"
+    "    Người dùng nói: 'inverter phát', 'công suất phát', 'sản lượng', 'tự sản xuất'.\n"
+    "- TUYỆT ĐỐI KHÔNG dùng output_power/energy_exported_total để trả lời câu hỏi về "
+    "điện lấy từ lưới, và ngược lại. Hai cái này NGƯỢC CHIỀU nhau.\n"
+    "- Lưu ý tên key gây nhầm: 'energy_exported_total' có chữ 'exported' nhưng KHÔNG "
+    "phải điện bán lên lưới — nó là SẢN LƯỢNG tích lũy của inverter.\n"
+    "\n"
+    "★ 'ĐIỆN THU TỪ PV' CÓ 2 NHÁNH — ĐỪNG CỘNG TRÙNG ★\n"
+    "Điện từ tấm pin đi theo 2 nhánh riêng, đo bởi 2 thiết bị khác nhau:\n"
+    "- Nhánh NẠP PIN (bộ sạc MPPT): pv_input (W), pv_energy_total (kWh).\n"
+    "- Nhánh CẤP TẢI (inverter GTI): output_power (W), energy_exported_total (kWh).\n"
+    "- Hỏi chung 'điện thu từ PV hôm nay bao nhiêu': báo CẢ HAI nhánh thành 2 dòng "
+    "riêng, nói rõ nhánh nào là nhánh nào. KHÔNG CỘNG hai nhánh lại thành một số "
+    "'tổng PV' (hai thiết bị đo hai đường khác nhau, cộng vào là sai/đếm trùng).\n"
+    "\n"
+    "★ 'ĐIỆN TIÊU THỤ' (tải trong nhà) — KHÔNG có metric đo trực tiếp ★\n"
+    "Tải nhà = output_power + grid_import_power (phần inverter cấp + phần lấy từ "
+    "lưới). Hệ CHƯA có công-tơ đo tải riêng. Khi được hỏi 'điện tiêu thụ/tải nhà': "
+    "lấy cả hai metric rồi trình bày từng thành phần, nêu tổng kèm ghi chú đây là "
+    "số suy ra từ hai nguồn, không phải số đo trực tiếp.\n"
     "\n"
     "KHÔNG BỊA SỐ:\n"
     "- Mọi giá trị (W, V, A, kWh, %, °C...) phải lấy từ JSON tool trả về trong hội "
@@ -86,6 +112,13 @@ _SYSTEM_PROMPT = (
     "- Timeseries có truncated=true là chuỗi đã được lấy mẫu; vẫn dùng để nhận xét "
     "xu hướng nhưng không được nói là đã liệt kê mọi điểm đo.\n"
     "- Chỉ báo cáo metric người dùng hỏi hoặc thật sự liên quan.\n"
+    "\n"
+    "QUY TẮC VỀ 'count=0' và 'unreliable' (áp dụng MỌI tool):\n"
+    "- Mọi kết quả tool có field 'count' = số bản ghi đo được. count=0 = không có "
+    "dữ liệu đo trong khoảng, KHÔNG phải giá trị 0 W/kWh/°C thật.\n"
+    "- Metric có 'unreliable: true' trong list_metrics (thiếu cảm biến, đang dùng sơ "
+    "đồ năng lượng tạm) -> dù tool vẫn trả về kết quả, kết quả có thể không phản "
+    "ánh đúng vật lý. LUÔN nói 'chưa đủ dữ liệu để tính KPI này'.\n"
     "\n"
     "ĐỐI CHIẾU THỜI TIẾT ↔ SẢN LƯỢNG:\n"
     "- Khi được hỏi vì sao sản lượng cao/thấp hoặc đánh giá hiệu suất, lấy KÈM "
@@ -176,13 +209,21 @@ class SmartSolarAIAgent(models.AbstractModel):
             daily = ' [chỉ theo NGÀY, chi tiết ~7 ngày gần nhất]' if m.get('daily_only') else ''
             support = '' if m.get('supported', True) else ' [KHÔNG HỖ TRỢ — KHÔNG BÁO SỐ]'
             note = (' — LƯU Ý: %s' % m['note']) if m.get('note') else ''
+            # Cảnh báo unreliable (thiếu cảm biến / đang dùng sơ đồ tạm) để LLM nói
+            # "chưa đủ dữ liệu" thay vì đưa con số sai cho người dùng.
+            unrel = ' [⚠️ unreliable — thiếu cảm biến]' if m.get('unreliable') else ''
             # In kèm label tiếng Việt để model map "tên người dùng nói" -> key
             # (vd "điện lấy lưới/tiêu thụ" -> grid_import_power). Không phải suy luận,
             # chỉ tra bảng -> hợp với model nhỏ.
             label = (' — %s' % m['label']) if m.get('label') else ''
-            lines.append('- %s (%s; %s; gộp mặc định=%s)%s%s%s%s%s' % (
+            # CHIỀU dòng năng lượng. Bắt buộc in ra: các metric ngược chiều nhau
+            # (điện lấy TỪ lưới vs điện inverter PHÁT RA) trùng nhau ở mọi trường
+            # còn lại — cùng W, cùng kind, cùng bảng nguồn — nên nếu thiếu dòng này
+            # model nhỏ không có căn cứ nào để phân biệt và sẽ báo cáo ngược nghĩa.
+            flow = ('\n    ↳ CHIỀU: %s' % m['flow']) if m.get('flow') else ''
+            lines.append('- %s (%s; %s; gộp mặc định=%s)%s%s%s%s%s%s%s' % (
                 m['key'], m['unit'] or '-', m['kind'], m['default_aggregation'],
-                label, support, scope, daily, note))
+                label, support, scope, daily, unrel, note, flow))
         catalog = '\n'.join(lines)
 
         # Hệ thống mặc định: hệ thống có id NHỎ NHẤT mà user hiện tại phụ trách
@@ -209,9 +250,13 @@ class SmartSolarAIAgent(models.AbstractModel):
             "\n"
             "THỜI GIAN cho start/end (tránh lệch 7 giờ):\n"
             "- Câu hỏi tương đối: dùng TOKEN, đừng tự tính giờ — now, now-2h, "
-            "now-30m, now-7d, today, yesterday, tomorrow. Vd 'hôm nay' -> "
+            "now-30m, now-7d, now-1y, today, yesterday, tomorrow. Vd 'hôm nay' -> "
             "start='today' end='tomorrow'; 'hôm qua' -> 'yesterday'..'today'; "
             "'7 ngày qua' -> 'now-7d'..'now'.\n"
+            "- GHÉP được nhiều đơn vị: 'now-1y-3d' = lùi 1 năm 3 ngày. Nhờ vậy so "
+            "sánh CÙNG KỲ NĂM NGOÁI viết trọn được, vd '3 ngày gần nhất vs cùng kỳ "
+            "năm ngoái' -> a_start='now-3d' a_end='now', b_start='now-1y-3d' "
+            "b_end='now-1y'. Đừng tự cộng/trừ ngày tháng — cứ ghép token.\n"
             "- Chỉ khi nêu NGÀY/GIỜ CỤ THỂ mới dùng ISO giờ VN, không kèm múi giờ "
             "(vd '2026-07-06T00:00:00', không có 'Z'/'+07:00').\n"
             "- Không tự trừ 7 giờ hay đổi sang UTC — server tự lo.\n"
@@ -220,6 +265,20 @@ class SmartSolarAIAgent(models.AbstractModel):
             "- Chỉ có theo NGÀY, không theo giờ; chi tiết chỉ ~7 ngày gần nhất.\n"
             "- Nhiều ngày/xu hướng: dùng get_timeseries (đọc bảng tổng hợp ngày), "
             "không dùng get_aggregate cho khoảng dài (>~7 ngày dễ trả rỗng).\n"
+            "\n"
+            "GỢI Ý CHỌN METHOD KHI GỌI find_anomalies:\n"
+            "- method=zscore (mặc định, cho metric theo giờ có chu kỳ rõ như công "
+            "suất PV, điện áp AC/DC): điểm lệch >= N độ lệch chuẩn; sensitivity "
+            "2.0–3.0.\n"
+            "- method=iqr (dữ liệu nhiều nhiễu/đuôi dày, vd nhiệt độ inverter, điện "
+            "áp pin): chống nhiễu tốt hơn zscore.\n"
+            "- method=threshold CHỈ tìm điểm VƯỢT TRÊN một ngưỡng (vd nhiệt >70°C, "
+            "công suất >5000W); BẮT BUỘC truyền sensitivity theo đúng đơn vị metric, "
+            "không có default.\n"
+            "- Muốn tìm giá trị TỤT THẤP (vd pin yếu, công suất sụt): KHÔNG dùng "
+            "threshold — dùng zscore/iqr rồi đọc các event có direction='below'.\n"
+            "- Mỗi event trả về kèm direction ('above'/'below') — hãy nêu rõ hướng "
+            "lệch khi viết nhận định, đừng chỉ nói 'có N điểm bất thường'.\n"
             "\n"
             "CÁC METRIC CÓ SẴN (dùng đúng key cho 'metric'/'metrics'; khỏi gọi "
             "list_metrics):\n%s"

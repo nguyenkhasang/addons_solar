@@ -73,7 +73,9 @@ class ComparisonResult:
     metrics: List[str]
     period_a: dict                      # {"range":[...], "metrics":{...}}
     period_b: dict
-    deltas: dict                        # {metric: {abs: chênh tuyệt đối, pct: chênh %}}
+    deltas: dict                        # {metric: {a, b, abs, pct, available,
+                                        #   reason, a_minus_b,
+                                        #   pct_change_a_vs_b, note}}
 
     def to_dict(self) -> dict:
         return {

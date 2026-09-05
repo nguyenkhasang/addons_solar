@@ -64,6 +64,12 @@ class TestDomain(TransactionCase):
         with self.assertRaises(ValueError):
             TimeRange.from_iso('now-2x', 'now')
 
+    def test_timerange_relative_composite_year_token(self):
+        from datetime import timedelta
+        tr = TimeRange.from_iso('now-1y-3d', 'now-1y')
+        self.assertAlmostEqual(tr.duration, timedelta(days=3),
+                               delta=timedelta(seconds=5))
+
     def test_registry_has_core_metrics(self):
         self.assertTrue(MetricRegistry.exists('output_power'))
         self.assertTrue(MetricRegistry.exists('bat_voltage'))
@@ -82,10 +88,18 @@ class TestDomain(TransactionCase):
         metrics = {m['key']: m for m in MetricRegistry.describe()}
         grid_dependency = metrics['grid_dependency_pct']
         self.assertFalse(grid_dependency['supported'])
+        self.assertTrue(grid_dependency['unreliable'])
         self.assertIn('Chưa có công-tơ', grid_dependency['note'])
         self.assertEqual(
             grid_dependency['depends_on'],
             ['grid_import_energy', 'load_energy'])
+        self.assertIn('LẤY TỪ lưới', metrics['grid_import_power']['flow'])
+
+    def test_instantaneous_sum_resolves_to_avg(self):
+        repo = MetricRepository(None)
+        resolved = repo.resolve_aggregation(
+            MetricRegistry.get('output_power'), AggregationType.SUM)
+        self.assertEqual(resolved, AggregationType.AVG)
 
     def test_first_last_aggregation_does_not_fall_back_to_avg(self):
         last_expr = MetricRepository._aggregation_expr(
@@ -193,6 +207,14 @@ class TestDomain(TransactionCase):
         self.assertFalse(result.available)
         self.assertIsNone(result.score)
         self.assertEqual(result.coverage_pct, 0.0)
+
+    def test_health_daylight_overlap_uses_vietnam_time(self):
+        night = TimeRange.from_iso('2026-07-02T20:00:00',
+                                   '2026-07-02T22:00:00')
+        dawn = TimeRange.from_iso('2026-07-02T04:30:00',
+                                  '2026-07-02T05:30:00')
+        self.assertFalse(HealthService._overlaps_daylight(night))
+        self.assertTrue(HealthService._overlaps_daylight(dawn))
 
     def test_forecast_missing_history_has_no_zero_points(self):
         class EmptySeries:
