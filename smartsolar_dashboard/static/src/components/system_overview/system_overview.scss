@@ -54,14 +54,14 @@
     .ss_ov_big.purple { color: var(--ov-home); }
     .ss_ov_unit { font-size: 12px; color: var(--ov-label); font-weight: 500; }
     .ss_ov_divider { color: var(--ov-dot-border); }
-    .ss_ov_line { width: 22px; height: 34px; background: linear-gradient(to right, transparent 0, transparent 10px, var(--ov-line) 10px, var(--ov-line) 12px, transparent 12px, transparent 100%); margin: 0 auto; position: relative; overflow: hidden; border-radius: 999px; }
+    .ss_ov_line { width: 22px; height: 50px; background: linear-gradient(to right, transparent 0, transparent 10px, var(--ov-line) 10px, var(--ov-line) 12px, transparent 12px, transparent 100%); margin: 0 auto; position: relative; overflow: hidden; border-radius: 999px; }
     .ss_ov_center_row { display: flex; align-items: center; justify-content: center; width: 100%; }
     .ss_ov_hline { flex: 1; height: 22px; background: linear-gradient(to bottom, transparent 0, transparent 10px, var(--ov-line) 10px, var(--ov-line) 12px, transparent 12px, transparent 100%); position: relative; max-width: 80px; overflow: hidden; border-radius: 999px; }
     .ss_ov_line.active::before, .ss_ov_line.active::after, .ss_ov_hline.active::before, .ss_ov_hline.active::after { content: ""; position: absolute; width: var(--ov-particle-size, 8px); height: var(--ov-particle-size, 8px); border-radius: 50%; background: var(--ov-flow, var(--ov-grid)); opacity: var(--ov-flow-opacity, .85); filter: drop-shadow(0 0 var(--ov-flow-glow, 10px) var(--ov-flow, var(--ov-grid))); }
-    .ss_ov_line.active::before, .ss_ov_line.active::after { top: 4px; left: 50%; transform: translateX(-50%); box-shadow: 0 var(--ov-particle-gap-neg, -11px) 0 var(--ov-particle-tail-1, -2px) var(--ov-flow, var(--ov-grid)), 0 var(--ov-particle-gap-2-neg, -22px) 0 var(--ov-particle-tail-2, -3px) var(--ov-flow, var(--ov-grid)); animation: ss_ov_flow_vertical var(--ov-flow-duration, 1.25s) linear infinite; }
+    .ss_ov_line.active::before, .ss_ov_line.active::after { top: 2px; left: 50%; transform: translateX(-50%); box-shadow: 0 var(--ov-particle-gap-neg, -11px) 0 var(--ov-particle-tail-1, -2px) var(--ov-flow, var(--ov-grid)), 0 var(--ov-particle-gap-2-neg, -22px) 0 var(--ov-particle-tail-2, -3px) var(--ov-flow, var(--ov-grid)); animation: ss_ov_flow_vertical var(--ov-flow-duration, 1.25s) linear infinite; }
     .ss_ov_hline.active::before, .ss_ov_hline.active::after { top: 50%; left: 8px; transform: translateY(-50%); box-shadow: var(--ov-particle-gap-neg, -11px) 0 0 var(--ov-particle-tail-1, -2px) var(--ov-flow, var(--ov-grid)), var(--ov-particle-gap-2-neg, -22px) 0 0 var(--ov-particle-tail-2, -3px) var(--ov-flow, var(--ov-grid)); animation: ss_ov_flow_horizontal var(--ov-flow-duration, 1.2s) linear infinite; }
     .ss_ov_line.active::after, .ss_ov_hline.active::after { animation-delay: var(--ov-flow-delay, -.6s); }
-    .ss_ov_line.active.reverse::before, .ss_ov_line.active.reverse::after { top: auto; bottom: 4px; animation-name: ss_ov_flow_vertical_reverse; }
+    .ss_ov_line.active.reverse::before, .ss_ov_line.active.reverse::after { top: auto; bottom: 2px; animation-name: ss_ov_flow_vertical_reverse; }
     .ss_ov_hline.active.reverse::before, .ss_ov_hline.active.reverse::after { left: auto; right: 8px; animation-name: ss_ov_flow_horizontal_reverse; }
     .ss_ov_line_top { --ov-flow: var(--ov-solar); }
     .ss_ov_line_bottom { --ov-flow: var(--ov-battery); }
@@ -81,9 +81,9 @@
     .ss_ov_grid, .ss_ov_home { min-width: 100px; flex-shrink: 0; }
     .ss_ov_node.active .ss_ov_icon_wrap { animation: ss_ov_node_pulse 2s ease-in-out infinite; }
     @keyframes ss_ov_node_pulse { 0%, 100% { transform: scale(1); box-shadow: 0 0 14px var(--ov-node-glow, rgba(6,182,212,.22)); } 50% { transform: scale(1.018); box-shadow: 0 0 22px var(--ov-node-glow, rgba(6,182,212,.42)); } }
-    @keyframes ss_ov_flow_vertical { from { transform: translate(-50%, 0); } to { transform: translate(-50%, 16px); } }
-    @keyframes ss_ov_flow_vertical_reverse { from { transform: translate(-50%, 0); } to { transform: translate(-50%, -16px); } }
-    @keyframes ss_ov_flow_horizontal { from { transform: translate(0, -50%); } to { transform: translate(56px, -50%); } }
-    @keyframes ss_ov_flow_horizontal_reverse { from { transform: translate(0, -50%); } to { transform: translate(-56px, -50%); } }
+    @keyframes ss_ov_flow_vertical { from { transform: translate(-50%, 0); } to { transform: translate(-50%, 50px); } }
+    @keyframes ss_ov_flow_vertical_reverse { from { transform: translate(-50%, 0); } to { transform: translate(-50%, -50px); } }
+    @keyframes ss_ov_flow_horizontal { from { transform: translate(0, -50%); } to { transform: translate(50px, -50%); } }
+    @keyframes ss_ov_flow_horizontal_reverse { from { transform: translate(0, -50%); } to { transform: translate(-50px, -50%); } }
     @keyframes ss_ov_inverter_breathe { 0%, 100% { transform: scale(1); box-shadow: 0 0 14px var(--ov-inverter-flow); } 50% { transform: scale(1.012); box-shadow: 0 0 22px var(--ov-inverter-flow); } }
 }

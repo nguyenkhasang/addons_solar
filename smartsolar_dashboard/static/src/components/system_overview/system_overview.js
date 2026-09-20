@@ -45,6 +45,7 @@ export class SystemOverview extends Component {
             this.state.acout_w = msg.output_power || 0;
             this.state.grid_w = msg.limiter_power || 0;
             this.state.home_w = (msg.output_power || 0) + (msg.limiter_power || 0);
+            this._updateBatteryFlow();
         }
         if (msg.device_type === "charge_power") {
             this.state.solar_w = msg.charge_power || 0;
@@ -52,9 +53,23 @@ export class SystemOverview extends Component {
             this.state.solar_a = msg.pv_current || 0;
             this.state.bat_v = msg.bat_voltage || 0;
             this.state.bat_a = msg.bat_current || 0;
-            this.state.bat_flow_w = (msg.bat_voltage || 0) * (msg.bat_current || 0);
-            this.state.bat_w = Math.abs(this.state.bat_flow_w);
+            this._updateBatteryFlow();
         }
+    }
+
+    _updateBatteryFlow() {
+        const batteryVoltage = Number(this.state.bat_v || 0);
+        const batteryCurrent = Number(this.state.bat_a || 0);
+        const measuredFlowW = batteryVoltage * batteryCurrent;
+        // Some charge controllers report bat_current = 0 while the battery is
+        // still supplying the inverter. In that case infer the flow from the
+        // DC power balance: positive means charging, negative means discharging.
+        const balancedFlowW = Number(this.state.solar_w || 0) - Number(this.state.acout_w || 0);
+        const hasMeasuredCurrent = batteryVoltage > 0 && Math.abs(batteryCurrent) > 0.001;
+        this.state.bat_flow_w = hasMeasuredCurrent
+            ? measuredFlowW
+            : balancedFlowW;
+        this.state.bat_w = Math.abs(this.state.bat_flow_w);
     }
 
     fmtW(v) {
