@@ -107,7 +107,6 @@ export class SmartSolarDashboard extends Component {
             distribution: useRef("distributionChart"),
             heatmap: useRef("heatmapChart"),
             monthlyComparison: useRef("monthlyComparisonChart"),
-            energyFlow: useRef("energyFlowChart"),
         };
 
         onWillStart(async () => {
@@ -464,7 +463,6 @@ export class SmartSolarDashboard extends Component {
         this._renderDistributionChart();
         this._renderHeatmapChart();
         this._renderMonthlyComparisonChart();
-        this._renderEnergyFlowChart();
     }
 
     _renderRealtimeFromBuffer() {
@@ -632,7 +630,7 @@ export class SmartSolarDashboard extends Component {
             data: {
                 labels: e.labels,
                 datasets: [{
-                    label: "Năng lượng sản xuất (kWh)",
+                    label: "Sản lượng inverter (kWh)",
                     data: e.energy_kwh,
                     backgroundColor: e.energy_kwh.map((_, i) => i === e.energy_kwh.length - 1 ? COLORS.primary : "rgba(255, 184, 0, 0.55)"),
                     borderRadius: 6,
@@ -740,7 +738,7 @@ export class SmartSolarDashboard extends Component {
                 labels: d.labels,
                 datasets: [{
                     data: d.data,
-                    backgroundColor: [COLORS.accent, COLORS.primary, COLORS.danger],
+                    backgroundColor: [COLORS.accent, COLORS.danger],
                     borderWidth: 0,
                     hoverOffset: 8,
                 }],
@@ -881,31 +879,6 @@ export class SmartSolarDashboard extends Component {
                 plugins: {
                     ...this._commonChartOptions().plugins,
                     tooltip: { ...this._commonChartOptions().plugins.tooltip, callbacks: { label: (c) => `${c.dataset.label}: ${c.parsed.y.toFixed(1)} kWh` } },
-                },
-            }),
-        });
-    }
-
-    _renderEnergyFlowChart() {
-        const canvas = this.refs.energyFlow?.el;
-        if (!canvas) return;
-        const ef = this.state.data.energy_flow;
-        if (!ef || !ef.labels.length) { this._showEmpty(canvas); return; }
-        const ctx = canvas.getContext("2d");
-        this.charts.energyFlow = new Chart(ctx, {
-            type: "bar",
-            data: {
-                labels: ef.labels,
-                datasets: [
-                    { label: "PV tự dùng (kWh)", data: ef.self_use, backgroundColor: COLORS.success + "cc", stack: "energy", borderSkipped: false },
-                    { label: "Xuất lưới (kWh)", data: ef.export, backgroundColor: COLORS.primary + "cc", stack: "energy", borderSkipped: false },
-                    { label: "Lấy lưới (kWh)", data: ef.import_grid, backgroundColor: COLORS.danger + "88", stack: "energy", borderSkipped: false },
-                ],
-            },
-            options: this._commonChartOptions({
-                scales: {
-                    x: { ...this._commonChartOptions().scales.x, stacked: true },
-                    y: { ...this._commonChartOptions().scales.y, stacked: true, title: { display: true, text: "kWh", color: this.state.theme === "dark" ? "#cbd5e1" : "#475569" } },
                 },
             }),
         });

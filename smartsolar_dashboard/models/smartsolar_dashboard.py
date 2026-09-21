@@ -453,86 +453,6 @@ class SmartSolarDashboard(models.AbstractModel):
         }
 
     @api.model
-    def get_energy_flow_series(self, time_range='1week', system_id=None):
-        """Stacked bar: PV self-use, xuất lưới, lấy lưới theo ngày."""
-        cfg, date_from, date_to = self._resolve_time_range(time_range)
-        bucket_type = 'hour' if cfg['source'] == 'hourly' else 'day'
-        params = [bucket_type, date_from, date_to]
-        sys_filter = ''
-        if system_id:
-            sys_filter = 'AND system_id = %s'
-            params.append(int(system_id))
-
-        truncate = cfg['truncate_expr']
-        sql = f"""
-            WITH gti AS (
-                SELECT {truncate} AS d,
-                       SUM(energy_kwh) AS export_kwh,
-                       SUM(COALESCE((SELECT SUM(energy_kwh) FROM charge_power_summary
-                           WHERE bucket_type = %s
-                             AND bucket_start BETWEEN %s AND %s
-                             {sys_filter}
-                           LIMIT 1), 0)) AS pv_kwh
-                FROM grid_tie_inverter_summary
-                WHERE bucket_type = %s AND bucket_start BETWEEN %s AND %s {sys_filter}
-                GROUP BY d
-            )
-            SELECT d FROM gti ORDER BY d
-        """
-        # Simplified approach: query GTI and CP separately then combine
-        params_gti = [bucket_type, date_from, date_to]
-        if system_id:
-            params_gti.append(int(system_id))
-        sql_gti = f"""
-            SELECT {truncate} AS d, SUM(energy_kwh) AS export_kwh
-            FROM grid_tie_inverter_summary
-            WHERE bucket_type = %s AND bucket_start BETWEEN %s AND %s {sys_filter}
-            GROUP BY d ORDER BY d
-        """
-        sql_cp = f"""
-            SELECT {truncate} AS d, SUM(energy_kwh) AS pv_kwh
-            FROM charge_power_summary
-            WHERE bucket_type = %s AND bucket_start BETWEEN %s AND %s {sys_filter}
-            GROUP BY d ORDER BY d
-        """
-        sql_import = f"""
-            SELECT {truncate} AS d,
-                   COALESCE(SUM(energy_kwh), 0) AS import_kwh
-            FROM grid_tie_inverter_summary
-            WHERE bucket_type = %s AND bucket_start BETWEEN %s AND %s {sys_filter}
-              AND limiter_power_avg > 0
-            GROUP BY d ORDER BY d
-        """
-        self.env.cr.execute(sql_gti, params_gti)
-        gti_rows = {r[0]: float(r[1] or 0) for r in self.env.cr.fetchall()}
-        self.env.cr.execute(sql_cp, params_gti)
-        cp_rows = {r[0]: float(r[1] or 0) for r in self.env.cr.fetchall()}
-        self.env.cr.execute(sql_import, params_gti)
-        import_rows = {r[0]: float(r[1] or 0) for r in self.env.cr.fetchall()}
-
-        all_days = sorted(set(list(gti_rows.keys()) + list(cp_rows.keys())))
-        fmt = '%Y-%m-%d' if cfg['bucket'] in ('day', 'week') else '%Y-%m-%d %H:%M'
-
-        labels, export_data, self_use_data, import_data = [], [], [], []
-        for d in all_days:
-            labels.append(_to_utc7(d).strftime(fmt) if hasattr(d, 'strftime') else str(d))
-            pv = cp_rows.get(d, 0)
-            export = gti_rows.get(d, 0)
-            imp = import_rows.get(d, 0)
-            self_use = max(pv - export, 0)
-            export_data.append(round(export, 3))
-            self_use_data.append(round(self_use, 3))
-            import_data.append(round(imp, 3))
-
-        return {
-            'labels': labels,
-            'export': export_data,
-            'self_use': self_use_data,
-            'import_grid': import_data,
-            'source': cfg['source'],
-        }
-
-    @api.model
     def _get_current_total_power(self, system_id=None):
         """Tổng công suất hiện tại:
         - GTI output_power: công suất hòa lưới hiện tại
@@ -882,59 +802,60 @@ class SmartSolarDashboard(models.AbstractModel):
         cfg, date_from, date_to = self._resolve_time_range(time_range)
         if cfg['source'] == 'raw':
             return self._energy_comparison_from_raw(cfg, date_from, date_to, system_id)
-        return self._energy_comparison_from_summary(cfg, date_from, date_to, system_id)
+        result = self._energy_comparison_from_summary(
+            cfg, date_from, date_to, system_id)
+        if result['labels']:
+            return result
+        return self._energy_comparison_from_raw(
+            cfg, date_from, date_to, system_id)
 
     def _energy_comparison_from_raw(self, cfg, date_from, date_to, system_id):
-        """Hệ hybrid: chỉ dùng GTI energy_today làm sản lượng hòa lưới."""
+        """Sản lượng inverter theo ngày từ bộ đếm energy_today."""
         params = [date_from, date_to]
         sys_filter = ''
         if system_id:
             sys_filter = 'AND system_id = %s'
             params.append(int(system_id))
         sql = f"""
-            SELECT date_trunc('day', record_date) AS d, SUM(max_e) AS total
+            SELECT local_day AS d, SUM(max_e) AS total
             FROM (
-                SELECT date_trunc('day', record_date) AS record_date,
+                SELECT (record_date + INTERVAL '7 hours')::date AS local_day,
                        MAX(energy_today) AS max_e
                 FROM grid_tie_inverter
                 WHERE record_date BETWEEN %s AND %s {sys_filter}
-                GROUP BY date_trunc('day', record_date), device_id
+                GROUP BY local_day, device_id
             ) t
             GROUP BY d ORDER BY d
         """
         self.env.cr.execute(sql, params)
         rows = self.env.cr.fetchall()
         return {
-            'labels': [_to_utc7(r[0]).strftime('%Y-%m-%d') if r[0] else '' for r in rows],
+            'labels': [r[0].strftime('%Y-%m-%d') if r[0] else '' for r in rows],
             'energy_kwh': [round(float(r[1] or 0), 3) for r in rows],
             'source': 'raw',
         }
 
     def _energy_comparison_from_summary(self, cfg, date_from, date_to, system_id):
-        bucket_type = 'hour' if cfg['source'] == 'hourly' else 'day'
-        """Hệ hybrid: chỉ dùng GTI energy_kwh (sản lượng hòa lưới) từ summary."""
+        """Sản lượng inverter theo ngày từ bảng tổng hợp."""
         bucket_type = 'hour' if cfg['source'] == 'hourly' else 'day'
         params = [bucket_type, date_from, date_to]
         sys_filter = ''
         if system_id:
             sys_filter = 'AND system_id = %s'
             params.append(int(system_id))
-        truncate = cfg['truncate_expr']
         sql = f"""
-            SELECT {truncate} AS d, COALESCE(SUM(energy_kwh), 0)
+            SELECT (bucket_start + INTERVAL '7 hours')::date AS d,
+                   COALESCE(SUM(energy_kwh), 0)
             FROM grid_tie_inverter_summary
             WHERE bucket_type = %s AND bucket_start BETWEEN %s AND %s {sys_filter}
             GROUP BY d ORDER BY d
         """
         self.env.cr.execute(sql, params)
         rows = self.env.cr.fetchall()
-        fmt = '%Y-%m-%d' if cfg['bucket'] in ('day', 'week') else '%Y-%m'
-        if cfg['bucket'] == 'hour':
-            fmt = '%Y-%m-%d %H:%M'
         return {
-            'labels': [_to_utc7(r[0]).strftime(fmt) if r[0] else '' for r in rows],
+            'labels': [r[0].strftime('%Y-%m-%d') if r[0] else '' for r in rows],
             'energy_kwh': [round(float(r[1] or 0), 3) for r in rows],
-            'source': cfg['source'],
+            'source': 'summary',
         }
 
     # ------------------------------------------------------------------
@@ -1016,10 +937,9 @@ class SmartSolarDashboard(models.AbstractModel):
     # ------------------------------------------------------------------
     @api.model
     def get_energy_distribution(self, system_id=None):
-        """Hệ hybrid: phân bổ theo luồng năng lượng thực tế.
-        - Hòa lưới: GTI energy_total (điện xuất ra lưới)
-        - Thu PV: MPPT total_kwh (điện PV thu vào pin)
-        - Lấy lưới: GTI limiter_total (điện lấy từ lưới)
+        """Phân bổ điện cấp tải theo hai nguồn không chồng lặp.
+        - Inverter cấp tải: GTI energy_total
+        - Điện lấy lưới: GTI limiter_total
         """
         params = []
         sys_filter = ''
@@ -1033,13 +953,6 @@ class SmartSolarDashboard(models.AbstractModel):
                 ORDER BY device_id, bucket_start DESC
             ) t
         """
-        sql_cp = f"""
-            SELECT COALESCE(SUM(latest), 0) FROM (
-                SELECT DISTINCT ON (device_id) device_id, total_kwh_end AS latest
-                FROM charge_power_summary WHERE bucket_type = 'hour' {sys_filter}
-                ORDER BY device_id, bucket_start DESC
-            ) t
-        """
         sql_limiter = f"""
             SELECT COALESCE(SUM(max_e), 0) FROM (
                 SELECT MAX(limiter_total) AS max_e FROM grid_tie_inverter
@@ -1048,15 +961,13 @@ class SmartSolarDashboard(models.AbstractModel):
         """
         self.env.cr.execute(sql_gti, params)
         gti = float(self.env.cr.fetchone()[0] or 0)
-        self.env.cr.execute(sql_cp, params)
-        cp = float(self.env.cr.fetchone()[0] or 0)
         self.env.cr.execute(sql_limiter, params)
         limiter = float(self.env.cr.fetchone()[0] or 0)
-        if gti == 0 and cp == 0:
+        if gti == 0:
             return self._distribution_from_raw(system_id)
         return {
-            'labels': ['Hòa lưới (GTI)', 'Thu PV (MPPT)', 'Lấy lưới'],
-            'data': [round(gti, 3), round(cp, 3), round(limiter, 3)],
+            'labels': ['Inverter cấp tải', 'Điện lấy lưới'],
+            'data': [round(gti, 3), round(limiter, 3)],
         }
 
     def _distribution_from_raw(self, system_id):
@@ -1067,17 +978,14 @@ class SmartSolarDashboard(models.AbstractModel):
             sys_filter = 'AND system_id = %s'
             params.append(int(system_id))
         sql_gti = f"SELECT COALESCE(SUM(max_e), 0) FROM (SELECT MAX(energy_total) AS max_e FROM grid_tie_inverter WHERE 1=1 {sys_filter} GROUP BY device_id) t"
-        sql_cp = f"SELECT COALESCE(SUM(max_e), 0) FROM (SELECT MAX(total_kwh) AS max_e FROM charge_power WHERE 1=1 {sys_filter} GROUP BY device_id) t"
         sql_limiter = f"SELECT COALESCE(SUM(max_e), 0) FROM (SELECT MAX(limiter_total) AS max_e FROM grid_tie_inverter WHERE 1=1 {sys_filter} GROUP BY device_id) t"
         self.env.cr.execute(sql_gti, params)
         gti = float(self.env.cr.fetchone()[0] or 0)
-        self.env.cr.execute(sql_cp, params)
-        cp = float(self.env.cr.fetchone()[0] or 0)
         self.env.cr.execute(sql_limiter, params)
         limiter = float(self.env.cr.fetchone()[0] or 0)
         return {
-            'labels': ['Hòa lưới (GTI)', 'Thu PV (MPPT)', 'Lấy lưới'],
-            'data': [round(gti, 3), round(cp, 3), round(limiter, 3)],
+            'labels': ['Inverter cấp tải', 'Điện lấy lưới'],
+            'data': [round(gti, 3), round(limiter, 3)],
         }
 
     # ------------------------------------------------------------------
@@ -1196,7 +1104,6 @@ class SmartSolarDashboard(models.AbstractModel):
     @api.model
     def get_dashboard_data(self, time_range='24h', system_id=None):
         energy_range = '1week' if time_range in ('1h', '6h', '12h', '24h', '2min') else time_range
-        flow_range = '1week' if time_range in ('1h', '6h', '12h', '24h', '2min') else time_range
         return {
             'kpi': self.get_overview_kpi(system_id=system_id),
             'charge_power': self.get_charge_power_series(time_range=time_range, system_id=system_id),
@@ -1210,7 +1117,6 @@ class SmartSolarDashboard(models.AbstractModel):
             'systems': self.get_system_options(),
             'heatmap': self.get_heatmap_data(system_id=system_id),
             'monthly_comparison': self.get_monthly_comparison(system_id=system_id),
-            'energy_flow': self.get_energy_flow_series(time_range=flow_range, system_id=system_id),
             'environment': self.get_environment(system_id=system_id),
             'time_range': time_range,
             'system_id': system_id,
