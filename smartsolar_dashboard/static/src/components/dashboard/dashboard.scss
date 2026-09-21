@@ -142,6 +142,10 @@
     .ss_empty_state { padding: 80px 20px; }
     .ss_empty_state i { font-size: 48px; opacity: .35; margin-bottom: 14px; }
     .ss_chart_body_heatmap { height: 360px; position: relative; }
+    .ss_heatmap_buttons { display: inline-flex; gap: 4px; padding: 4px; background: var(--ss-surface-2); border: 1px solid var(--ss-border); border-radius: var(--ss-radius-sm); }
+    .ss_heatmap_btn { padding: 6px 12px; border: 0; border-radius: 6px; background: transparent; color: var(--ss-text-muted); font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+    .ss_heatmap_btn:hover { color: var(--ss-primary); }
+    .ss_heatmap_btn.active { background: var(--ss-primary); color: #fff; }
     .ss_col_12 { grid-column: span 12; }
 
     // KPI cards mới
@@ -200,5 +204,8 @@
         .ss_device_row { grid-template-columns: 1fr 1fr; }
         .ss_device_identity, .ss_device_sync { grid-column: 1 / -1; }
         .ss_time_meta { margin-left: 0; }
+        .ss_chart_header { align-items: flex-start; gap: 10px; flex-wrap: wrap; }
+        .ss_heatmap_buttons { width: 100%; }
+        .ss_heatmap_btn { flex: 1; padding-inline: 8px; }
     }
 }

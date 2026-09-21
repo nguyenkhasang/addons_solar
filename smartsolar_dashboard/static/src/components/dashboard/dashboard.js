@@ -22,6 +22,27 @@ const TIME_RANGES = [
     { key: "5year", label: "5 Năm" },
 ];
 
+const HEATMAP_METRICS = [
+    {
+        key: "grid_out",
+        label: "Hòa lưới",
+        title: "Công suất hòa lưới",
+        description: "Công suất AC trung bình inverter cấp vào hệ thống theo từng giờ",
+    },
+    {
+        key: "pv_input",
+        label: "Thu PV",
+        title: "Công suất thu PV",
+        description: "Công suất DC trung bình thu từ dàn PV theo từng giờ",
+    },
+    {
+        key: "total_load",
+        label: "Tổng tải",
+        title: "Công suất tổng tải",
+        description: "Tổng công suất tải trung bình (hòa lưới + lấy lưới) theo từng giờ",
+    },
+];
+
 const COLORS = {
     primary: "#FFB800",
     accent: "#1E88E5",
@@ -53,9 +74,11 @@ export class SmartSolarDashboard extends Component {
             lastRefresh: null,
             autoRefresh: true,
             realtimeActive: false,
+            heatmapMetric: "grid_out",
         });
 
         this.timeRanges = TIME_RANGES;
+        this.heatmapMetrics = HEATMAP_METRICS;
         this.charts = {};
         this.refreshTimer = null;
         this._realtimeChannel = null;
@@ -220,6 +243,12 @@ export class SmartSolarDashboard extends Component {
     onManualRefresh() {
         if (this.state.timeRange === "realtime") return;
         this._refresh();
+    }
+
+    onHeatmapMetricChange(key) {
+        if (this.state.heatmapMetric === key) return;
+        this.state.heatmapMetric = key;
+        this._renderHeatmapChart();
     }
 
     // ------------------------------------------------------------------
@@ -693,6 +722,8 @@ export class SmartSolarDashboard extends Component {
         if (!canvas) return;
         const hm = this.state.data.heatmap;
         if (!hm || !hm.days.length) { this._showEmpty(canvas); return; }
+        const metricData = hm.series?.[this.state.heatmapMetric] || hm;
+        const values = metricData.values || [];
 
         // Set canvas resolution to match CSS size (fix blurry/small rendering)
         const rect = canvas.parentElement.getBoundingClientRect();
@@ -716,7 +747,7 @@ export class SmartSolarDashboard extends Component {
         const availH = cssH - paddingTop - paddingBottom;
         const cellW = Math.floor((cssW - labelW) / 24);
         const cellH = Math.max(10, Math.floor(availH / Math.max(hm.days.length, 1)));
-        const maxVal = hm.max_val || 1;
+        const maxVal = metricData.max_val || 1;
 
         ctx.clearRect(0, 0, cssW, cssH);
         ctx.fillStyle = bg;
@@ -739,7 +770,7 @@ export class SmartSolarDashboard extends Component {
             ctx.fillText(day.slice(5), labelW - 4, y + cellH - 2);
 
             hm.hours.forEach((h, hi) => {
-                const val = (hm.values[di] || [])[hi] || 0;
+                const val = (values[di] || [])[hi] || 0;
                 const intensity = Math.min(val / maxVal, 1);
                 const r = Math.round(30 + intensity * 225);
                 const g = Math.round(200 - intensity * 100);
@@ -767,6 +798,19 @@ export class SmartSolarDashboard extends Component {
         ctx.fillText("0W", lgX - 2, lgY + 8);
         ctx.textAlign = "right";
         ctx.fillText(`${maxVal}W`, lgX + 112, lgY + 8);
+    }
+
+    get heatmapMetricInfo() {
+        return HEATMAP_METRICS.find((metric) => metric.key === this.state.heatmapMetric)
+            || HEATMAP_METRICS[0];
+    }
+
+    get heatmapTitle() {
+        return `Heatmap ${this.heatmapMetricInfo.title} (24h × 30 ngày)`;
+    }
+
+    get heatmapDescription() {
+        return this.heatmapMetricInfo.description;
     }
 
     _renderMonthlyComparisonChart() {

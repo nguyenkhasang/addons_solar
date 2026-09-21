@@ -140,8 +140,15 @@
                 <div class="ss_chart_card ss_col_12">
                     <div class="ss_chart_header">
                         <div>
-                            <div class="ss_chart_title"><i class="fa fa-th"/> Heatmap Công suất (24h × 30 ngày)</div>
-                            <div class="ss_chart_sub">Màu sắc theo công suất trung bình — đậm = cao, nhạt = thấp</div>
+                            <div class="ss_chart_title"><i class="fa fa-th"/> <t t-esc="heatmapTitle"/></div>
+                            <div class="ss_chart_sub"><t t-esc="heatmapDescription"/> — đậm = cao, nhạt = thấp</div>
+                        </div>
+                        <div class="ss_heatmap_buttons">
+                            <t t-foreach="heatmapMetrics" t-as="metric" t-key="metric.key">
+                                <button type="button" class="ss_heatmap_btn" t-att-class="{ active: state.heatmapMetric === metric.key }" t-on-click="() => this.onHeatmapMetricChange(metric.key)">
+                                    <t t-esc="metric.label"/>
+                                </button>
+                            </t>
                         </div>
                     </div>
                     <div class="ss_chart_body ss_chart_body_heatmap">

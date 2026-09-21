@@ -340,37 +340,73 @@ class SmartSolarDashboard(models.AbstractModel):
 
     @api.model
     def get_heatmap_data(self, system_id=None):
-        """Ma trận 24h × 30 ngày — công suất trung bình theo giờ và ngày."""
+        """Ma trận 24h × 30 ngày cho các luồng công suất chính."""
         params = []
         sys_filter = ''
         if system_id:
             sys_filter = 'AND system_id = %s'
             params.append(int(system_id))
-        sql = f"""
-            SELECT
-                (record_date + INTERVAL '7 hours')::date AS day,
-                EXTRACT(HOUR FROM record_date + INTERVAL '7 hours')::int AS hour,
-                AVG(output_power) AS avg_w
-            FROM grid_tie_inverter
-            WHERE record_date >= NOW() - INTERVAL '30 days' {sys_filter}
-            GROUP BY day, hour ORDER BY day, hour
-        """
-        self.env.cr.execute(sql, params)
-        rows = self.env.cr.fetchall()
 
-        data_map = defaultdict(dict)
+        queries = {
+            'grid_out': f"""
+                SELECT
+                    (record_date + INTERVAL '7 hours')::date AS day,
+                    EXTRACT(HOUR FROM record_date + INTERVAL '7 hours')::int AS hour,
+                    AVG(output_power) AS avg_w
+                FROM grid_tie_inverter
+                WHERE record_date >= NOW() - INTERVAL '30 days' {sys_filter}
+                GROUP BY day, hour ORDER BY day, hour
+            """,
+            'pv_input': f"""
+                SELECT
+                    (record_date + INTERVAL '7 hours')::date AS day,
+                    EXTRACT(HOUR FROM record_date + INTERVAL '7 hours')::int AS hour,
+                    AVG(pv_voltage * pv_current) AS avg_w
+                FROM charge_power
+                WHERE record_date >= NOW() - INTERVAL '30 days' {sys_filter}
+                GROUP BY day, hour ORDER BY day, hour
+            """,
+            'total_load': f"""
+                SELECT
+                    (record_date + INTERVAL '7 hours')::date AS day,
+                    EXTRACT(HOUR FROM record_date + INTERVAL '7 hours')::int AS hour,
+                    AVG(COALESCE(output_power, 0) + COALESCE(limiter_power, 0)) AS avg_w
+                FROM grid_tie_inverter
+                WHERE record_date >= NOW() - INTERVAL '30 days' {sys_filter}
+                GROUP BY day, hour ORDER BY day, hour
+            """,
+        }
+
+        data_maps = {}
         days_set = set()
-        for day, hour, avg_w in rows:
-            key = day.strftime('%Y-%m-%d') if hasattr(day, 'strftime') else str(day)
-            data_map[key][int(hour)] = round(float(avg_w or 0), 1)
-            days_set.add(key)
+        for metric, sql in queries.items():
+            self.env.cr.execute(sql, params)
+            data_map = defaultdict(dict)
+            for day, hour, avg_w in self.env.cr.fetchall():
+                key = day.strftime('%Y-%m-%d') if hasattr(day, 'strftime') else str(day)
+                data_map[key][int(hour)] = round(float(avg_w or 0), 1)
+                days_set.add(key)
+            data_maps[metric] = data_map
 
         days = sorted(days_set)
         hours = list(range(24))
-        values = [[data_map[d].get(h, 0) for h in hours] for d in days]
-        max_val = max((v for row in values for v in row), default=1) or 1
+        series = {}
+        for metric, data_map in data_maps.items():
+            values = [[data_map[d].get(h, 0) for h in hours] for d in days]
+            max_val = max((v for row in values for v in row), default=1) or 1
+            series[metric] = {
+                'values': values,
+                'max_val': round(max_val, 1),
+            }
 
-        return {'days': days, 'hours': hours, 'values': values, 'max_val': round(max_val, 1)}
+        default_series = series['grid_out']
+        return {
+            'days': days,
+            'hours': hours,
+            'values': default_series['values'],
+            'max_val': default_series['max_val'],
+            'series': series,
+        }
 
     @api.model
     def get_monthly_comparison(self, system_id=None):
