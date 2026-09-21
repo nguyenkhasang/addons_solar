@@ -152,7 +152,12 @@
                         </div>
                     </div>
                     <div class="ss_chart_body ss_chart_body_heatmap">
-                        <canvas t-ref="heatmapChart"/>
+                        <canvas t-ref="heatmapChart" t-on-mousemove="onHeatmapMouseMove" t-on-mouseleave="onHeatmapMouseLeave"/>
+                        <div t-if="state.heatmapTooltip" class="ss_heatmap_tooltip" t-att-style="heatmapTooltipStyle">
+                            <strong><t t-esc="heatmapMetricInfo.title"/></strong>
+                            <span><t t-esc="state.heatmapTooltip.day"/> · <t t-esc="state.heatmapTooltip.time"/></span>
+                            <b><t t-esc="fmtNumber(state.heatmapTooltip.value, 1)"/> W</b>
+                        </div>
                     </div>
                 </div>
 

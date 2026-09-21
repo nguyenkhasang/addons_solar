@@ -75,6 +75,7 @@ export class SmartSolarDashboard extends Component {
             autoRefresh: true,
             realtimeActive: false,
             heatmapMetric: "grid_out",
+            heatmapTooltip: null,
         });
 
         this.timeRanges = TIME_RANGES;
@@ -248,7 +249,46 @@ export class SmartSolarDashboard extends Component {
     onHeatmapMetricChange(key) {
         if (this.state.heatmapMetric === key) return;
         this.state.heatmapMetric = key;
+        this.state.heatmapTooltip = null;
         this._renderHeatmapChart();
+    }
+
+    onHeatmapMouseMove(ev) {
+        const layout = this._heatmapLayout;
+        if (!layout) return;
+
+        const rect = ev.currentTarget.getBoundingClientRect();
+        const x = (ev.clientX - rect.left) * (layout.cssW / rect.width);
+        const y = (ev.clientY - rect.top) * (layout.cssH / rect.height);
+        const hourIndex = Math.floor((x - layout.labelW) / layout.cellW);
+        const dayIndex = Math.floor((y - layout.paddingTop) / layout.cellH);
+        const isOutside = x < layout.labelW
+            || hourIndex < 0 || hourIndex >= layout.hours.length
+            || y < layout.paddingTop
+            || dayIndex < 0 || dayIndex >= layout.days.length;
+
+        if (isOutside) {
+            this.state.heatmapTooltip = null;
+            return;
+        }
+
+        const current = this.state.heatmapTooltip;
+        if (current?.dayIndex === dayIndex && current?.hourIndex === hourIndex) return;
+
+        const hour = layout.hours[hourIndex];
+        this.state.heatmapTooltip = {
+            dayIndex,
+            hourIndex,
+            day: layout.days[dayIndex],
+            time: `${String(hour).padStart(2, "0")}:00–${String(hour + 1).padStart(2, "0")}:00`,
+            value: (layout.values[dayIndex] || [])[hourIndex] || 0,
+            left: Math.min(Math.max(layout.labelW + (hourIndex + 0.5) * layout.cellW, 90), layout.cssW - 90),
+            top: Math.max(layout.paddingTop + dayIndex * layout.cellH, 64),
+        };
+    }
+
+    onHeatmapMouseLeave() {
+        this.state.heatmapTooltip = null;
     }
 
     // ------------------------------------------------------------------
@@ -748,6 +788,10 @@ export class SmartSolarDashboard extends Component {
         const cellW = Math.floor((cssW - labelW) / 24);
         const cellH = Math.max(10, Math.floor(availH / Math.max(hm.days.length, 1)));
         const maxVal = metricData.max_val || 1;
+        this._heatmapLayout = {
+            cssW, cssH, labelW, paddingTop, cellW, cellH,
+            days: hm.days, hours: hm.hours, values,
+        };
 
         ctx.clearRect(0, 0, cssW, cssH);
         ctx.fillStyle = bg;
@@ -811,6 +855,11 @@ export class SmartSolarDashboard extends Component {
 
     get heatmapDescription() {
         return this.heatmapMetricInfo.description;
+    }
+
+    get heatmapTooltipStyle() {
+        const tooltip = this.state.heatmapTooltip;
+        return tooltip ? `left: ${tooltip.left}px; top: ${tooltip.top}px` : "";
     }
 
     _renderMonthlyComparisonChart() {

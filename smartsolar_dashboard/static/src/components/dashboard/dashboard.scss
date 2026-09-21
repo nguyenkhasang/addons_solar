@@ -146,6 +146,10 @@
     .ss_heatmap_btn { padding: 6px 12px; border: 0; border-radius: 6px; background: transparent; color: var(--ss-text-muted); font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; }
     .ss_heatmap_btn:hover { color: var(--ss-primary); }
     .ss_heatmap_btn.active { background: var(--ss-primary); color: #fff; }
+    .ss_heatmap_tooltip { position: absolute; z-index: 2; transform: translate(-50%, -100%); pointer-events: none; display: grid; gap: 2px; min-width: 170px; padding: 8px 10px; border: 1px solid var(--ss-border); border-radius: 7px; background: var(--ss-surface); color: var(--ss-text); box-shadow: var(--ss-shadow); font-size: 11px; }
+    .ss_heatmap_tooltip strong { font-size: 11px; font-weight: 700; }
+    .ss_heatmap_tooltip span { color: var(--ss-text-muted); }
+    .ss_heatmap_tooltip b { margin-top: 2px; color: var(--ss-primary); font-size: 14px; }
     .ss_col_12 { grid-column: span 12; }
 
     // KPI cards mới
