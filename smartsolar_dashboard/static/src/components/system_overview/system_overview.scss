@@ -67,7 +67,7 @@
     .ss_ov_line_bottom { --ov-flow: var(--ov-battery); }
     .ss_ov_hline.left { --ov-flow: var(--ov-grid); }
     .ss_ov_hline.right { --ov-flow: var(--ov-home); }
-    .ss_ov_inverter { width: 80px; height: 110px; border-radius: 15%; background: var(--ov-inv-bg); border: 3px solid var(--ov-inv-border); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; flex-shrink: 0; --ov-inverter-flow: var(--ov-grid); }
+    .ss_ov_inverter { width: 80px; height: 120px; border-radius: 15%; background: var(--ov-inv-bg); border: 3px solid var(--ov-inv-border); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; flex-shrink: 0; --ov-inverter-flow: var(--ov-grid); }
     .ss_ov_inverter.active { border-color: var(--ov-inverter-flow); box-shadow: 0 0 16px var(--ov-inverter-flow); animation: ss_ov_inverter_breathe 2.2s ease-in-out infinite; }
     .ss_ov_inverter.solar_source { --ov-inverter-flow: var(--ov-solar); }
     .ss_ov_inverter.grid_source { --ov-inverter-flow: var(--ov-grid); }
