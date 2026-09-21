@@ -92,6 +92,15 @@ class TestDomain(TransactionCase):
         self.assertEqual(grid_import.summary_model, 'grid.tie.inverter.summary')
         self.assertEqual(grid_import.summary_field, 'energy_total_end')
 
+    def test_gti_metrics_publish_distinct_canonical_labels(self):
+        grid_tie = MetricRegistry.get('output_power')
+        grid_import = MetricRegistry.get('grid_import_power')
+
+        self.assertEqual(grid_tie.label, 'Công suất điện hòa lưới')
+        self.assertEqual(grid_import.label, 'Công suất điện lưới')
+        self.assertIn('ĐIỆN HÒA LƯỚI', grid_tie.flow)
+        self.assertIn('ĐIỆN LƯỚI', grid_import.flow)
+
     def test_tool_descriptions_match_current_data_sources(self):
         self.assertIn('tự chọn raw/summary', GetAggregateTool.description)
         self.assertNotIn('chỉ đọc raw', GetAggregateTool.description)

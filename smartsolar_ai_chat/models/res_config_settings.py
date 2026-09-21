@@ -32,24 +32,6 @@ class ResConfigSettings(models.TransientModel):
         help="Tên model. Phải hỗ trợ tool calling, vd: gpt-oss:20b (Ollama), "
               "gpt-4o-mini (OpenAI), meta/llama-3.1-70b-instruct (NVIDIA).",
     )
-    smartsolar_ai_temperature = fields.Float(
-        string="Temperature",
-        config_parameter="smartsolar_ai.temperature",
-        default=0.1,
-        help="Độ ngẫu nhiên khi sinh. Tool calling local nên dùng 0.0–0.2.",
-    )
-    smartsolar_ai_max_tokens = fields.Integer(
-        string="Max Output Tokens",
-        config_parameter="smartsolar_ai.max_tokens",
-        default=1000,
-        help="Số token tối đa cho mỗi lượt trả lời của model.",
-    )
-    smartsolar_ai_context_window = fields.Integer(
-        string="Context Window",
-        config_parameter="smartsolar_ai.context_window",
-        default=32768,
-        help="Ollama num_ctx. Khuyến nghị 16384–32768 cho model local dùng tool.",
-    )
     smartsolar_ai_max_tool_iterations = fields.Integer(
         string="Max Tool Iterations",
         config_parameter="smartsolar_ai.max_tool_iterations",

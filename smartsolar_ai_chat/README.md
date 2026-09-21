@@ -51,7 +51,7 @@ Sau khi cập nhật code:
 odoo-bin -d <database> --stop-after-init -u smartsolar_ai,smartsolar_ai_chat
 ```
 
-## Cấu hình khuyến nghị cho Ollama 20B
+## Cấu hình kết nối Ollama
 
 Vào **Settings → Smart Solar AI**:
 
@@ -60,11 +60,11 @@ Vào **Settings → Smart Solar AI**:
 | Provider | `Ollama` | Chạy local |
 | Base URL | để trống hoặc `http://localhost:11434` | Endpoint Ollama |
 | Model | `gpt-oss:20b` | Mặc định cho cài mới |
-| Temperature | `0.1` | Ổn định chọn tool/tham số |
-| Max output tokens | `1000` | Giới hạn mỗi lượt sinh |
-| Context window | `32768` | Được truyền thành Ollama `num_ctx` |
 | Max tool iterations | `5` | Giới hạn planner loop; runtime giữ trong khoảng 2–10 |
 | History limit | `6` | Số tin gần nhất; 0 để tắt nhớ |
+
+Module không gửi `temperature`, `num_predict`/`max_tokens` hay `num_ctx` trong
+yêu cầu chat. Các tham số suy luận này do model server/provider tự quyết định.
 
 ```bash
 ollama pull gpt-oss:20b

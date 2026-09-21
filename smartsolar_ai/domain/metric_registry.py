@@ -113,21 +113,23 @@ _METRICS = {
     # bằng trường ``flow`` -> đừng bỏ nó, nếu không LLM sẽ báo cáo ngược nghĩa.
     # Quan hệ (theo dashboard): tải nhà = output_power + grid_import_power.
     'output_power': MetricSpec(
-        key='output_power', label='Công suất inverter phát ra', unit='W',
+        key='output_power', label='Công suất điện hòa lưới', unit='W',
         kind=MetricKind.INSTANTANEOUS, default_aggregation=AggregationType.AVG,
         raw_model='grid.tie.inverter', raw_field='output_power',
         summary_model='grid.tie.inverter.summary',
         summary_field='output_power_avg', summary_max_field='output_power_max',
-        flow='TỪ pin/DC qua inverter, PHÁT RA AC để cấp tải trong nhà',
+        flow=('Điện từ PV và/hoặc pin đi qua Grid Tie Inverter, đổi thành 220 V AC '
+              'để cấp tải trong nhà. Tên bắt buộc: ĐIỆN HÒA LƯỚI'),
     ),
     'grid_import_power': MetricSpec(
-        key='grid_import_power', label='Công suất lấy từ lưới', unit='W',
+        key='grid_import_power', label='Công suất điện lưới', unit='W',
         kind=MetricKind.INSTANTANEOUS,
         raw_model='grid.tie.inverter', raw_field='limiter_power',
         summary_model='grid.tie.inverter.summary', summary_field='limiter_power_avg',
         note=('Đây là công suất tức thời (W), không phải điện năng lấy lưới (kWh); '
               'không dùng để tính tổng điện lưới hoặc tỷ lệ phụ thuộc lưới.'),
-        flow='LẤY TỪ lưới điện quốc gia vào nhà (điện phải mua, KHÔNG phải điện PV)',
+        flow=('LẤY TỪ lưới điện quốc gia vào nhà để cấp tải (điện phải mua). '
+              'Tên bắt buộc: ĐIỆN LƯỚI; KHÔNG gọi là điện hòa lưới'),
     ),
     'dc_voltage': MetricSpec(
         key='dc_voltage', label='Điện áp DC', unit='V',
@@ -153,25 +155,26 @@ _METRICS = {
     # đồng tool. Thiết bị thực tế ghi nhánh inverter vào limiter_total; tên key
     # 'exported' là di sản đặt sai và KHÔNG có nghĩa là điện bán lên lưới.
     'energy_exported_total': MetricSpec(
-        key='energy_exported_total', label='Tổng sản lượng inverter (tích lũy)',
+        key='energy_exported_total', label='Điện hòa lưới (tích lũy)',
         unit='kWh',
         kind=MetricKind.COUNTER, default_aggregation=AggregationType.LAST,
         raw_model='grid.tie.inverter', raw_field='limiter_total',
         note=('Counter này hiện chỉ có dữ liệu raw, chưa có summary dài hạn; khoảng '
               'xa có thể không còn dữ liệu.'),
-        flow='TỪ pin/DC qua inverter, PHÁT RA AC cấp tải (tích lũy). Dù key có chữ '
-             '"exported", đây KHÔNG phải điện bán lên lưới. Nguồn DB: limiter_total',
+        flow=('Điện từ PV và/hoặc pin qua Grid Tie Inverter, đổi thành 220 V AC cấp '
+              'tải (tích lũy). Tên bắt buộc: ĐIỆN HÒA LƯỚI. Dù key có chữ '
+              '"exported", đây KHÔNG phải điện bán lên lưới. Nguồn DB: limiter_total'),
     ),
     # Công-tơ ĐIỆN LẤY TỪ LƯỚI (kWh). Thiết bị thực tế ghi nhánh lấy lưới vào
     # energy_total; bảng summary đã lưu delta của counter này trong energy_kwh.
     'grid_import_energy_total': MetricSpec(
-        key='grid_import_energy_total', label='Tổng điện lấy từ lưới (tích lũy)',
+        key='grid_import_energy_total', label='Điện lưới (tích lũy)',
         unit='kWh',
         kind=MetricKind.COUNTER, default_aggregation=AggregationType.LAST,
         raw_model='grid.tie.inverter', raw_field='energy_total',
         summary_model='grid.tie.inverter.summary', summary_field='energy_total_end',
-        flow='LẤY TỪ lưới điện quốc gia (điện phải mua, tích lũy). '
-             'Nguồn DB: energy_total',
+        flow=('LẤY TỪ lưới điện quốc gia (điện phải mua, tích lũy). Tên bắt buộc: '
+              'ĐIỆN LƯỚI; KHÔNG gọi là điện hòa lưới. Nguồn DB: energy_total'),
     ),
 
     # ---- Charge Power / MPPT: phía PV NẠP + PIN ----

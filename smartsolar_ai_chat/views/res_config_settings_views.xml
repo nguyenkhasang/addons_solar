@@ -29,18 +29,6 @@
                             <field name="smartsolar_ai_model"
                                    placeholder="gpt-oss:20b / gpt-4o-mini / meta/llama-3.1-70b-instruct"/>
                         </setting>
-                        <setting string="Temperature"
-                                 help="Tool calling local nên dùng 0.0–0.2 để ổn định lựa chọn tool và tham số.">
-                            <field name="smartsolar_ai_temperature"/>
-                        </setting>
-                        <setting string="Max output tokens"
-                                 help="Giới hạn độ dài mỗi lượt model sinh. Khuyến nghị khoảng 800–1200.">
-                            <field name="smartsolar_ai_max_tokens"/>
-                        </setting>
-                        <setting string="Context window"
-                                 help="Ollama num_ctx; khuyến nghị 16384–32768 cho model local dùng tool.">
-                            <field name="smartsolar_ai_context_window"/>
-                        </setting>
                     </block>
                     <block title="Hành vi Trợ lý"
                            help="Điều chỉnh cách bot SmartSolar AI xử lý trong Discuss.">

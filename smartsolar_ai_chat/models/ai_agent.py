@@ -46,7 +46,8 @@ _DATA_INTENT_RE = re.compile(
     r'(bao nhiêu|hiện tại|bây giờ|kiểm tra|xem số liệu|báo cáo|tình trạng|'
     r'online|offline|cảnh báo|bất thường|sức khỏe|dự báo|so sánh|'
     r'hôm nay|hôm qua|tuần này|tháng này|công suất|sản lượng|năng lượng|'
-    r'điện áp|dòng điện|nhiệt độ|pin|ắc quy|pv|inverter|lấy lưới|thiết bị)',
+    r'điện áp|dòng điện|nhiệt độ|pin|ắc quy|pv|inverter|lấy lưới|điện lưới|'
+    r'hòa lưới|tổng tải|tiêu thụ|thiết bị)',
     re.IGNORECASE,
 )
 _CONCEPTUAL_INTENT_RE = re.compile(
@@ -81,17 +82,28 @@ _SYSTEM_PROMPT = (
     "chỉ số công-tơ tích lũy. Metric tức thời: last = mẫu cuối, avg/min/max = thống kê "
     "cả khoảng. compare_periods: a_minus_b = kỳ A trừ kỳ B.\n"
     "\n"
-    "ÁNH XẠ ĐIỆN — KHÔNG ĐƯỢC ĐẢO:\n"
-    "- Inverter cấp tải: output_power (W); năng lượng: energy_exported_total (kWh), "
-    "nguồn DB limiter_total. Key có chữ exported nhưng KHÔNG phải bán điện lên lưới.\n"
-    "- Điện lấy lưới: grid_import_power (W); năng lượng: grid_import_energy_total "
-    "(kWh), nguồn DB energy_total.\n"
-    "- Điện PV thu qua MPPT để nạp pin: pv_input (W), pv_energy_total (kWh). Đây mới "
-    "là số đo điện thu PV. output_power là điện pin/inverter cấp tải, không được gọi "
-    "là PV thu cùng thời điểm và không cộng với pv_input/pv_energy_total.\n"
-    "- Tải nhà chưa có công-tơ riêng. Công suất tải suy ra = output_power + "
-    "grid_import_power; phải ghi rõ là số suy ra. Điện năng tải chỉ được suy ra khi "
-    "cả hai counter cùng available trên đúng một khoảng.\n"
+    "TỪ ĐIỂN THUẬT NGỮ ĐIỆN — PHẢI DÙNG ĐÚNG TÊN, KHÔNG GỘP CHUNG:\n"
+    "- 'Điện hòa lưới': điện từ PV và/hoặc pin, đi qua Grid Tie Inverter để đổi thành "
+    "điện 220 V AC và cấp cho tải. Công suất là output_power (W); điện năng là "
+    "energy_exported_total (kWh), nguồn DB limiter_total. Dù key có chữ exported, "
+    "đây KHÔNG phải điện bán lên lưới. Khi trả lời phải ghi nhãn 'Công suất điện hòa "
+    "lưới' hoặc 'Điện hòa lưới', không đổi thành 'PV thu', 'điện lưới', hay tên chung "
+    "'hòa lưới' cho đại lượng khác.\n"
+    "- 'Điện lưới': điện lấy từ lưới điện quốc gia để cấp cho tải. Công suất là "
+    "grid_import_power (W); điện năng là grid_import_energy_total (kWh), nguồn DB "
+    "energy_total. Khi trả lời phải ghi nhãn 'Công suất điện lưới' hoặc 'Điện lưới'; "
+    "không gọi đại lượng này là điện hòa lưới.\n"
+    "- 'Điện thu PV': điện DC thu từ tấm pin mặt trời qua MPPT để nạp pin. Công suất "
+    "là pv_input (W); điện năng là pv_energy_total (kWh). Đây là nhánh khác với điện "
+    "hòa lưới. Không gọi output_power là điện thu PV và không cộng pv_input hoặc "
+    "pv_energy_total vào điện tổng tải.\n"
+    "- 'Điện tổng tải': tổng điện mà tải đang dùng. Chưa có công-tơ tải riêng nên "
+    "Công suất điện tổng tải (W) = output_power + grid_import_power = Công suất điện "
+    "hòa lưới + Công suất điện lưới. Phải ghi rõ đây là số suy ra. Điện năng tổng tải "
+    "chỉ được suy ra khi cả energy_exported_total và grid_import_energy_total cùng "
+    "available trên đúng một khoảng.\n"
+    "- Một giá trị chỉ xuất hiện ở đúng nhóm thuật ngữ của nó; không lặp lại cùng số "
+    "dưới hai tên và không dùng từ 'hòa lưới' như tên chung cho mọi thông số.\n"
     "\n"
     "NHẬN ĐỊNH:\n"
     "- Chỉ kết luận từ field tool thực sự trả về. Timeseries truncated=true chỉ dùng "
@@ -100,8 +112,20 @@ _SYSTEM_PROMPT = (
     "cùng khoảng; thiếu một phía thì không suy đoán quan hệ nhân quả.\n"
     "\n"
     "ĐỊNH DẠNG: không dùng bảng Markdown/HTML. Chỉ trả các chỉ số được hỏi hoặc cần "
-    "cho tổng quan; mỗi chỉ số một dòng có tên, giá trị, đơn vị; sau đó tối đa 1-3 "
-    "nhận định hữu ích. Thời gian dùng UTC+7."
+    "cho tổng quan; mỗi chỉ số một dòng có tên chuẩn ở từ điển trên, giá trị, đơn vị; "
+    "sau đó tối đa 1-3 nhận định hữu ích. Nếu có đủ output_power và "
+    "grid_import_power thì tính và ghi thêm 'Công suất điện tổng tải (suy ra)'. "
+    "Thứ tự ưu tiên khi cùng xuất hiện: Điện thu PV; Điện hòa lưới; Điện lưới; "
+    "Điện tổng tải. "
+    "Thời gian dùng UTC+7."
+)
+
+_ELECTRICAL_TERMINOLOGY_REMINDER = (
+    "Dùng đúng nhãn khi tổng hợp: output_power = Công suất điện hòa lưới; "
+    "grid_import_power = Công suất điện lưới; pv_input = Công suất điện thu PV; "
+    "Công suất điện tổng tải (suy ra) = output_power + grid_import_power. "
+    "Không gọi điện lưới hoặc điện thu PV là điện hòa lưới; không lặp một giá trị "
+    "dưới nhiều nhãn."
 )
 
 # Prompt riêng cho chế độ PHÂN TÍCH ẢNH: gọn, không có catalog metric hay quy tắc
@@ -147,13 +171,6 @@ class SmartSolarAIAgent(models.AbstractModel):
             'system_prompt': system_prompt,
             # Số cặp hỏi-đáp gần nhất được nạp làm ngữ cảnh hội thoại (0 = tắt trí nhớ).
             'history_limit': int(Param.get_param('smartsolar_ai.history_limit', 6) or 0),
-            'temperature': max(
-                0.0, min(2.0, float(Param.get_param('smartsolar_ai.temperature', 0.1) or 0.1))),
-            'max_tokens': max(
-                128, min(8192, int(Param.get_param('smartsolar_ai.max_tokens', 1000) or 1000))),
-            'context_window': max(
-                4096, min(131072, int(
-                    Param.get_param('smartsolar_ai.context_window', 32768) or 32768))),
         }
 
     @staticmethod
@@ -468,10 +485,7 @@ class SmartSolarAIAgent(models.AbstractModel):
 
         try:
             for _i in range(cfg['max_iterations']):
-                response = provider.chat(ChatRequest(
-                    messages=messages, tools=tools,
-                    temperature=cfg['temperature'], max_tokens=cfg['max_tokens'],
-                    context_window=cfg['context_window']))
+                response = provider.chat(ChatRequest(messages=messages, tools=tools))
                 self._merge_usage(usage_total, response.usage)
 
                 # LLM trả lời cuối (không gọi thêm tool) -> xong.
@@ -534,6 +548,10 @@ class SmartSolarAIAgent(models.AbstractModel):
                     if envelope.get('ok') and tc.name != 'list_metrics':
                         has_successful_tool_result = True
                     meta = envelope.setdefault('meta', {})
+                    if envelope.get('ok') and tc.name != 'list_metrics':
+                        # Nhắc lại ngay cạnh dữ liệu tool. Với model nhỏ (Gemma 12B),
+                        # chỉ dẫn gần kết quả có độ bám tốt hơn phần đầu system prompt.
+                        meta['electrical_terminology'] = _ELECTRICAL_TERMINOLOGY_REMINDER
                     if not envelope.get('ok'):
                         meta['instruction'] = (
                             'Tool lỗi: không dùng kết quả này làm dữ liệu. Hãy sửa tham số '
@@ -558,9 +576,7 @@ class SmartSolarAIAgent(models.AbstractModel):
                 if self._stats_enabled():
                     answer += self._format_stats_block(usage_total)
                 return answer
-            final = provider.chat(ChatRequest(
-                messages=messages, temperature=cfg['temperature'],
-                max_tokens=cfg['max_tokens'], context_window=cfg['context_window']))
+            final = provider.chat(ChatRequest(messages=messages))
             self._merge_usage(usage_total, final.usage)
             answer = final.content or _("(Đã đạt giới hạn số bước)")
             if self._progress_enabled():
@@ -641,9 +657,7 @@ class SmartSolarAIAgent(models.AbstractModel):
                      [(i.get('mime'), len(i.get('b64') or '')) for i in images],
                      type(provider).__name__, provider.model, shape)
         try:
-            response = provider.chat(ChatRequest(
-                messages=messages, temperature=cfg['temperature'],
-                max_tokens=cfg['max_tokens'], context_window=cfg['context_window']))
+            response = provider.chat(ChatRequest(messages=messages))
             answer = response.content or _("(LLM không trả về nội dung)")
             if self._stats_enabled():
                 answer += self._format_stats_block(response.usage)

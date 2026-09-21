@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Regression tests cho độ ổn định của model local và provider payload."""
+import json
 from unittest.mock import patch
 
 from odoo.tests import TransactionCase, tagged
@@ -39,6 +40,38 @@ class TestAgentReliability(TransactionCase):
         self.assertEqual(payload['options']['num_predict'], 1000)
         self.assertEqual(payload['options']['num_ctx'], 32768)
 
+    def test_agent_does_not_override_model_inference_options(self):
+        Param = self.env['ir.config_parameter'].sudo()
+        Param.set_param('smartsolar_ai.show_stats', 'False')
+
+        class CaptureProvider:
+            model = 'provider-managed-model'
+
+            def __init__(self):
+                self.request = None
+
+            def chat(self, request):
+                self.request = request
+                return ChatResponse(content='Xin chào')
+
+            @staticmethod
+            def assistant_message(response):
+                return {'role': 'assistant', 'content': response.content}
+
+            @staticmethod
+            def tool_result_message(tool_call, content):
+                return {'role': 'tool', 'content': content}
+
+        provider = CaptureProvider()
+        with patch(
+                'odoo.addons.smartsolar_ai_chat.providers.factory.get_provider',
+                return_value=provider):
+            self.env['smartsolar.ai.agent'].chat('Xin chào')
+
+        self.assertIsNone(provider.request.temperature)
+        self.assertIsNone(provider.request.max_tokens)
+        self.assertIsNone(provider.request.context_window)
+
     def test_custom_prompt_cannot_replace_safety_prompt(self):
         Param = self.env['ir.config_parameter'].sudo()
         Param.set_param('smartsolar_ai.system_prompt', 'Trả lời cực ngắn.')
@@ -54,8 +87,17 @@ class TestAgentReliability(TransactionCase):
         prompt = cfg['system_prompt']
         self.assertIn('grid_import_energy_total (kWh), nguồn DB energy_total', prompt)
         self.assertIn('energy_exported_total (kWh), nguồn DB limiter_total', prompt)
-        self.assertIn('output_power là điện pin/inverter cấp tải', prompt)
-        self.assertIn('không được gọi là PV thu cùng thời điểm', prompt)
+        self.assertIn("'Điện hòa lưới': điện từ PV và/hoặc pin", prompt)
+        self.assertIn("'Điện lưới': điện lấy từ lưới điện quốc gia", prompt)
+        self.assertIn("'Điện thu PV': điện DC thu từ tấm pin", prompt)
+        self.assertIn('Công suất điện tổng tải (W) = output_power + grid_import_power', prompt)
+        self.assertIn('không dùng từ \'hòa lưới\' như tên chung', prompt)
+
+    def test_system_prompt_requires_canonical_electrical_labels(self):
+        prompt = self.env['smartsolar.ai.agent']._get_config()['system_prompt']
+        self.assertIn("ghi nhãn 'Công suất điện hòa lưới'", prompt)
+        self.assertIn("ghi nhãn 'Công suất điện lưới'", prompt)
+        self.assertIn("'Công suất điện tổng tải (suy ra)'", prompt)
 
     def test_system_prompt_routes_current_and_overview_queries(self):
         prompt = self.env['smartsolar.ai.agent']._get_config()['system_prompt']
@@ -110,8 +152,51 @@ class TestAgentReliability(TransactionCase):
         self.assertTrue(Agent._question_requires_tool('Công suất hiện tại bao nhiêu?'))
         self.assertTrue(Agent._question_requires_tool('Cho tôi điện áp pin'))
         self.assertTrue(Agent._question_requires_tool('Sản lượng inverter'))
+        self.assertTrue(Agent._question_requires_tool('Xem điện lưới và hòa lưới'))
+        self.assertTrue(Agent._question_requires_tool('Cho tôi mức tiêu thụ tổng tải'))
         self.assertTrue(Agent._question_requires_tool(
             'Giải thích vì sao công suất inverter hôm nay thấp'))
+
+    def test_successful_tool_result_includes_terminology_reminder(self):
+        Param = self.env['ir.config_parameter'].sudo()
+        Param.set_param('smartsolar_ai.show_stats', 'False')
+
+        class CaptureProvider:
+            model = 'local-tool-model'
+
+            def __init__(self):
+                self.calls = 0
+                self.tool_content = None
+
+            def chat(self, request):
+                self.calls += 1
+                if self.calls == 1:
+                    return ChatResponse(tool_calls=[ToolCall(
+                        id='aggregate', name='get_aggregate', arguments={})])
+                self.tool_content = request.messages[-1]['content']
+                return ChatResponse(content='Đã tổng hợp.')
+
+            @staticmethod
+            def assistant_message(response):
+                return {'role': 'assistant', 'content': response.content}
+
+            @staticmethod
+            def tool_result_message(tool_call, content):
+                return {'role': 'tool', 'name': tool_call.name, 'content': content}
+
+        provider = CaptureProvider()
+        with patch(
+                'odoo.addons.smartsolar_ai_chat.providers.factory.get_provider',
+                return_value=provider), patch(
+                'odoo.addons.smartsolar_ai.tools.registry.ToolRegistry.execute',
+                return_value={'ok': True, 'data': {'metrics': {}},
+                              'meta': {}, 'error': None}):
+            self.env['smartsolar.ai.agent'].chat('Xem điện lưới và hòa lưới')
+
+        payload = json.loads(provider.tool_content)
+        reminder = payload['meta']['electrical_terminology']
+        self.assertIn('output_power = Công suất điện hòa lưới', reminder)
+        self.assertIn('grid_import_power = Công suất điện lưới', reminder)
 
     def test_repeated_identical_tool_call_uses_cache(self):
         Param = self.env['ir.config_parameter'].sudo()
