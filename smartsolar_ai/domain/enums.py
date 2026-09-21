@@ -48,7 +48,7 @@ class MetricKind(str, Enum):
       nhiệt độ). Muốn tính năng lượng trên một khoảng thì phải tích phân; giá trị
       đại diện thường là avg/max.
     - COUNTER (bộ đếm tăng dần): tổng tích lũy suốt đời thiết bị và chỉ tăng
-      (energy_total). Năng lượng trong một khoảng = giá_trị_cuối - giá_trị_đầu.
+      (các trường *_total). Năng lượng trong một khoảng = giá_trị_cuối - giá_trị_đầu.
     - DERIVED (dẫn xuất): tính ra từ các metric khác bằng công thức
       (self_consumption, grid_dependency...). Không có cột dữ liệu riêng.
     """

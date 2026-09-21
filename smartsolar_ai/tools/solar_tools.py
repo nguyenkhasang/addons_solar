@@ -36,7 +36,8 @@ _ISO = {'type': 'string',
 _DEVICE = {'type': 'integer', 'description': 'ID thiết bị (tùy chọn) để giới hạn truy vấn'}
 _SYSTEM = {'type': 'integer', 'description': 'ID hệ thống (tùy chọn) để giới hạn truy vấn'}
 _METRIC = {'type': 'string',
-           'description': ('Khóa metric lấy từ list_metrics (vd output_power, bat_voltage). '
+           'description': ('Khóa metric trong catalog cuối system prompt '
+                           '(vd output_power, bat_voltage). '
                            'Không dùng metric có supported=false để kết luận số liệu.')}
 
 
@@ -55,12 +56,9 @@ class ListMetricsTool(Tool):
 
 class GetTimeseriesTool(Tool):
     name = 'get_timeseries'
-    description = ('Chuỗi thời gian của một metric trên một khoảng (độ phân giải tự '
-                   'chọn). Nên dùng thay get_aggregate cho metric thời tiết nhiều '
-                   'ngày — tự đọc bảng tổng hợp theo ngày. AUTO dùng bucket giờ khi '
-                   'khoảng dài hơn 6 giờ và giới hạn mặc định 240 điểm để bảo vệ '
-                   'context. Metric DERIVED chỉ trả tối đa một điểm tổng hợp cho '
-                   'cả khoảng; nên dùng get_aggregate để tránh hiểu nhầm là chuỗi.')
+    description = ('Chuỗi thời gian để xem diễn biến/xu hướng của một metric. AUTO '
+                   'tự chọn raw/hour/day và giới hạn 240 điểm. Không dùng cho metric '
+                   'DERIVED; hãy dùng get_aggregate cho KPI dẫn xuất.')
 
     def parameters(self):
         return {
@@ -110,14 +108,11 @@ class GetTimeseriesTool(Tool):
 
 class GetAggregateTool(Tool):
     name = 'get_aggregate'
-    description = ('Thống kê vô hướng (avg/min/max/năng lượng) cho một hoặc nhiều '
-                   'metric trên một khoảng — dùng cho báo cáo tổng kết. Truyền nhiều '
-                   'metric cùng lúc trong "metrics" thay vì gọi nhiều lần. Lấy tổng '
-                   'sản lượng kWh bằng metric loại counter; tool tự tính năng lượng '
-                   'trong khoảng, không cần và không được tự cộng mẫu. Tool đọc dữ '
-                   'liệu raw nên metric thời tiết khoảng dài (>~7 ngày) có thể '
-                   'count=0 — khi đó dùng get_timeseries. count=0 nghĩa là KHÔNG có '
-                   'dữ liệu, đừng coi 0 là giá trị đo được.')
+    description = ('Thống kê một hoặc nhiều metric trên một khoảng; truyền chung các '
+                   'metric trong một lần gọi. Metric tức thời trả avg/min/max/last; '
+                   'dùng last cho câu hỏi hiện tại. Counter trả energy của khoảng và '
+                   'last là chỉ số tích lũy. Tool tự chọn raw/summary khi có; không tự '
+                   'cộng mẫu công suất hoặc counter.')
 
     def parameters(self):
         return {
@@ -149,8 +144,8 @@ class ComparePeriodsTool(Tool):
     name = 'compare_periods'
     description = ('So sánh các metric giữa HAI khoảng bất kỳ. Xử lý được "hôm nay '
                    'vs hôm qua", "3 ngày gần nhất vs cùng kỳ năm ngoái"... chỉ bằng '
-                   'cách truyền 2 khoảng thời gian. Metric thời tiết daily_only trên '
-                   'khoảng dài có thể thiếu raw; khi đó dùng get_timeseries từng kỳ.')
+                   'cách truyền 2 khoảng thời gian. a_minus_b và pct_change_a_vs_b '
+                   'luôn có chiều kỳ A trừ kỳ B.')
 
     def parameters(self):
         return {

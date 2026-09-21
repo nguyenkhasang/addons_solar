@@ -43,8 +43,35 @@ class TestAgentReliability(TransactionCase):
         Param = self.env['ir.config_parameter'].sudo()
         Param.set_param('smartsolar_ai.system_prompt', 'Trả lời cực ngắn.')
         cfg = self.env['smartsolar.ai.agent']._get_config()
-        self.assertIn('KHÔNG BỊA SỐ', cfg['system_prompt'])
-        self.assertIn('Trả lời cực ngắn.', cfg['system_prompt'])
+        prompt = cfg['system_prompt']
+        self.assertIn('Không tự đặt số', prompt)
+        self.assertIn('Trả lời cực ngắn.', prompt)
+        self.assertLess(prompt.index('Trả lời cực ngắn.'),
+                        prompt.index('QUY TẮC BẮT BUỘC'))
+
+    def test_system_prompt_keeps_energy_counter_directions(self):
+        cfg = self.env['smartsolar.ai.agent']._get_config()
+        prompt = cfg['system_prompt']
+        self.assertIn('grid_import_energy_total (kWh), nguồn DB energy_total', prompt)
+        self.assertIn('energy_exported_total (kWh), nguồn DB limiter_total', prompt)
+        self.assertIn('output_power là điện pin/inverter cấp tải', prompt)
+        self.assertIn('không được gọi là PV thu cùng thời điểm', prompt)
+
+    def test_system_prompt_routes_current_and_overview_queries(self):
+        prompt = self.env['smartsolar.ai.agent']._get_config()['system_prompt']
+        self.assertIn("'hiện tại/bây giờ': get_aggregate từ now-10m đến now", prompt)
+        self.assertIn('field last, không dùng avg làm giá trị hiện tại', prompt)
+        self.assertIn("'grid_import_power'", prompt)
+        self.assertIn("'grid_import_energy_total'", prompt)
+
+    def test_unavailable_detector_handles_nested_metric_results(self):
+        Agent = self.env['smartsolar.ai.agent']
+        self.assertTrue(Agent._contains_unavailable({
+            'metrics': {'output_power': {'available': False, 'last': None}},
+        }))
+        self.assertFalse(Agent._contains_unavailable({
+            'metrics': {'output_power': {'available': True, 'last': 125.0}},
+        }))
 
     def test_data_question_fails_closed_when_model_never_calls_tool(self):
         Param = self.env['ir.config_parameter'].sudo()
@@ -81,6 +108,10 @@ class TestAgentReliability(TransactionCase):
         Agent = self.env['smartsolar.ai.agent']
         self.assertFalse(Agent._question_requires_tool('Công suất là gì?'))
         self.assertTrue(Agent._question_requires_tool('Công suất hiện tại bao nhiêu?'))
+        self.assertTrue(Agent._question_requires_tool('Cho tôi điện áp pin'))
+        self.assertTrue(Agent._question_requires_tool('Sản lượng inverter'))
+        self.assertTrue(Agent._question_requires_tool(
+            'Giải thích vì sao công suất inverter hôm nay thấp'))
 
     def test_repeated_identical_tool_call_uses_cache(self):
         Param = self.env['ir.config_parameter'].sudo()
@@ -163,6 +194,44 @@ class TestAgentReliability(TransactionCase):
                 'odoo.addons.smartsolar_ai.tools.registry.ToolRegistry.execute',
                 new=fake_execute):
             answer = self.env['smartsolar.ai.agent'].chat('Công suất hiện tại bao nhiêu?')
+        self.assertEqual(provider.calls, 3)
+        self.assertIn('chưa gọi được tool', answer)
+        self.assertNotIn('9999', answer)
+
+    def test_metric_catalog_does_not_ground_a_measurement_answer(self):
+        Param = self.env['ir.config_parameter'].sudo()
+        Param.set_param('smartsolar_ai.show_stats', 'False')
+
+        class CatalogOnlyProvider:
+            model = 'local-tool-model'
+
+            def __init__(self):
+                self.calls = 0
+
+            def chat(self, request):
+                self.calls += 1
+                if self.calls == 1:
+                    return ChatResponse(tool_calls=[ToolCall(
+                        id='catalog', name='list_metrics', arguments={})])
+                return ChatResponse(content='Công suất là 9999 W')
+
+            @staticmethod
+            def assistant_message(response):
+                return {'role': 'assistant', 'content': response.content}
+
+            @staticmethod
+            def tool_result_message(tool_call, content):
+                return {'role': 'tool', 'name': tool_call.name, 'content': content}
+
+        provider = CatalogOnlyProvider()
+        with patch(
+                'odoo.addons.smartsolar_ai_chat.providers.factory.get_provider',
+                return_value=provider), patch(
+                'odoo.addons.smartsolar_ai.tools.registry.ToolRegistry.execute',
+                return_value={'ok': True, 'data': {'metrics': []},
+                              'meta': {}, 'error': None}):
+            answer = self.env['smartsolar.ai.agent'].chat(
+                'Công suất inverter hiện tại')
         self.assertEqual(provider.calls, 3)
         self.assertIn('chưa gọi được tool', answer)
         self.assertNotIn('9999', answer)

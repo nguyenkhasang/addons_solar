@@ -118,7 +118,7 @@ _METRICS = {
         raw_model='grid.tie.inverter', raw_field='output_power',
         summary_model='grid.tie.inverter.summary',
         summary_field='output_power_avg', summary_max_field='output_power_max',
-        flow='inverter PHÁT RA, cấp cho tải trong nhà (điện tự sản xuất)',
+        flow='TỪ pin/DC qua inverter, PHÁT RA AC để cấp tải trong nhà',
     ),
     'grid_import_power': MetricSpec(
         key='grid_import_power', label='Công suất lấy từ lưới', unit='W',
@@ -150,28 +150,28 @@ _METRICS = {
         summary_field='temperature_avg', summary_max_field='temperature_max',
     ),
     # Bộ đếm sản lượng tích lũy của inverter. GIỮ NGUYÊN key cũ để không phá hợp
-    # đồng tool, nhưng nhãn đã sửa: cột nguồn là energy_total (sản lượng inverter),
-    # KHÔNG phải công-tơ đo điện bán lên lưới — tên key 'exported' là di sản đặt sai.
+    # đồng tool. Thiết bị thực tế ghi nhánh inverter vào limiter_total; tên key
+    # 'exported' là di sản đặt sai và KHÔNG có nghĩa là điện bán lên lưới.
     'energy_exported_total': MetricSpec(
         key='energy_exported_total', label='Tổng sản lượng inverter (tích lũy)',
         unit='kWh',
         kind=MetricKind.COUNTER, default_aggregation=AggregationType.LAST,
-        raw_model='grid.tie.inverter', raw_field='energy_total',
-        summary_model='grid.tie.inverter.summary', summary_field='energy_total_end',
-        flow='inverter PHÁT RA (điện tự sản xuất tích lũy). Dù key có chữ '
-             '"exported", đây KHÔNG phải điện bán lên lưới',
+        raw_model='grid.tie.inverter', raw_field='limiter_total',
+        note=('Counter này hiện chỉ có dữ liệu raw, chưa có summary dài hạn; khoảng '
+              'xa có thể không còn dữ liệu.'),
+        flow='TỪ pin/DC qua inverter, PHÁT RA AC cấp tải (tích lũy). Dù key có chữ '
+             '"exported", đây KHÔNG phải điện bán lên lưới. Nguồn DB: limiter_total',
     ),
-    # Công-tơ ĐIỆN LẤY TỪ LƯỚI (kWh). Nguồn: cột limiter_total, có dữ liệu thật từ
-    # payload MQTT ('limmiter_total'). summary_model=None vì bảng
-    # grid.tie.inverter.summary CHƯA có cột cho limiter_total -> chỉ truy vấn được
-    # trên bảng raw (giới hạn theo thời gian lưu raw). Khi bổ sung cột vào summary
-    # + cron, khai báo thêm summary_model/summary_field ở đây là dùng được dài ngày.
+    # Công-tơ ĐIỆN LẤY TỪ LƯỚI (kWh). Thiết bị thực tế ghi nhánh lấy lưới vào
+    # energy_total; bảng summary đã lưu delta của counter này trong energy_kwh.
     'grid_import_energy_total': MetricSpec(
         key='grid_import_energy_total', label='Tổng điện lấy từ lưới (tích lũy)',
         unit='kWh',
         kind=MetricKind.COUNTER, default_aggregation=AggregationType.LAST,
-        raw_model='grid.tie.inverter', raw_field='limiter_total',
-        flow='LẤY TỪ lưới điện quốc gia (điện phải mua, tích lũy)',
+        raw_model='grid.tie.inverter', raw_field='energy_total',
+        summary_model='grid.tie.inverter.summary', summary_field='energy_total_end',
+        flow='LẤY TỪ lưới điện quốc gia (điện phải mua, tích lũy). '
+             'Nguồn DB: energy_total',
     ),
 
     # ---- Charge Power / MPPT: phía PV NẠP + PIN ----
@@ -321,23 +321,18 @@ _METRICS = {
     'grid_dependency_pct': MetricSpec(
         key='grid_dependency_pct', label='Phụ thuộc lưới', unit='%',
         kind=MetricKind.DERIVED,
-        depends_on=('grid_import_energy', 'load_energy'),
+        depends_on=('grid_import_energy', 'inverter_energy'),
         supported=False,
-        note=('CẢNH BÁO: Chưa có công-tơ điện lấy lưới và công-tơ tải riêng. '
-              'limiter_total chưa được xác minh là điện lấy riêng từ lưới. '
-              'Metric này hiện không khả dụng và không được dùng để kết luận.'),
+        note=('CẢNH BÁO: Chưa có summary cho counter inverter limiter_total trên '
+              'khoảng dài. Metric này hiện không khả dụng để tránh so sánh hai '
+              'nguồn có phạm vi dữ liệu không đồng nhất.'),
         # Phụ thuộc lưới = điện lấy từ lưới / tổng tiêu thụ * 100,
         # với tổng tiêu thụ = điện lấy lưới + điện inverter tự cấp.
         formula=lambda c: _safe_div(
             c.get('grid_import_energy', 0.0),
-            c.get('grid_import_energy', 0.0) + c.get('load_energy', 0.0)) * 100.0,
-        # Cả hai biến phụ thuộc GIỜ ĐÃ có nguồn đo thật (limiter_total và
-        # energy_total), nên KPI này tính ra được số. Vẫn giữ unreliable=True vì
-        # còn MỘT giả thuyết chưa loại được bằng code: limiter_power/limiter_total
-        # có thể là số đo của CT clamp cho TOÀN BỘ TẢI (kiểu inverter GTIL) chứ
-        # không riêng phần lấy từ lưới — nếu vậy mẫu số đếm trùng và % này thấp
-        # hơn thực tế. Muốn bỏ cờ: đối chiếu một payload MQTT thật hoặc tài liệu
-        # firmware để chốt ngữ nghĩa limiter_*.
+            c.get('grid_import_energy', 0.0) + c.get('inverter_energy', 0.0)) * 100.0,
+        # Hai counter đã xác định được chiều, nhưng limiter_total chưa có summary.
+        # Giữ unavailable cho tới khi hai nguồn có cùng cửa sổ lưu trữ dài hạn.
         unreliable=True,
     ),
 }

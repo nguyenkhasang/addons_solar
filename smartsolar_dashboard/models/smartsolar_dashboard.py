@@ -938,36 +938,37 @@ class SmartSolarDashboard(models.AbstractModel):
     @api.model
     def get_energy_distribution(self, system_id=None):
         """Phân bổ điện cấp tải theo hai nguồn không chồng lặp.
-        - Inverter cấp tải: GTI energy_total
-        - Điện lấy lưới: GTI limiter_total
+        Theo mapping thực tế của thiết bị:
+        - Inverter cấp tải: GTI limiter_total
+        - Điện lấy lưới: GTI energy_total
         """
         params = []
         sys_filter = ''
         if system_id:
             sys_filter = 'AND system_id = %s'
             params.append(int(system_id))
-        sql_gti = f"""
+        sql_grid_import = f"""
             SELECT COALESCE(SUM(latest), 0) FROM (
                 SELECT DISTINCT ON (device_id) device_id, energy_total_end AS latest
                 FROM grid_tie_inverter_summary WHERE bucket_type = 'hour' {sys_filter}
                 ORDER BY device_id, bucket_start DESC
             ) t
         """
-        sql_limiter = f"""
+        sql_inverter = f"""
             SELECT COALESCE(SUM(max_e), 0) FROM (
                 SELECT MAX(limiter_total) AS max_e FROM grid_tie_inverter
                 WHERE 1=1 {sys_filter} GROUP BY device_id
             ) t
         """
-        self.env.cr.execute(sql_gti, params)
-        gti = float(self.env.cr.fetchone()[0] or 0)
-        self.env.cr.execute(sql_limiter, params)
-        limiter = float(self.env.cr.fetchone()[0] or 0)
-        if gti == 0:
+        self.env.cr.execute(sql_grid_import, params)
+        grid_import = float(self.env.cr.fetchone()[0] or 0)
+        self.env.cr.execute(sql_inverter, params)
+        inverter = float(self.env.cr.fetchone()[0] or 0)
+        if grid_import == 0:
             return self._distribution_from_raw(system_id)
         return {
             'labels': ['Inverter cấp tải', 'Điện lấy lưới'],
-            'data': [round(gti, 3), round(limiter, 3)],
+            'data': [round(inverter, 3), round(grid_import, 3)],
         }
 
     def _distribution_from_raw(self, system_id):
@@ -977,15 +978,15 @@ class SmartSolarDashboard(models.AbstractModel):
         if system_id:
             sys_filter = 'AND system_id = %s'
             params.append(int(system_id))
-        sql_gti = f"SELECT COALESCE(SUM(max_e), 0) FROM (SELECT MAX(energy_total) AS max_e FROM grid_tie_inverter WHERE 1=1 {sys_filter} GROUP BY device_id) t"
-        sql_limiter = f"SELECT COALESCE(SUM(max_e), 0) FROM (SELECT MAX(limiter_total) AS max_e FROM grid_tie_inverter WHERE 1=1 {sys_filter} GROUP BY device_id) t"
-        self.env.cr.execute(sql_gti, params)
-        gti = float(self.env.cr.fetchone()[0] or 0)
-        self.env.cr.execute(sql_limiter, params)
-        limiter = float(self.env.cr.fetchone()[0] or 0)
+        sql_grid_import = f"SELECT COALESCE(SUM(max_e), 0) FROM (SELECT MAX(energy_total) AS max_e FROM grid_tie_inverter WHERE 1=1 {sys_filter} GROUP BY device_id) t"
+        sql_inverter = f"SELECT COALESCE(SUM(max_e), 0) FROM (SELECT MAX(limiter_total) AS max_e FROM grid_tie_inverter WHERE 1=1 {sys_filter} GROUP BY device_id) t"
+        self.env.cr.execute(sql_grid_import, params)
+        grid_import = float(self.env.cr.fetchone()[0] or 0)
+        self.env.cr.execute(sql_inverter, params)
+        inverter = float(self.env.cr.fetchone()[0] or 0)
         return {
             'labels': ['Inverter cấp tải', 'Điện lấy lưới'],
-            'data': [round(gti, 3), round(limiter, 3)],
+            'data': [round(inverter, 3), round(grid_import, 3)],
         }
 
     # ------------------------------------------------------------------

@@ -18,6 +18,9 @@ from odoo.addons.smartsolar_ai.repositories.metric_repository import MetricRepos
 from odoo.addons.smartsolar_ai.services.analytics_service import AnalyticsService
 from odoo.addons.smartsolar_ai.services.forecast_service import ForecastService
 from odoo.addons.smartsolar_ai.services.health_service import HealthService
+from odoo.addons.smartsolar_ai.tools.solar_tools import (
+    ComparePeriodsTool, GetAggregateTool,
+)
 
 
 @tagged('post_install', '-at_install', 'smartsolar_ai')
@@ -79,6 +82,21 @@ class TestDomain(TransactionCase):
         with self.assertRaises(KeyError):
             MetricRegistry.get('does_not_exist')
 
+    def test_gti_energy_counters_match_device_semantics(self):
+        inverter = MetricRegistry.get('energy_exported_total')
+        grid_import = MetricRegistry.get('grid_import_energy_total')
+
+        self.assertEqual(inverter.raw_field, 'limiter_total')
+        self.assertIsNone(inverter.summary_model)
+        self.assertEqual(grid_import.raw_field, 'energy_total')
+        self.assertEqual(grid_import.summary_model, 'grid.tie.inverter.summary')
+        self.assertEqual(grid_import.summary_field, 'energy_total_end')
+
+    def test_tool_descriptions_match_current_data_sources(self):
+        self.assertIn('tự chọn raw/summary', GetAggregateTool.description)
+        self.assertNotIn('chỉ đọc raw', GetAggregateTool.description)
+        self.assertIn('kỳ A trừ kỳ B', ComparePeriodsTool.description)
+
     def test_derived_metric_flagged(self):
         spec = MetricRegistry.get('self_consumption_pct')
         self.assertEqual(spec.kind, MetricKind.DERIVED)
@@ -89,10 +107,10 @@ class TestDomain(TransactionCase):
         grid_dependency = metrics['grid_dependency_pct']
         self.assertFalse(grid_dependency['supported'])
         self.assertTrue(grid_dependency['unreliable'])
-        self.assertIn('Chưa có công-tơ', grid_dependency['note'])
+        self.assertIn('Chưa có summary', grid_dependency['note'])
         self.assertEqual(
             grid_dependency['depends_on'],
-            ['grid_import_energy', 'load_energy'])
+            ['grid_import_energy', 'inverter_energy'])
         self.assertIn('LẤY TỪ lưới', metrics['grid_import_power']['flow'])
 
     def test_instantaneous_sum_resolves_to_avg(self):
@@ -294,7 +312,7 @@ class TestToolLayer(TransactionCase):
         metric = env['data']['metrics']['grid_dependency_pct']
         self.assertFalse(metric['available'])
         self.assertIsNone(metric['value'])
-        self.assertIn('Chưa có công-tơ', metric['reason'])
+        self.assertIn('Chưa có summary', metric['reason'])
 
     def test_unsupported_derived_timeseries_has_no_fake_point(self):
         env = self.reg.execute(

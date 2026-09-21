@@ -54,8 +54,9 @@ Không sửa Service, không sửa Tool, không sửa Adapter. Đây là nguyên
 
 Ngay lập tức AI thấy `irradiance` qua `list_metrics` và truy vấn được qua `get_timeseries("irradiance", ...)`.
 
-Logic **Hybrid** (PV → MPPT → Pin → GTI → Lưới) cũng nằm gọn ở đây: `output_power` đọc từ
-GTI (hòa lưới), `pv_input` đọc từ MPPT (nạp pin). Các KPI dẫn xuất (`self_consumption_pct`,
+Logic **Hybrid** (PV → MPPT → Pin → GTI → tải) cũng nằm gọn ở đây: `pv_input` là điện PV
+thu tại MPPT để nạp pin; `output_power` là điện pin/DC qua GTI cấp tải, không phải PV thu
+cùng thời điểm. Các KPI dẫn xuất (`self_consumption_pct`,
 `grid_dependency_pct`) khai báo bằng **công thức**, nên quy tắc "không đếm trùng" định nghĩa đúng một lần.
 
 ---
@@ -167,22 +168,22 @@ POST /solar/ai/mcp {method, params}  → MCP
 
 ## 7. Metric chưa đủ cảm biến
 
-`grid_dependency_pct` hiện có `supported=false`: DB có cột `limiter_total`, nhưng chưa đủ
-bằng chứng để khẳng định đó là điện lấy riêng từ lưới thay vì số đo CT của toàn bộ tải.
-Tool trả `value=null`, `available=false` thay vì một KPI có vẻ hợp lệ nhưng sai vật lý.
+`grid_dependency_pct` hiện có `supported=false`: hai counter đã xác định được chiều nhưng
+`limiter_total` chưa có summary dài hạn. Tool trả `value=null`, `available=false` thay vì
+so sánh hai nguồn có cửa sổ dữ liệu không đồng nhất.
 
 Các metric và giới hạn liên quan:
 
-- `grid_import_energy_total` đọc trực tiếp `limiter_total` và được công bố để kiểm tra số
-  đo thô. Metric chưa có bảng summary nên chỉ truy vấn được trong thời gian còn dữ liệu raw.
+- `grid_import_energy_total` đọc `energy_total` và dùng được summary `energy_total_end`.
+- `energy_exported_total` giữ key cũ để tương thích nhưng đọc `limiter_total`; metric này
+  chỉ truy vấn được trong thời gian còn dữ liệu raw vì chưa có cột summary tương ứng.
 - `grid_export_energy` không có công-tơ thật; `self_consumption_pct` phụ thuộc biến này nên
   cũng trả `available=false`, không ánh xạ sang counter khác làm placeholder.
 - `MetricSpec.flow` phân biệt rõ điện inverter phát ra với điện lấy từ lưới;
   `MetricSpec.unreliable` công bố các giả định chưa được xác minh cho LLM.
 
-Chỉ chuyển `grid_dependency_pct` sang `supported=true` sau khi đối chiếu payload MQTT hoặc
-tài liệu firmware, đồng thời bổ sung counter tải phù hợp nếu `limiter_total` không đo riêng
-điện lấy lưới.
+Chỉ chuyển `grid_dependency_pct` sang `supported=true` sau khi bổ sung summary cho
+`limiter_total`, để hai nhánh luôn được so sánh trên cùng khoảng dữ liệu.
 
 ---
 

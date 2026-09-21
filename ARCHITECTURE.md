@@ -41,7 +41,7 @@ smartsolar_ai ◄── smartsolar_ai_chat   (chat depends ai + mail, tái dùng
 | Thiết bị | `device_type` | Model dữ liệu | Vai trò | Đại lượng chính |
 |---|---|---|---|---|
 | MPPT | `charge_power` | `charge.power` | PV → nạp pin | `charge_power` (W), `pv_voltage/current`, `bat_voltage/current`, `total_kwh` |
-| GTI | `grid_tie_inverter` | `grid.tie.inverter` | Pin → hòa lưới | `output_power` (hòa lưới), `limiter_power` (lấy lưới), `energy_total` |
+| GTI | `grid_tie_inverter` | `grid.tie.inverter` | Pin → hòa lưới | `output_power` (hòa lưới), `limiter_power` (lấy lưới), `limiter_total` (inverter), `energy_total` (lấy lưới) |
 
 **Quy tắc tính toán:** công suất hòa lưới **chỉ** lấy từ GTI `output_power`; PV thu **chỉ** lấy từ MPPT. **KHÔNG cộng GTI + MPPT** như hai nguồn độc lập — sẽ đếm trùng.
 
@@ -204,23 +204,24 @@ Chi tiết đầy đủ: xem [`smartsolar_ai/README.md`](smartsolar_ai/README.md
 ## 8. Quy ước & lưu ý chung
 
 - **Múi giờ:** DB = UTC naive; hiển thị/AI = UTC+7. Luôn đổi ở tầng ngoài, đừng lưu lệch.
-- **Hybrid:** không cộng GTI + MPPT (hai thiết bị đo hai đường khác nhau, cộng vào là đếm trùng).
-  Điện PV đi theo 2 nhánh: nhánh **cấp tải** qua GTI (`output_power`) và nhánh **nạp pin** qua
-  MPPT (`charge_power`).
+- **Hybrid:** PV qua MPPT để nạp pin; pin/DC qua GTI để cấp tải AC. `charge_power` là
+  công suất PV thu tại MPPT, còn `output_power` là công suất inverter cấp tải và có thể dùng
+  năng lượng đã lưu trước đó. Không gọi `output_power` là "PV thu cùng thời điểm" và không
+  cộng GTI + MPPT — sẽ đếm trùng hai vị trí đo trong cùng chuỗi chuyển đổi.
 - **Chiều dòng điện — dễ nhầm nhất:** trên cùng bảng `grid.tie.inverter` có hai đại lượng
   **ngược chiều**, cùng đơn vị W:
-  `output_power` = inverter **phát ra** (điện tự sản xuất) · `limiter_power` = **lấy từ lưới**
+  `output_power` = inverter **phát ra từ pin/DC để cấp tải** · `limiter_power` = **lấy từ lưới**
   (điện phải mua). Tải nhà = `output_power + limiter_power`.
   Cảnh báo tên gọi: `limiter_power` mang nhãn model gốc là "Công suất giới hạn" nhưng thực chất
-  là công suất lấy lưới; còn metric key `energy_exported_total` có chữ "exported" nhưng đọc từ
-  `energy_total` — là **sản lượng inverter**, không phải điện bán lên lưới. Trong module AI, chiều
+  là công suất lấy lưới. Với counter của thiết bị này: `limiter_total` là sản lượng inverter,
+  còn `energy_total` là điện lấy lưới. Metric key `energy_exported_total` có chữ "exported"
+  nhưng vẫn là **sản lượng inverter**, không phải điện bán lên lưới. Trong module AI, chiều
   được khai báo tường minh qua `MetricSpec.flow` và in vào prompt.
 - **Realtime:** đi qua `bus.bus`, KHÔNG lưu DB. Dữ liệu lịch sử mới nằm ở bảng thô/summary.
 - **Hiệu năng:** truy vấn dài dùng bảng `*_summary`; raw SQL `date_trunc` chỉ ở tầng Repository/model.
-- **Metric chưa đủ căn cứ:** `limiter_total` được công bố dưới dạng counter
-  `grid_import_energy_total`, nhưng chưa được dùng để khẳng định KPI phụ thuộc lưới cho tới khi
-  xác minh đây là điện lấy lưới chứ không phải toàn bộ tải. Vì vậy `grid_dependency_pct` có
-  `supported=false` và trả `available=false`; `unreliable/flow` vẫn mô tả giới hạn và chiều đo.
+- **Metric chưa đủ summary:** `limiter_total` là counter inverter nhưng chưa có cột summary.
+  Vì vậy `grid_dependency_pct` vẫn có `supported=false` để tránh so sánh hai nguồn có cửa sổ
+  dữ liệu khác nhau; `unreliable/flow` mô tả giới hạn và chiều đo.
 - **Thiếu công-tơ xuất lưới:** `grid_export_energy` chưa có nguồn đo thật nên KPI
   `self_consumption_pct` trả `available=false`, không mượn counter khác làm placeholder.
 - **Phụ thuộc Python:** `websocket-client` (module `smartsolar`).

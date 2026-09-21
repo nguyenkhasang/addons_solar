@@ -34,12 +34,12 @@ _AUTO_RAW_MAX_HOURS = 6
 #
 # Không ánh xạ placeholder sang counter khác. ``grid_export_energy`` không có
 # công-tơ thật nên nằm trong ``_PLACEHOLDER_DEPS`` và KPI phụ thuộc nó sẽ
-# unavailable. ``limiter_total`` được công bố để kiểm tra số đo thô, nhưng KPI
-# phụ thuộc lưới vẫn ``supported=False`` tới khi xác minh được ý nghĩa cảm biến.
+# unavailable. Hai key counter giữ nguyên để tương thích; MetricRegistry sở hữu
+# mapping vật lý: energy_total=lấy lưới, limiter_total=inverter cấp tải.
 _ENERGY_SOURCES = {
     'pv_energy': 'pv_energy_total',
     'grid_import_energy': 'grid_import_energy_total',
-    'load_energy': 'energy_exported_total',
+    'inverter_energy': 'energy_exported_total',
 }
 
 # Các biến phụ thuộc KHÔNG có nguồn đo thật. KPI nào phụ thuộc chúng thì kết quả
