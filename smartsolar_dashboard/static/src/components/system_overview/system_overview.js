@@ -4,7 +4,7 @@ import { Component, onMounted, useState } from "@odoo/owl";
 
 export class SystemOverview extends Component {
     static template = "smartsolar.SystemOverview";
-    static FLOW_THRESHOLD_W = 10;
+    static FLOW_THRESHOLD_W = 5;
     static props = {
         kpi: { type: Object, optional: true },
         devices: { type: Array, optional: true },
