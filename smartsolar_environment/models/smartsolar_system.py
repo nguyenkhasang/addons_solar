@@ -216,9 +216,17 @@ class SmartSolarSystem(models.Model):
         """
         res = super()._cron_aggregate_daily()
         try:
-            self.env['smartsolar.environment.summary']._aggregate_daily()
+            with self.env.cr.savepoint():
+                self.env['smartsolar.environment.summary']._aggregate_daily()
         except Exception as e:
             _logger.error('Aggregate daily smartsolar.environment failed: %s', e, exc_info=True)
+        return res
+
+    @api.model
+    def _backfill_summaries(self, days=30):
+        res = super()._backfill_summaries(days=days)
+        with self.env.cr.savepoint():
+            self.env['smartsolar.environment.summary']._aggregate_daily(days)
         return res
 
     @api.model

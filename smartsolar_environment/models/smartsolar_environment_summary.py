@@ -27,7 +27,8 @@ _logger = logging.getLogger(__name__)
 
 # Mỗi lần chạy quét lại vài ngày gần nhất rồi ON CONFLICT ghi đè, phòng bản ghi
 # raw về trễ (API chậm/lỗi mạng) khiến bucket ngày trước bị thiếu mẫu.
-DAILY_BUFFER_DAYS = 3
+DAILY_BUFFER_DAYS = 7
+AGGREGATION_VERSION = 2
 
 
 class SmartSolarEnvironmentSummary(models.Model):
@@ -48,6 +49,7 @@ class SmartSolarEnvironmentSummary(models.Model):
                                  related='system_id.company_id', store=True)
 
     sample_count = fields.Integer(string='Số mẫu')
+    aggregation_version = fields.Integer(string='Phiên bản tổng hợp', default=AGGREGATION_VERSION)
 
     # ---- Nhóm CURRENT (tức thời) ----
     temp_avg = fields.Float(string='Nhiệt độ TB (°C)', digits=(6, 2))
@@ -76,16 +78,57 @@ class SmartSolarEnvironmentSummary(models.Model):
             record.display_name = f"{sys_name} - {label}"
 
     @api.model
-    def _aggregate_daily(self):
+    def _aggregate_daily(self, lookback_days=None):
         """Gom thẳng từ bảng raw thành bucket theo ngày (không qua lớp giờ)."""
         now = fields.Datetime.now()
-        end_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        start_day = end_day - timedelta(days=DAILY_BUFFER_DAYS)
+        days = max(1, int(lookback_days or DAILY_BUFFER_DAYS))
+        scan_start = now - timedelta(days=days + 2)
 
         self.env.cr.execute("""
+            DELETE FROM smartsolar_environment_summary
+             WHERE bucket_type = 'day' AND bucket_start >= %s
+        """, [scan_start])
+
+        self.env.cr.execute("""
+            WITH raw_local AS (
+                SELECT e.*,
+                       timezone(
+                           'UTC',
+                           timezone(
+                               COALESCE(NULLIF(s.timezone, ''), 'Asia/Ho_Chi_Minh'),
+                               date_trunc(
+                                   'day',
+                                   timezone(
+                                       COALESCE(NULLIF(s.timezone, ''), 'Asia/Ho_Chi_Minh'),
+                                       e.record_date AT TIME ZONE 'UTC'
+                                   )
+                               )
+                           )
+                       ) AS local_bucket_start,
+                       timezone(
+                           'UTC',
+                           timezone(
+                               COALESCE(NULLIF(s.timezone, ''), 'Asia/Ho_Chi_Minh'),
+                               date_trunc(
+                                   'day',
+                                   timezone(
+                                       COALESCE(NULLIF(s.timezone, ''), 'Asia/Ho_Chi_Minh'),
+                                       %s AT TIME ZONE 'UTC'
+                                   )
+                               )
+                           )
+                       ) AS local_today_start
+                  FROM smartsolar_environment e
+                  JOIN smartsolar_system s ON s.id = e.system_id
+                 WHERE e.record_date >= %s AND e.record_date < %s
+            ), completed_days AS (
+                SELECT * FROM raw_local
+                 WHERE local_bucket_start >= local_today_start - (%s * INTERVAL '1 day')
+                   AND local_bucket_start < local_today_start
+            )
             INSERT INTO smartsolar_environment_summary (
                 bucket_start, bucket_type, system_id,
-                sample_count,
+                sample_count, aggregation_version,
                 temp_avg, temp_max, humidity_avg,
                 cloud_cover_avg, cloud_cover_max,
                 wind_speed_avg, wind_speed_max,
@@ -93,21 +136,21 @@ class SmartSolarEnvironmentSummary(models.Model):
                 create_uid, write_uid, create_date, write_date
             )
             SELECT
-                date_trunc('day', record_date) AS bucket_start,
+                local_bucket_start,
                 'day'::varchar,
                 system_id,
                 COUNT(*),
+                %s,
                 AVG(temperature_2m), MAX(temperature_2m), AVG(relative_humidity_2m),
                 AVG(cloud_cover), MAX(cloud_cover),
                 AVG(wind_speed_10m), MAX(wind_speed_10m),
                 MAX(shortwave_radiation_sum), MAX(uv_index_max), MAX(sunshine_duration),
                 1, 1, NOW() AT TIME ZONE 'UTC', NOW() AT TIME ZONE 'UTC'
-            FROM smartsolar_environment
-            WHERE record_date >= %s AND record_date < %s
-              AND system_id IS NOT NULL
-            GROUP BY date_trunc('day', record_date), system_id
+            FROM completed_days
+            GROUP BY local_bucket_start, system_id
             ON CONFLICT (bucket_start, bucket_type, system_id) DO UPDATE SET
                 sample_count = EXCLUDED.sample_count,
+                aggregation_version = EXCLUDED.aggregation_version,
                 temp_avg = EXCLUDED.temp_avg,
                 temp_max = EXCLUDED.temp_max,
                 humidity_avg = EXCLUDED.humidity_avg,
@@ -119,5 +162,7 @@ class SmartSolarEnvironmentSummary(models.Model):
                 uv_index_max = EXCLUDED.uv_index_max,
                 sunshine_duration_max = EXCLUDED.sunshine_duration_max,
                 write_date = NOW() AT TIME ZONE 'UTC';
-        """, [start_day, end_day])
+        """, [
+            now, scan_start, now, days, AGGREGATION_VERSION,
+        ])
         _logger.info('[smartsolar.environment] Aggregated daily: %s buckets', self.env.cr.rowcount)

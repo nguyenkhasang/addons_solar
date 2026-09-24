@@ -16,9 +16,15 @@
                     <field name="total_power_avg"/>
                     <field name="dc_voltage_avg"/>
                     <field name="energy_kwh"/>
+                    <field name="limiter_energy_kwh"/>
+                    <field name="energy_total_start" optional="hide"/>
                     <field name="energy_total_end"/>
+                    <field name="limiter_total_start" optional="hide"/>
+                    <field name="limiter_total_end" optional="hide"/>
+                    <field name="counter_reset_count" optional="show"/>
                     <field name="temperature_avg"/>
                     <field name="sample_count"/>
+                    <field name="aggregation_version" optional="hide"/>
                 </list>
             </field>
         </record>

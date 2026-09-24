@@ -37,7 +37,15 @@ def mqsolar_message_to_legacy_api_data(raw_data):
 
     if device_type == 'grid_tie_inverter':
         output_power = payload.get('output_power')
-        limiter_power = payload.get('limmiter_power')
+        limiter_power = payload.get('limiter_power')
+        if limiter_power is None:
+            limiter_power = payload.get('limmiter_power')
+        limiter_today = payload.get('limiter_today')
+        if limiter_today is None:
+            limiter_today = payload.get('limmiter_today')
+        limiter_total = payload.get('limiter_total')
+        if limiter_total is None:
+            limiter_total = payload.get('limmiter_total')
         total_power = payload.get('total_power')
         if total_power is None and output_power is not None and limiter_power is not None:
             try:
@@ -49,8 +57,8 @@ def mqsolar_message_to_legacy_api_data(raw_data):
             _stream('ac_voltage', payload.get('ac_voltage')),
             _stream('output_power', output_power),
             _stream('limmiter_power', limiter_power),
-            _stream('limmiter_today', payload.get('limmiter_today')),
-            _stream('limmiter_total', payload.get('limmiter_total')),
+            _stream('limmiter_today', limiter_today),
+            _stream('limmiter_total', limiter_total),
             _stream('temperature', payload.get('temperature')),
             _stream('energy_today', payload.get('energy_today')),
             _stream('energy_total', payload.get('energy_total')),

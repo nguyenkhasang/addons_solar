@@ -72,14 +72,16 @@ smartsolar.system          Hệ thống PV (cấu hình WebSocket, token, công 
 > Thiết kế "1 bản ghi/phút": thiết bị gửi ~1s/lần, nhưng chỉ lưu bản mới nhất mỗi chu kỳ để không phình DB. Realtime vẫn mượt vì đi qua bus.bus, không qua DB.
 
 ### Tổng hợp & dọn dẹp (cron trong `smartsolar_system.py`)
-- `_cron_aggregate_hourly` / `_cron_aggregate_daily`: gom bảng thô → bảng summary (bucket giờ/ngày) bằng SQL `date_trunc`. Năng lượng bucket = `MAX(counter) - MIN(counter)`.
+- `_cron_aggregate_hourly`: gom raw thành bucket giờ theo từng thiết bị. Counter năng lượng được sắp theo thời gian bằng `LAG`, nối với mẫu cuối trước bucket và cộng từng bước tăng; counter giảm được ghi nhận là một lần reset.
+- `_cron_aggregate_daily`: roll-up hourly thành ngày vận hành theo `smartsolar.system.timezone`. Các giá trị trung bình dùng `sample_count` làm trọng số; năng lượng ngày là tổng các delta giờ.
+- Cron tự quét lại 48 giờ/7 ngày gần nhất, chạy từng bảng trong savepoint và hỗ trợ backfill thủ công qua `smartsolar.system._backfill_summaries(days)`.
 - `_cron_purge_old_data`: xóa dữ liệu cũ theo config (`raw_retention_days`=30, `hourly`=365...).
 
 ### Chuyển đổi định dạng
 `utils.py`: MQSolar payload → "legacy API shape" (`dataStreams`). `detect_mqsolar_device_type()` nhận diện GTI/MPPT theo topic/field.
 
 ### Múi giờ
-DB lưu **UTC naive**. Hiển thị cần đổi sang **UTC+7** (Asia/Ho_Chi_Minh).
+DB lưu **UTC naive**. Mỗi hệ thống có timezone vận hành (mặc định `Asia/Ho_Chi_Minh`); bucket ngày được lưu bằng thời điểm UTC tương ứng với 00:00 địa phương.
 
 ---
 
@@ -219,9 +221,9 @@ Chi tiết đầy đủ: xem [`smartsolar_ai/README.md`](smartsolar_ai/README.md
   được khai báo tường minh qua `MetricSpec.flow` và in vào prompt.
 - **Realtime:** đi qua `bus.bus`, KHÔNG lưu DB. Dữ liệu lịch sử mới nằm ở bảng thô/summary.
 - **Hiệu năng:** truy vấn dài dùng bảng `*_summary`; raw SQL `date_trunc` chỉ ở tầng Repository/model.
-- **Metric chưa đủ summary:** `limiter_total` là counter inverter nhưng chưa có cột summary.
-  Vì vậy `grid_dependency_pct` vẫn có `supported=false` để tránh so sánh hai nguồn có cửa sổ
-  dữ liệu khác nhau; `unreliable/flow` mô tả giới hạn và chiều đo.
+- **Summary counter:** cả `limiter_total` (sản lượng inverter) và `energy_total` (điện lấy lưới)
+  đều được tổng hợp theo delta có xử lý reset counter. Biểu đồ phân bổ dùng raw cho khoảng ngắn,
+  daily summary cộng raw ở hai mép cho khoảng dài để luôn bám đúng cửa sổ được chọn.
 - **Thiếu công-tơ xuất lưới:** `grid_export_energy` chưa có nguồn đo thật nên KPI
   `self_consumption_pct` trả `available=false`, không mượn counter khác làm placeholder.
 - **Phụ thuộc Python:** `websocket-client` (module `smartsolar`).

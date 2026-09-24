@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Smart Solar AI Tools',
-    'version': '19.0.1.0.0',
+    'version': '19.0.2.0.0',
     'category': 'Custom',
     'summary': 'AI Tool Layer (Function/Tool Calling) cho hệ thống giám sát điện mặt trời',
     'description': """

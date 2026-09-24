@@ -38,6 +38,7 @@
                                 <field name="capacity"/>
                                 <field name="installation_date"/>
                                 <field name="location"/>
+                                <field name="timezone"/>
                                 <field name="company_id"/>
                                 <field name="user_id"/>
                             </group>

@@ -749,7 +749,22 @@ export class SmartSolarDashboard extends Component {
                 cutout: "65%",
                 plugins: {
                     legend: { position: "bottom", labels: { color: this.state.theme === "dark" ? "#cbd5e1" : "#475569", usePointStyle: true, padding: 14, font: { size: 11 } } },
-                    tooltip: { callbacks: { label: (c) => ` ${c.label}: ${c.parsed.toFixed(1)} kWh` } },
+                    tooltip: {
+                        callbacks: {
+                            label: (c) => {
+                                const value = Number(c.parsed || 0);
+                                const total = c.dataset.data.reduce(
+                                    (sum, item) => sum + Number(item || 0), 0);
+                                const percent = d.percentages?.[c.dataIndex]
+                                    ?? (total > 0 ? value / total * 100 : 0);
+                                const kwh = value.toLocaleString("vi-VN", {
+                                    minimumFractionDigits: 1,
+                                    maximumFractionDigits: 3,
+                                });
+                                return ` ${c.label}: ${kwh} kWh (${Number(percent).toFixed(1)}%)`;
+                            },
+                        },
+                    },
                 },
             },
         });

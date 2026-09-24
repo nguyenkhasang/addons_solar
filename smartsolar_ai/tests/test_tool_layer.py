@@ -173,6 +173,39 @@ class TestDomain(TransactionCase):
         self.assertIn('GROUP BY bucket, device_id', sql)
         self.assertIn('ORDER BY bucket_start DESC', sql)
 
+    def test_summary_average_is_weighted_by_sample_count(self):
+        class FakeCursor:
+            sql = ''
+
+            def execute(self, sql, params):
+                self.sql = sql
+
+            @staticmethod
+            def fetchall():
+                return []
+
+        class FakeModel:
+            _table = 'grid_tie_inverter_summary'
+
+        class FakeEnv:
+            cr = FakeCursor()
+
+            @staticmethod
+            def __getitem__(key):
+                return FakeModel()
+
+        class FakeRange:
+            start_utc = 'start'
+            end_utc = 'end'
+
+        repo = MetricRepository(FakeEnv())
+        repo._fetch_series_summary(
+            MetricRegistry.get('output_power'), FakeRange(),
+            AggregationType.AVG, Granularity.DAY, None, 1)
+        sql = ' '.join(repo.env.cr.sql.split())
+        self.assertIn('SUM(output_power_avg * sample_count)', sql)
+        self.assertIn('NULLIF(SUM(sample_count), 0)', sql)
+
     def test_counter_scalar_sums_first_last_per_device(self):
         class FakeCursor:
             sql = ''

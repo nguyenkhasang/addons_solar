@@ -4,6 +4,7 @@ from urllib.parse import urlencode, quote
 import json
 import logging
 import time
+import pytz
 
 from odoo import models, fields, api, _
 from odoo.exceptions import ValidationError
@@ -23,6 +24,13 @@ class SmartSolarSystem(models.Model):
 
     installation_date = fields.Date(string='Ngay lap dat')
     location = fields.Char(string='Vi tri lap dat')
+    timezone = fields.Selection(
+        selection=lambda self: [(tz, tz) for tz in pytz.all_timezones],
+        string='Mui gio du lieu',
+        default='Asia/Ho_Chi_Minh',
+        required=True,
+        help='Dung de chia bucket theo ngay van hanh cua he thong.',
+    )
     capacity = fields.Float(string='Cong suat (kW)', digits=(16, 2))
     description = fields.Text(string='Mo ta')
 
@@ -258,11 +266,13 @@ class SmartSolarSystem(models.Model):
     @api.model
     def _cron_aggregate_hourly(self):
         try:
-            self.env['charge.power.summary']._aggregate_hourly()
+            with self.env.cr.savepoint():
+                self.env['charge.power.summary']._aggregate_hourly()
         except Exception as e:
             _logger.error('Aggregate hourly charge.power failed: %s', e, exc_info=True)
         try:
-            self.env['grid.tie.inverter.summary']._aggregate_hourly()
+            with self.env.cr.savepoint():
+                self.env['grid.tie.inverter.summary']._aggregate_hourly()
         except Exception as e:
             _logger.error('Aggregate hourly grid.tie.inverter failed: %s', e, exc_info=True)
         return True
@@ -270,13 +280,34 @@ class SmartSolarSystem(models.Model):
     @api.model
     def _cron_aggregate_daily(self):
         try:
-            self.env['charge.power.summary']._aggregate_daily()
+            with self.env.cr.savepoint():
+                self.env['charge.power.summary']._aggregate_daily()
         except Exception as e:
             _logger.error('Aggregate daily charge.power failed: %s', e, exc_info=True)
         try:
-            self.env['grid.tie.inverter.summary']._aggregate_daily()
+            with self.env.cr.savepoint():
+                self.env['grid.tie.inverter.summary']._aggregate_daily()
         except Exception as e:
             _logger.error('Aggregate daily grid.tie.inverter failed: %s', e, exc_info=True)
+        return True
+
+    @api.model
+    def _backfill_summaries(self, days=30):
+        """Rebuild the retained summary window after an aggregation change.
+
+        This is intentionally an explicit maintenance entry point instead of a
+        module-install hook: large databases can choose a suitable maintenance
+        window. The operation is idempotent because every bucket is upserted.
+        """
+        days = max(1, int(days))
+        with self.env.cr.savepoint():
+            self.env['charge.power.summary']._aggregate_hourly(days * 24)
+        with self.env.cr.savepoint():
+            self.env['grid.tie.inverter.summary']._aggregate_hourly(days * 24)
+        with self.env.cr.savepoint():
+            self.env['charge.power.summary']._aggregate_daily(days)
+        with self.env.cr.savepoint():
+            self.env['grid.tie.inverter.summary']._aggregate_daily(days)
         return True
 
     @api.model

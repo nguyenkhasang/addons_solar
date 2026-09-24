@@ -2,19 +2,29 @@
 """Dashboard aggregation logic cho Smart Solar."""
 from datetime import timedelta, timezone
 from collections import OrderedDict, defaultdict
+from zoneinfo import ZoneInfo
 
 from odoo import models, fields, api, _
 
 _UTC7 = timezone(timedelta(hours=7))
 
 
-def _to_utc7(dt):
-    """Chuyển datetime naive (UTC) sang UTC+7."""
+def _to_local(dt, timezone_name='Asia/Ho_Chi_Minh'):
+    """Convert an Odoo naive UTC datetime to the system's operating timezone."""
     if dt is None:
         return None
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(_UTC7)
+    try:
+        target = ZoneInfo(timezone_name or 'Asia/Ho_Chi_Minh')
+    except (KeyError, ValueError):
+        target = _UTC7
+    return dt.astimezone(target)
+
+
+def _to_utc7(dt):
+    """Backward-compatible helper for responses that are not system-scoped."""
+    return _to_local(dt)
 
 
 TIME_RANGE_CONFIG = {
@@ -36,8 +46,8 @@ TIME_RANGE_CONFIG = {
     '1week':  {'delta': 604800,  'source': 'hourly',
                'truncate_expr': "bucket_start",
                'bucket': 'hour'},
-    '1month': {'delta': 2592000, 'source': 'hourly',
-               'truncate_expr': "date_trunc('day', bucket_start)",
+    '1month': {'delta': 2592000, 'source': 'daily',
+               'truncate_expr': "bucket_start",
                'bucket': 'day'},
     '3month': {'delta': 7776000,   'source': 'daily',
                'truncate_expr': "bucket_start",
@@ -46,10 +56,10 @@ TIME_RANGE_CONFIG = {
                'truncate_expr': "bucket_start",
                'bucket': 'day'},
     '1year':  {'delta': 31536000,  'source': 'daily',
-               'truncate_expr': "date_trunc('week', bucket_start)",
+               'truncate_expr': "date_trunc('week', bucket_start + INTERVAL '7 hours') - INTERVAL '7 hours'",
                'bucket': 'week'},
     '5year':  {'delta': 157680000, 'source': 'daily',
-               'truncate_expr': "date_trunc('month', bucket_start)",
+               'truncate_expr': "date_trunc('month', bucket_start + INTERVAL '7 hours') - INTERVAL '7 hours'",
                'bucket': 'month'},
 }
 
@@ -69,6 +79,21 @@ class SmartSolarDashboard(models.AbstractModel):
     _name = 'smartsolar.dashboard'
     _description = 'Smart Solar Dashboard Aggregator'
 
+    def _get_system_timezone(self, system_id=None):
+        if system_id:
+            system = self.env['smartsolar.system'].browse(int(system_id)).exists()
+            if system:
+                return system.timezone or 'Asia/Ho_Chi_Minh'
+        return 'Asia/Ho_Chi_Minh'
+
+    def _get_safe_timezone(self, system_id=None):
+        timezone_name = self._get_system_timezone(system_id)
+        try:
+            ZoneInfo(timezone_name)
+        except (KeyError, ValueError):
+            timezone_name = 'Asia/Ho_Chi_Minh'
+        return timezone_name.replace("'", "''")
+
     @api.model
     def _get_settings(self):
         Param = self.env['ir.config_parameter'].sudo()
@@ -81,11 +106,63 @@ class SmartSolarDashboard(models.AbstractModel):
         }
 
     @api.model
-    def _resolve_time_range(self, time_range):
-        cfg = TIME_RANGE_CONFIG.get(time_range) or TIME_RANGE_CONFIG['24h']
+    def _resolve_time_range(self, time_range, system_id=None):
+        cfg = dict(TIME_RANGE_CONFIG.get(time_range) or TIME_RANGE_CONFIG['24h'])
+        if cfg['source'] == 'daily' and cfg['bucket'] in ('week', 'month'):
+            timezone_name = self._get_safe_timezone(system_id)
+            local_value = (
+                "timezone('{tz}', bucket_start AT TIME ZONE 'UTC')"
+                .format(tz=timezone_name)
+            )
+            cfg['truncate_expr'] = (
+                "timezone('UTC', timezone('{tz}', date_trunc('{bucket}', {local})))"
+                .format(tz=timezone_name, bucket=cfg['bucket'], local=local_value)
+            )
         date_to = fields.Datetime.now()
         date_from = date_to - timedelta(seconds=cfg['delta'])
         return cfg, date_from, date_to
+
+    def _summary_edge_ranges(self, cfg, date_from, date_to, system_id=None):
+        """Return raw ranges for partial buckets at both ends of a summary query."""
+        if cfg['source'] == 'hourly':
+            inner_start = date_from.replace(minute=0, second=0, microsecond=0)
+            if inner_start < date_from:
+                inner_start += timedelta(hours=1)
+            inner_end = date_to.replace(minute=0, second=0, microsecond=0)
+            raw_cfg = {'truncate_expr': "date_trunc('hour', record_date)"}
+        elif cfg['source'] == 'daily' and cfg['bucket'] == 'day':
+            tz = ZoneInfo(self._get_system_timezone(system_id))
+            start_local = date_from.replace(tzinfo=timezone.utc).astimezone(tz)
+            end_local = date_to.replace(tzinfo=timezone.utc).astimezone(tz)
+            start_floor = start_local.replace(hour=0, minute=0, second=0, microsecond=0)
+            inner_start_local = start_floor if start_floor == start_local else start_floor + timedelta(days=1)
+            inner_end_local = end_local.replace(hour=0, minute=0, second=0, microsecond=0)
+            inner_start = inner_start_local.astimezone(timezone.utc).replace(tzinfo=None)
+            inner_end = inner_end_local.astimezone(timezone.utc).replace(tzinfo=None)
+            safe_tz = self._get_safe_timezone(system_id)
+            raw_cfg = {
+                'truncate_expr': (
+                    "timezone('UTC', timezone('{tz}', date_trunc('day', "
+                    "timezone('{tz}', record_date AT TIME ZONE 'UTC'))))"
+                ).format(tz=safe_tz)
+            }
+        else:
+            return []
+
+        if inner_start >= inner_end:
+            return [(raw_cfg, date_from, date_to)]
+        ranges = []
+        if date_from < inner_start:
+            ranges.append((raw_cfg, date_from, min(inner_start, date_to)))
+        if inner_end < date_to:
+            ranges.append((raw_cfg, max(inner_end, date_from), date_to))
+        return ranges
+
+    @staticmethod
+    def _merge_rows(rows):
+        """Merge non-overlapping raw edge rows with complete summary rows."""
+        return [row for _bucket, row in sorted(
+            ((row[0], row) for row in rows), key=lambda item: item[0])]
 
     # ------------------------------------------------------------------
     # Overview KPI
@@ -226,10 +303,13 @@ class SmartSolarDashboard(models.AbstractModel):
         if system_id:
             sys_filter = 'AND system_id = %s'
             params.append(int(system_id))
+        tz = self._get_safe_timezone(system_id)
         sql = f"""
             SELECT COALESCE(SUM(max_e), 0) FROM (
                 SELECT MAX(today_kwh) AS max_e FROM charge_power
-                WHERE record_date::date = CURRENT_DATE {sys_filter} GROUP BY device_id
+                WHERE timezone('{tz}', record_date AT TIME ZONE 'UTC')::date
+                      = timezone('{tz}', NOW())::date
+                      {sys_filter} GROUP BY device_id
             ) t
         """
         self.env.cr.execute(sql, params)
@@ -243,10 +323,13 @@ class SmartSolarDashboard(models.AbstractModel):
         if system_id:
             sys_filter = 'AND system_id = %s'
             params.append(int(system_id))
+        tz = self._get_safe_timezone(system_id)
         sql = f"""
             SELECT COALESCE(SUM(max_e), 0) FROM (
                 SELECT MAX(energy_today) AS max_e FROM grid_tie_inverter
-                WHERE record_date::date = CURRENT_DATE {sys_filter} GROUP BY device_id
+                WHERE timezone('{tz}', record_date AT TIME ZONE 'UTC')::date
+                      = timezone('{tz}', NOW())::date
+                      {sys_filter} GROUP BY device_id
             ) t
         """
         self.env.cr.execute(sql, params)
@@ -260,10 +343,13 @@ class SmartSolarDashboard(models.AbstractModel):
         if system_id:
             sys_filter = 'AND system_id = %s'
             params.append(int(system_id))
+        tz = self._get_safe_timezone(system_id)
         sql = f"""
             SELECT COALESCE(SUM(max_e), 0) FROM (
                 SELECT MAX(limiter_today) AS max_e FROM grid_tie_inverter
-                WHERE record_date::date = CURRENT_DATE {sys_filter} GROUP BY device_id
+                WHERE timezone('{tz}', record_date AT TIME ZONE 'UTC')::date
+                      = timezone('{tz}', NOW())::date
+                      {sys_filter} GROUP BY device_id
             ) t
         """
         self.env.cr.execute(sql, params)
@@ -277,11 +363,13 @@ class SmartSolarDashboard(models.AbstractModel):
         if system_id:
             sys_filter = 'AND system_id = %s'
             params.append(int(system_id))
+        tz = self._get_safe_timezone(system_id)
         sql = f"""
-            SELECT EXTRACT(HOUR FROM record_date + INTERVAL '7 hours') AS hour,
+            SELECT EXTRACT(HOUR FROM timezone('{tz}', record_date AT TIME ZONE 'UTC')) AS hour,
                    MAX(output_power) AS max_w
             FROM grid_tie_inverter
-            WHERE record_date::date = CURRENT_DATE {sys_filter}
+            WHERE timezone('{tz}', record_date AT TIME ZONE 'UTC')::date
+                  = timezone('{tz}', NOW())::date {sys_filter}
             GROUP BY hour ORDER BY max_w DESC LIMIT 1
         """
         self.env.cr.execute(sql, params)
@@ -300,12 +388,15 @@ class SmartSolarDashboard(models.AbstractModel):
             sys_filter = 'AND system_id = %s'
             params_today.append(int(system_id))
             params_avg.append(int(system_id))
+        tz = self._get_safe_timezone(system_id)
 
         # Sản lượng hôm nay
         sql_today = f"""
             SELECT COALESCE(SUM(max_e), 0) FROM (
                 SELECT MAX(energy_today) AS max_e FROM grid_tie_inverter
-                WHERE record_date::date = CURRENT_DATE {sys_filter} GROUP BY device_id
+                WHERE timezone('{tz}', record_date AT TIME ZONE 'UTC')::date
+                      = timezone('{tz}', NOW())::date
+                      {sys_filter} GROUP BY device_id
             ) t
         """
         self.env.cr.execute(sql_today, params_today)
@@ -314,11 +405,14 @@ class SmartSolarDashboard(models.AbstractModel):
         # Trung bình 7 ngày gần nhất (cùng khoảng giờ trong ngày — dùng SQL để tránh UTC edge cases)
         sql_avg = f"""
             SELECT COALESCE(AVG(daily_e), 0) FROM (
-                SELECT record_date::date AS d, MAX(energy_today) AS daily_e
+                SELECT timezone('{tz}', record_date AT TIME ZONE 'UTC')::date AS d,
+                       MAX(energy_today) AS daily_e
                 FROM grid_tie_inverter
-                WHERE record_date::date BETWEEN CURRENT_DATE - 8 AND CURRENT_DATE - 1
-                  AND (record_date + INTERVAL '7 hours')::time <=
-                      (NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh')::time
+                WHERE timezone('{tz}', record_date AT TIME ZONE 'UTC')::date
+                      BETWEEN timezone('{tz}', NOW())::date - 8
+                          AND timezone('{tz}', NOW())::date - 1
+                  AND timezone('{tz}', record_date AT TIME ZONE 'UTC')::time <=
+                      timezone('{tz}', NOW())::time
                   {sys_filter}
                 GROUP BY d, device_id
             ) t
@@ -346,12 +440,13 @@ class SmartSolarDashboard(models.AbstractModel):
         if system_id:
             sys_filter = 'AND system_id = %s'
             params.append(int(system_id))
+        tz = self._get_safe_timezone(system_id)
 
         queries = {
             'grid_out': f"""
                 SELECT
-                    (record_date + INTERVAL '7 hours')::date AS day,
-                    EXTRACT(HOUR FROM record_date + INTERVAL '7 hours')::int AS hour,
+                    timezone('{tz}', record_date AT TIME ZONE 'UTC')::date AS day,
+                    EXTRACT(HOUR FROM timezone('{tz}', record_date AT TIME ZONE 'UTC'))::int AS hour,
                     AVG(output_power) AS avg_w
                 FROM grid_tie_inverter
                 WHERE record_date >= NOW() - INTERVAL '30 days' {sys_filter}
@@ -359,8 +454,8 @@ class SmartSolarDashboard(models.AbstractModel):
             """,
             'pv_input': f"""
                 SELECT
-                    (record_date + INTERVAL '7 hours')::date AS day,
-                    EXTRACT(HOUR FROM record_date + INTERVAL '7 hours')::int AS hour,
+                    timezone('{tz}', record_date AT TIME ZONE 'UTC')::date AS day,
+                    EXTRACT(HOUR FROM timezone('{tz}', record_date AT TIME ZONE 'UTC'))::int AS hour,
                     AVG(pv_voltage * pv_current) AS avg_w
                 FROM charge_power
                 WHERE record_date >= NOW() - INTERVAL '30 days' {sys_filter}
@@ -368,8 +463,8 @@ class SmartSolarDashboard(models.AbstractModel):
             """,
             'total_load': f"""
                 SELECT
-                    (record_date + INTERVAL '7 hours')::date AS day,
-                    EXTRACT(HOUR FROM record_date + INTERVAL '7 hours')::int AS hour,
+                    timezone('{tz}', record_date AT TIME ZONE 'UTC')::date AS day,
+                    EXTRACT(HOUR FROM timezone('{tz}', record_date AT TIME ZONE 'UTC'))::int AS hour,
                     AVG(COALESCE(output_power, 0) + COALESCE(limiter_power, 0)) AS avg_w
                 FROM grid_tie_inverter
                 WHERE record_date >= NOW() - INTERVAL '30 days' {sys_filter}
@@ -416,10 +511,13 @@ class SmartSolarDashboard(models.AbstractModel):
         if system_id:
             sys_filter = 'AND system_id = %s'
             params.append(int(system_id))
+        tz = self._get_safe_timezone(system_id)
 
         sql = f"""
             SELECT
-                DATE_TRUNC('month', bucket_start) AS month,
+                DATE_TRUNC(
+                    'month', timezone('{tz}', bucket_start AT TIME ZONE 'UTC')
+                ) AS month,
                 SUM(energy_kwh) AS total
             FROM grid_tie_inverter_summary
             WHERE bucket_type = 'day'
@@ -428,10 +526,9 @@ class SmartSolarDashboard(models.AbstractModel):
             GROUP BY month ORDER BY month
         """
         self.env.cr.execute(sql, params)
-        rows = self.env.cr.fetchall()
+        rows = list(self.env.cr.fetchall())
 
-        from datetime import datetime as dt
-        now = fields.Datetime.now()
+        now = _to_local(fields.Datetime.now(), self._get_system_timezone(system_id))
         this_year = {}
         last_year = {}
         for month, total in rows:
@@ -486,10 +583,13 @@ class SmartSolarDashboard(models.AbstractModel):
         if system_id:
             sys_filter = 'AND system_id = %s'
             params.append(int(system_id))
+        tz = self._get_safe_timezone(system_id)
         sql_gti = f"""
             SELECT COALESCE(SUM(max_e), 0) FROM (
                 SELECT MAX(energy_today) AS max_e FROM grid_tie_inverter
-                WHERE record_date::date = CURRENT_DATE {sys_filter} GROUP BY device_id
+                WHERE timezone('{tz}', record_date AT TIME ZONE 'UTC')::date
+                      = timezone('{tz}', NOW())::date
+                      {sys_filter} GROUP BY device_id
             ) t
         """
         self.env.cr.execute(sql_gti, params)
@@ -534,15 +634,24 @@ class SmartSolarDashboard(models.AbstractModel):
     # ------------------------------------------------------------------
     @api.model
     def get_charge_power_series(self, time_range='24h', system_id=None, device_ids=None):
-        cfg, date_from, date_to = self._resolve_time_range(time_range)
+        cfg, date_from, date_to = self._resolve_time_range(time_range, system_id)
         if cfg['source'] == 'raw':
             sql, params = self._build_charge_power_raw_sql(cfg, date_from, date_to, system_id, device_ids)
         else:
             sql, params = self._build_charge_power_summary_sql(cfg, date_from, date_to, system_id, device_ids)
         self.env.cr.execute(sql, params)
-        rows = self.env.cr.fetchall()
+        rows = list(self.env.cr.fetchall())
+        if cfg['source'] != 'raw':
+            for raw_cfg, edge_from, edge_to in self._summary_edge_ranges(
+                    cfg, date_from, date_to, system_id):
+                edge_sql, edge_params = self._build_charge_power_raw_sql(
+                    raw_cfg, edge_from, edge_to, system_id, device_ids)
+                self.env.cr.execute(edge_sql, edge_params)
+                rows.extend(self.env.cr.fetchall())
+            rows = self._merge_rows(rows)
+        timezone_name = self._get_system_timezone(system_id)
         return {
-            'labels': [_to_utc7(r[0]).strftime('%Y-%m-%d %H:%M:%S') if r[0] else '' for r in rows],
+            'labels': [_to_local(r[0], timezone_name).strftime('%Y-%m-%d %H:%M:%S') if r[0] else '' for r in rows],
             'avg_power': [round(float(r[1] or 0), 2) for r in rows],
             'max_power': [round(float(r[2] or 0), 2) for r in rows],
             'pv_voltage': [round(float(r[3] or 0), 2) for r in rows],
@@ -572,7 +681,7 @@ class SmartSolarDashboard(models.AbstractModel):
                    AVG(pv_current), AVG(bat_current),
                    AVG(temperature)
             FROM charge_power
-            WHERE record_date BETWEEN %s AND %s {filters}
+            WHERE record_date >= %s AND record_date < %s {filters}
             GROUP BY bucket ORDER BY bucket
         """
         return sql, params
@@ -589,12 +698,15 @@ class SmartSolarDashboard(models.AbstractModel):
             params.append([int(d) for d in device_ids])
         sql = f"""
             SELECT {cfg['truncate_expr']} AS bucket,
-                   AVG(charge_power_avg), MAX(charge_power_max),
-                   AVG(pv_voltage_avg), AVG(bat_voltage_avg),
-                   AVG(pv_current_avg), AVG(bat_current_avg),
-                   AVG(temperature_avg)
+                   SUM(charge_power_avg * sample_count) / NULLIF(SUM(sample_count), 0),
+                   MAX(charge_power_max),
+                   SUM(pv_voltage_avg * sample_count) / NULLIF(SUM(sample_count), 0),
+                   SUM(bat_voltage_avg * sample_count) / NULLIF(SUM(sample_count), 0),
+                   SUM(pv_current_avg * sample_count) / NULLIF(SUM(sample_count), 0),
+                   SUM(bat_current_avg * sample_count) / NULLIF(SUM(sample_count), 0),
+                   SUM(temperature_avg * sample_count) / NULLIF(SUM(sample_count), 0)
             FROM charge_power_summary
-            WHERE bucket_type = %s AND bucket_start BETWEEN %s AND %s {filters}
+            WHERE bucket_type = %s AND bucket_start >= %s AND bucket_start < %s {filters}
             GROUP BY bucket ORDER BY bucket
         """
         return sql, params
@@ -604,15 +716,24 @@ class SmartSolarDashboard(models.AbstractModel):
     # ------------------------------------------------------------------
     @api.model
     def get_grid_tie_series(self, time_range='24h', system_id=None, device_ids=None):
-        cfg, date_from, date_to = self._resolve_time_range(time_range)
+        cfg, date_from, date_to = self._resolve_time_range(time_range, system_id)
         if cfg['source'] == 'raw':
             sql, params = self._build_grid_tie_raw_sql(cfg, date_from, date_to, system_id, device_ids)
         else:
             sql, params = self._build_grid_tie_summary_sql(cfg, date_from, date_to, system_id, device_ids)
         self.env.cr.execute(sql, params)
-        rows = self.env.cr.fetchall()
+        rows = list(self.env.cr.fetchall())
+        if cfg['source'] != 'raw':
+            for raw_cfg, edge_from, edge_to in self._summary_edge_ranges(
+                    cfg, date_from, date_to, system_id):
+                edge_sql, edge_params = self._build_grid_tie_raw_sql(
+                    raw_cfg, edge_from, edge_to, system_id, device_ids)
+                self.env.cr.execute(edge_sql, edge_params)
+                rows.extend(self.env.cr.fetchall())
+            rows = self._merge_rows(rows)
+        timezone_name = self._get_system_timezone(system_id)
         return {
-            'labels': [_to_utc7(r[0]).strftime('%Y-%m-%d %H:%M:%S') if r[0] else '' for r in rows],
+            'labels': [_to_local(r[0], timezone_name).strftime('%Y-%m-%d %H:%M:%S') if r[0] else '' for r in rows],
             'output_power': [round(float(r[1] or 0), 2) for r in rows],
             'max_power': [round(float(r[2] or 0), 2) for r in rows],
             'total_power': [round(float(r[3] or 0), 2) for r in rows],
@@ -641,7 +762,7 @@ class SmartSolarDashboard(models.AbstractModel):
                    AVG(ac_voltage), AVG(dc_voltage),
                    AVG(temperature), AVG(limiter_power)
             FROM grid_tie_inverter
-            WHERE record_date BETWEEN %s AND %s {filters}
+            WHERE record_date >= %s AND record_date < %s {filters}
             GROUP BY bucket ORDER BY bucket
         """
         return sql, params
@@ -658,12 +779,15 @@ class SmartSolarDashboard(models.AbstractModel):
             params.append([int(d) for d in device_ids])
         sql = f"""
             SELECT {cfg['truncate_expr']} AS bucket,
-                   AVG(output_power_avg), MAX(output_power_max),
-                   AVG(total_power_avg),
-                   AVG(ac_voltage_avg), AVG(dc_voltage_avg),
-                   AVG(temperature_avg), AVG(limiter_power_avg)
+                   SUM(output_power_avg * sample_count) / NULLIF(SUM(sample_count), 0),
+                   MAX(output_power_max),
+                   SUM(total_power_avg * sample_count) / NULLIF(SUM(sample_count), 0),
+                   SUM(ac_voltage_avg * sample_count) / NULLIF(SUM(sample_count), 0),
+                   SUM(dc_voltage_avg * sample_count) / NULLIF(SUM(sample_count), 0),
+                   SUM(temperature_avg * sample_count) / NULLIF(SUM(sample_count), 0),
+                   SUM(limiter_power_avg * sample_count) / NULLIF(SUM(sample_count), 0)
             FROM grid_tie_inverter_summary
-            WHERE bucket_type = %s AND bucket_start BETWEEN %s AND %s {filters}
+            WHERE bucket_type = %s AND bucket_start >= %s AND bucket_start < %s {filters}
             GROUP BY bucket ORDER BY bucket
         """
         return sql, params
@@ -673,15 +797,24 @@ class SmartSolarDashboard(models.AbstractModel):
     # ------------------------------------------------------------------
     @api.model
     def get_battery_series(self, time_range='24h', system_id=None, device_ids=None):
-        cfg, date_from, date_to = self._resolve_time_range(time_range)
+        cfg, date_from, date_to = self._resolve_time_range(time_range, system_id)
         if cfg['source'] == 'raw':
             sql, params = self._build_battery_raw_sql(cfg, date_from, date_to, system_id, device_ids)
         else:
             sql, params = self._build_battery_summary_sql(cfg, date_from, date_to, system_id, device_ids)
         self.env.cr.execute(sql, params)
-        rows = self.env.cr.fetchall()
+        rows = list(self.env.cr.fetchall())
+        if cfg['source'] != 'raw':
+            for raw_cfg, edge_from, edge_to in self._summary_edge_ranges(
+                    cfg, date_from, date_to, system_id):
+                edge_sql, edge_params = self._build_battery_raw_sql(
+                    raw_cfg, edge_from, edge_to, system_id, device_ids)
+                self.env.cr.execute(edge_sql, edge_params)
+                rows.extend(self.env.cr.fetchall())
+            rows = self._merge_rows(rows)
+        timezone_name = self._get_system_timezone(system_id)
         return {
-            'labels': [_to_utc7(r[0]).strftime('%Y-%m-%d %H:%M:%S') if r[0] else '' for r in rows],
+            'labels': [_to_local(r[0], timezone_name).strftime('%Y-%m-%d %H:%M:%S') if r[0] else '' for r in rows],
             'bat_voltage': [round(float(r[1] or 0), 2) for r in rows],
             'bat_voltage_min': [round(float(r[2] or 0), 2) for r in rows],
             'bat_current': [round(float(r[3] or 0), 2) for r in rows],
@@ -703,7 +836,7 @@ class SmartSolarDashboard(models.AbstractModel):
             SELECT {cfg['truncate_expr']} AS bucket,
                    AVG(bat_voltage), MIN(NULLIF(bat_voltage, 0)), AVG(bat_current)
             FROM charge_power
-            WHERE record_date BETWEEN %s AND %s {filters}
+            WHERE record_date >= %s AND record_date < %s {filters}
             GROUP BY bucket ORDER BY bucket
         """
         return sql, params
@@ -720,9 +853,11 @@ class SmartSolarDashboard(models.AbstractModel):
             params.append([int(d) for d in device_ids])
         sql = f"""
             SELECT {cfg['truncate_expr']} AS bucket,
-                   AVG(bat_voltage_avg), MIN(NULLIF(bat_voltage_min, 0)), AVG(bat_current_avg)
+                   SUM(bat_voltage_avg * sample_count) / NULLIF(SUM(sample_count), 0),
+                   MIN(NULLIF(bat_voltage_min, 0)),
+                   SUM(bat_current_avg * sample_count) / NULLIF(SUM(sample_count), 0)
             FROM charge_power_summary
-            WHERE bucket_type = %s AND bucket_start BETWEEN %s AND %s {filters}
+            WHERE bucket_type = %s AND bucket_start >= %s AND bucket_start < %s {filters}
             GROUP BY bucket ORDER BY bucket
         """
         return sql, params
@@ -732,15 +867,24 @@ class SmartSolarDashboard(models.AbstractModel):
     # ------------------------------------------------------------------
     @api.model
     def get_pv_efficiency_series(self, time_range='24h', system_id=None, device_ids=None):
-        cfg, date_from, date_to = self._resolve_time_range(time_range)
+        cfg, date_from, date_to = self._resolve_time_range(time_range, system_id)
         if cfg['source'] == 'raw':
             sql, params = self._build_pv_efficiency_raw_sql(cfg, date_from, date_to, system_id, device_ids)
         else:
             sql, params = self._build_pv_efficiency_summary_sql(cfg, date_from, date_to, system_id, device_ids)
         self.env.cr.execute(sql, params)
-        rows = self.env.cr.fetchall()
+        rows = list(self.env.cr.fetchall())
+        if cfg['source'] != 'raw':
+            for raw_cfg, edge_from, edge_to in self._summary_edge_ranges(
+                    cfg, date_from, date_to, system_id):
+                edge_sql, edge_params = self._build_pv_efficiency_raw_sql(
+                    raw_cfg, edge_from, edge_to, system_id, device_ids)
+                self.env.cr.execute(edge_sql, edge_params)
+                rows.extend(self.env.cr.fetchall())
+            rows = self._merge_rows(rows)
+        timezone_name = self._get_system_timezone(system_id)
         return {
-            'labels': [_to_utc7(r[0]).strftime('%Y-%m-%d %H:%M:%S') if r[0] else '' for r in rows],
+            'labels': [_to_local(r[0], timezone_name).strftime('%Y-%m-%d %H:%M:%S') if r[0] else '' for r in rows],
             'pv_input_power': [round(float(r[1] or 0), 2) for r in rows],
             'charge_power': [round(float(r[2] or 0), 2) for r in rows],
             'efficiency': [round(float(r[3] or 0), 1) for r in rows],
@@ -766,7 +910,7 @@ class SmartSolarDashboard(models.AbstractModel):
                         THEN LEAST(AVG(charge_power) / AVG(pv_voltage * pv_current) * 100, 100)
                         ELSE 0 END AS efficiency
             FROM charge_power
-            WHERE record_date BETWEEN %s AND %s {filters}
+            WHERE record_date >= %s AND record_date < %s {filters}
             GROUP BY bucket ORDER BY bucket
         """
         return sql, params
@@ -783,13 +927,14 @@ class SmartSolarDashboard(models.AbstractModel):
             params.append([int(d) for d in device_ids])
         sql = f"""
             SELECT {cfg['truncate_expr']} AS bucket,
-                   AVG(pv_voltage_avg * pv_current_avg) AS pv_input,
-                   AVG(charge_power_avg) AS charge_pwr,
-                   CASE WHEN AVG(pv_voltage_avg * pv_current_avg) > 0
-                        THEN LEAST(AVG(charge_power_avg) / AVG(pv_voltage_avg * pv_current_avg) * 100, 100)
+                   SUM(pv_input_power_avg * sample_count) / NULLIF(SUM(sample_count), 0) AS pv_input,
+                   SUM(charge_power_avg * sample_count) / NULLIF(SUM(sample_count), 0) AS charge_pwr,
+                   CASE WHEN SUM(pv_input_power_avg * sample_count) > 0
+                        THEN LEAST(SUM(charge_power_avg * sample_count)
+                             / SUM(pv_input_power_avg * sample_count) * 100, 100)
                         ELSE 0 END AS efficiency
             FROM charge_power_summary
-            WHERE bucket_type = %s AND bucket_start BETWEEN %s AND %s {filters}
+            WHERE bucket_type = %s AND bucket_start >= %s AND bucket_start < %s {filters}
             GROUP BY bucket ORDER BY bucket
         """
         return sql, params
@@ -799,7 +944,7 @@ class SmartSolarDashboard(models.AbstractModel):
     # ------------------------------------------------------------------
     @api.model
     def get_energy_comparison(self, time_range='1week', system_id=None):
-        cfg, date_from, date_to = self._resolve_time_range(time_range)
+        cfg, date_from, date_to = self._resolve_time_range(time_range, system_id)
         if cfg['source'] == 'raw':
             return self._energy_comparison_from_raw(cfg, date_from, date_to, system_id)
         result = self._energy_comparison_from_summary(
@@ -816,13 +961,14 @@ class SmartSolarDashboard(models.AbstractModel):
         if system_id:
             sys_filter = 'AND system_id = %s'
             params.append(int(system_id))
+        tz = self._get_safe_timezone(system_id)
         sql = f"""
             SELECT local_day AS d, SUM(max_e) AS total
             FROM (
-                SELECT (record_date + INTERVAL '7 hours')::date AS local_day,
+                SELECT timezone('{tz}', record_date AT TIME ZONE 'UTC')::date AS local_day,
                        MAX(energy_today) AS max_e
                 FROM grid_tie_inverter
-                WHERE record_date BETWEEN %s AND %s {sys_filter}
+                WHERE record_date >= %s AND record_date < %s {sys_filter}
                 GROUP BY local_day, device_id
             ) t
             GROUP BY d ORDER BY d
@@ -843,11 +989,12 @@ class SmartSolarDashboard(models.AbstractModel):
         if system_id:
             sys_filter = 'AND system_id = %s'
             params.append(int(system_id))
+        tz = self._get_safe_timezone(system_id)
         sql = f"""
-            SELECT (bucket_start + INTERVAL '7 hours')::date AS d,
+            SELECT timezone('{tz}', bucket_start AT TIME ZONE 'UTC')::date AS d,
                    COALESCE(SUM(energy_kwh), 0)
             FROM grid_tie_inverter_summary
-            WHERE bucket_type = %s AND bucket_start BETWEEN %s AND %s {sys_filter}
+            WHERE bucket_type = %s AND bucket_start >= %s AND bucket_start < %s {sys_filter}
             GROUP BY d ORDER BY d
         """
         self.env.cr.execute(sql, params)
@@ -863,18 +1010,27 @@ class SmartSolarDashboard(models.AbstractModel):
     # ------------------------------------------------------------------
     @api.model
     def get_temperature_series(self, time_range='24h', system_id=None):
-        cfg, date_from, date_to = self._resolve_time_range(time_range)
+        cfg, date_from, date_to = self._resolve_time_range(time_range, system_id)
         if cfg['source'] == 'raw':
             sql, params = self._build_temperature_raw_sql(cfg, date_from, date_to, system_id)
         else:
             sql, params = self._build_temperature_summary_sql(cfg, date_from, date_to, system_id)
         self.env.cr.execute(sql, params)
-        rows = self.env.cr.fetchall()
+        rows = list(self.env.cr.fetchall())
+        if cfg['source'] != 'raw':
+            for raw_cfg, edge_from, edge_to in self._summary_edge_ranges(
+                    cfg, date_from, date_to, system_id):
+                edge_sql, edge_params = self._build_temperature_raw_sql(
+                    raw_cfg, edge_from, edge_to, system_id)
+                self.env.cr.execute(edge_sql, edge_params)
+                rows.extend(self.env.cr.fetchall())
+            rows.sort(key=lambda row: (row[3], row[0]))
         bucket_set = OrderedDict()
         device_map = {}
+        timezone_name = self._get_system_timezone(system_id)
         for r in rows:
             dev_id, dev_name, guid, bucket, avg_t, _max_t = r
-            bucket_key = _to_utc7(bucket).strftime('%Y-%m-%d %H:%M:%S') if bucket else ''
+            bucket_key = _to_local(bucket, timezone_name).strftime('%Y-%m-%d %H:%M:%S') if bucket else ''
             bucket_set[bucket_key] = True
             label = dev_name or guid or f'Device #{dev_id}'
             device_map.setdefault(dev_id, {'label': label, 'data': {}})
@@ -896,10 +1052,10 @@ class SmartSolarDashboard(models.AbstractModel):
                    AVG(t.temperature), MAX(t.temperature)
             FROM (
                 SELECT device_id, system_id, record_date, temperature FROM grid_tie_inverter
-                WHERE record_date BETWEEN %s AND %s {sys_filter}
+                WHERE record_date >= %s AND record_date < %s {sys_filter}
                 UNION ALL
                 SELECT device_id, system_id, record_date, temperature FROM charge_power
-                WHERE record_date BETWEEN %s AND %s {sys_filter}
+                WHERE record_date >= %s AND record_date < %s {sys_filter}
             ) t
             JOIN smartsolar_device d ON d.id = t.device_id
             GROUP BY d.id, d.name, d.device_guid, bucket ORDER BY bucket, d.id
@@ -917,15 +1073,19 @@ class SmartSolarDashboard(models.AbstractModel):
         sql = f"""
             SELECT d.id, d.name, d.device_guid,
                    {truncate} AS bucket,
-                   AVG(t.temperature_avg), MAX(t.temperature_max)
+                   SUM(t.temperature_avg * t.sample_count)
+                       / NULLIF(SUM(t.sample_count), 0),
+                   MAX(t.temperature_max)
             FROM (
-                SELECT device_id, system_id, bucket_start, temperature_avg, temperature_max
+                SELECT device_id, system_id, bucket_start, sample_count,
+                       temperature_avg, temperature_max
                 FROM grid_tie_inverter_summary
-                WHERE bucket_type = %s AND bucket_start BETWEEN %s AND %s {sys_filter}
+                WHERE bucket_type = %s AND bucket_start >= %s AND bucket_start < %s {sys_filter}
                 UNION ALL
-                SELECT device_id, system_id, bucket_start, temperature_avg, temperature_max
+                SELECT device_id, system_id, bucket_start, sample_count,
+                       temperature_avg, temperature_max
                 FROM charge_power_summary
-                WHERE bucket_type = %s AND bucket_start BETWEEN %s AND %s {sys_filter}
+                WHERE bucket_type = %s AND bucket_start >= %s AND bucket_start < %s {sys_filter}
             ) t
             JOIN smartsolar_device d ON d.id = t.device_id
             GROUP BY d.id, d.name, d.device_guid, bucket ORDER BY bucket, d.id
@@ -936,58 +1096,120 @@ class SmartSolarDashboard(models.AbstractModel):
     # Energy distribution
     # ------------------------------------------------------------------
     @api.model
-    def get_energy_distribution(self, system_id=None):
-        """Phân bổ điện cấp tải theo hai nguồn không chồng lặp.
-        Theo mapping thực tế của thiết bị:
-        - Inverter cấp tải: GTI limiter_total
-        - Điện lấy lưới: GTI energy_total
-        """
-        params = []
-        sys_filter = ''
-        if system_id:
-            sys_filter = 'AND system_id = %s'
-            params.append(int(system_id))
-        sql_grid_import = f"""
-            SELECT COALESCE(SUM(latest), 0) FROM (
-                SELECT DISTINCT ON (device_id) device_id, energy_total_end AS latest
-                FROM grid_tie_inverter_summary WHERE bucket_type = 'hour' {sys_filter}
-                ORDER BY device_id, bucket_start DESC
-            ) t
-        """
-        sql_inverter = f"""
-            SELECT COALESCE(SUM(max_e), 0) FROM (
-                SELECT MAX(limiter_total) AS max_e FROM grid_tie_inverter
-                WHERE 1=1 {sys_filter} GROUP BY device_id
-            ) t
-        """
-        self.env.cr.execute(sql_grid_import, params)
-        grid_import = float(self.env.cr.fetchone()[0] or 0)
-        self.env.cr.execute(sql_inverter, params)
-        inverter = float(self.env.cr.fetchone()[0] or 0)
-        if grid_import == 0:
-            return self._distribution_from_raw(system_id)
+    def get_energy_distribution(self, time_range='24h', system_id=None):
+        """Energy supplied by inverter vs grid within the selected time range."""
+        cfg, date_from, date_to = self._resolve_time_range(time_range, system_id)
+
+        # Raw is exact and still retained for all standard ranges through 1 month.
+        if cfg['delta'] <= TIME_RANGE_CONFIG['1month']['delta']:
+            inverter, inverter_count = self._raw_counter_delta(
+                'limiter_total', date_from, date_to, system_id)
+            grid, grid_count = self._raw_counter_delta(
+                'energy_total', date_from, date_to, system_id)
+            source = 'raw'
+        else:
+            params = [date_from, date_to, 'day']
+            sys_filter = ''
+            if system_id:
+                sys_filter = 'AND system_id = %s'
+                params.append(int(system_id))
+            self.env.cr.execute(f"""
+                SELECT COALESCE(SUM(limiter_energy_kwh), 0),
+                       COALESCE(SUM(energy_kwh), 0), COUNT(*)
+                  FROM grid_tie_inverter_summary
+                 WHERE bucket_start >= %s AND bucket_start < %s
+                   AND bucket_type = %s {sys_filter}
+            """, params)
+            row = self.env.cr.fetchone() or (0.0, 0.0, 0)
+            inverter = float(row[0] or 0.0)
+            grid = float(row[1] or 0.0)
+            inverter_count = grid_count = int(row[2] or 0)
+
+            # Daily summary contains only completed local days. Add the partial
+            # first/current day from raw without overlapping complete buckets.
+            edge_cfg = {'source': 'daily', 'bucket': 'day'}
+            for _raw_cfg, edge_from, edge_to in self._summary_edge_ranges(
+                    edge_cfg, date_from, date_to, system_id):
+                value, count = self._raw_counter_delta(
+                    'limiter_total', edge_from, edge_to, system_id)
+                inverter += value
+                inverter_count += count
+                value, count = self._raw_counter_delta(
+                    'energy_total', edge_from, edge_to, system_id)
+                grid += value
+                grid_count += count
+            source = 'summary+raw'
+
+        inverter = max(0.0, inverter)
+        grid = max(0.0, grid)
+        total = inverter + grid
+        percentages = [
+            round(inverter / total * 100.0, 1) if total else 0.0,
+            round(grid / total * 100.0, 1) if total else 0.0,
+        ]
         return {
-            'labels': ['Inverter cấp tải', 'Điện lấy lưới'],
-            'data': [round(inverter, 3), round(grid_import, 3)],
+            'labels': ['Điện inverter cấp tải', 'Điện lấy lưới'],
+            'data': [round(inverter, 3), round(grid, 3)],
+            'percentages': percentages,
+            'unit': 'kWh',
+            'source': source,
+            'available': bool(inverter_count or grid_count),
+            'time_range': time_range,
         }
 
-    def _distribution_from_raw(self, system_id):
-        """Fallback raw cho hệ hybrid."""
-        params = []
-        sys_filter = ''
+    def _raw_counter_delta(self, field, date_from, date_to, system_id=None):
+        """Sum ordered counter increments per device and tolerate counter resets."""
+        if field not in ('limiter_total', 'energy_total'):
+            raise ValueError('Unsupported GTI counter: %s' % field)
+        filters = ''
+        extra = []
         if system_id:
-            sys_filter = 'AND system_id = %s'
-            params.append(int(system_id))
-        sql_grid_import = f"SELECT COALESCE(SUM(max_e), 0) FROM (SELECT MAX(energy_total) AS max_e FROM grid_tie_inverter WHERE 1=1 {sys_filter} GROUP BY device_id) t"
-        sql_inverter = f"SELECT COALESCE(SUM(max_e), 0) FROM (SELECT MAX(limiter_total) AS max_e FROM grid_tie_inverter WHERE 1=1 {sys_filter} GROUP BY device_id) t"
-        self.env.cr.execute(sql_grid_import, params)
-        grid_import = float(self.env.cr.fetchone()[0] or 0)
-        self.env.cr.execute(sql_inverter, params)
-        inverter = float(self.env.cr.fetchone()[0] or 0)
-        return {
-            'labels': ['Inverter cấp tải', 'Điện lấy lưới'],
-            'data': [round(inverter, 3), round(grid_import, 3)],
-        }
+            filters = ' AND system_id = %s'
+            extra.append(int(system_id))
+        sql = f"""
+            WITH active_devices AS (
+                SELECT DISTINCT device_id
+                  FROM grid_tie_inverter
+                 WHERE record_date >= %s AND record_date < %s
+                   AND device_id IS NOT NULL {filters}
+            ), source_rows AS (
+                SELECT id, device_id, record_date, {field} AS value
+                  FROM grid_tie_inverter
+                 WHERE record_date >= %s AND record_date < %s
+                   AND device_id IS NOT NULL {filters}
+                UNION ALL
+                SELECT p.id, p.device_id, p.record_date, p.{field} AS value
+                  FROM active_devices d
+                  JOIN LATERAL (
+                        SELECT id, device_id, record_date, {field}
+                          FROM grid_tie_inverter
+                         WHERE device_id = d.device_id AND record_date < %s
+                      ORDER BY record_date DESC, id DESC LIMIT 1
+                  ) p ON TRUE
+            ), ordered AS (
+                SELECT *, LAG(value) OVER (
+                    PARTITION BY device_id ORDER BY record_date, id
+                ) AS previous_value
+                  FROM source_rows
+                 WHERE value IS NOT NULL AND value <> 0
+            )
+            SELECT COALESCE(SUM(CASE
+                       WHEN value IS NULL OR previous_value IS NULL THEN 0
+                       WHEN value >= previous_value THEN value - previous_value
+                       ELSE GREATEST(value, 0)
+                   END), 0),
+                   COUNT(*)
+              FROM ordered
+             WHERE record_date >= %s AND record_date < %s
+        """
+        params = (
+            [date_from, date_to] + extra
+            + [date_from, date_to] + extra
+            + [date_from, date_from, date_to]
+        )
+        self.env.cr.execute(sql, params)
+        row = self.env.cr.fetchone() or (0.0, 0)
+        return float(row[0] or 0.0), int(row[1] or 0)
 
     # ------------------------------------------------------------------
     # Device status
@@ -1113,7 +1335,8 @@ class SmartSolarDashboard(models.AbstractModel):
             'temperature': self.get_temperature_series(time_range=time_range, system_id=system_id),
             'battery': self.get_battery_series(time_range=time_range, system_id=system_id),
             'pv_efficiency': self.get_pv_efficiency_series(time_range=time_range, system_id=system_id),
-            'distribution': self.get_energy_distribution(system_id=system_id),
+            'distribution': self.get_energy_distribution(
+                time_range=time_range, system_id=system_id),
             'devices': self.get_device_status(system_id=system_id),
             'systems': self.get_system_options(),
             'heatmap': self.get_heatmap_data(system_id=system_id),

@@ -18,6 +18,7 @@
                     <field name="uv_index_max"/>
                     <field name="sunshine_duration_max"/>
                     <field name="sample_count"/>
+                    <field name="aggregation_version" optional="hide"/>
                 </list>
             </field>
         </record>

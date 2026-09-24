@@ -16,9 +16,12 @@
                     <field name="bat_voltage_avg"/>
                     <field name="bat_voltage_min"/>
                     <field name="energy_kwh"/>
+                    <field name="total_kwh_start" optional="hide"/>
                     <field name="total_kwh_end"/>
+                    <field name="counter_reset_count" optional="show"/>
                     <field name="temperature_avg"/>
                     <field name="sample_count"/>
+                    <field name="aggregation_version" optional="hide"/>
                 </list>
             </field>
         </record>

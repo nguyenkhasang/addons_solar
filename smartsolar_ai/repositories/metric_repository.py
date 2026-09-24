@@ -110,8 +110,39 @@ class MetricRepository(BaseRepository):
         if gran == Granularity.RAW:
             return self._fetch_series_raw(
                 spec, time_range, aggregation, device_id, system_id)
+        if gran == Granularity.HOUR and spec.summary_bucket == 'hour':
+            return self._fetch_series_hour_hybrid(
+                spec, time_range, aggregation, device_id, system_id)
         return self._fetch_series_summary(
             spec, time_range, aggregation, gran, device_id, system_id)
+
+    def _fetch_series_hour_hybrid(self, spec, time_range, aggregation,
+                                  device_id, system_id):
+        """Use summary for complete hours and raw for the two partial edges."""
+        full_start = time_range.start_utc.replace(minute=0, second=0, microsecond=0)
+        if full_start < time_range.start_utc:
+            full_start += timedelta(hours=1)
+        full_end = time_range.end_utc.replace(minute=0, second=0, microsecond=0)
+        if full_start >= full_end:
+            return self._fetch_series_raw(
+                spec, time_range, aggregation, device_id, system_id,
+                Granularity.HOUR)
+        points = []
+        if time_range.start_utc < min(full_start, time_range.end_utc):
+            edge = TimeRange(time_range.start_utc, min(full_start, time_range.end_utc))
+            points.extend(self._fetch_series_raw(
+                spec, edge, aggregation, device_id, system_id, Granularity.HOUR))
+        if full_start < full_end:
+            middle = TimeRange(full_start, full_end)
+            points.extend(self._fetch_series_summary(
+                spec, middle, aggregation, Granularity.HOUR, device_id, system_id))
+        right_start = max(full_end, time_range.start_utc)
+        # If there is no complete hour, the left edge already covered everything.
+        if full_start < full_end and right_start < time_range.end_utc:
+            edge = TimeRange(right_start, time_range.end_utc)
+            points.extend(self._fetch_series_raw(
+                spec, edge, aggregation, device_id, system_id, Granularity.HOUR))
+        return sorted(points, key=lambda point: point.ts_utc)
 
     def _bucket_expr(self, gran: Granularity, date_col: str) -> str:
         """Sinh biểu thức date_trunc tương ứng độ phân giải (phút/giờ/ngày)."""
@@ -119,7 +150,8 @@ class MetricRepository(BaseRepository):
             gran, 'minute')
         return "date_trunc('%s', %s)" % (unit, date_col)
 
-    def _fetch_series_raw(self, spec, time_range, aggregation, device_id, system_id):
+    def _fetch_series_raw(self, spec, time_range, aggregation, device_id, system_id,
+                          bucket_granularity=Granularity.RAW):
         """Truy vấn chuỗi thời gian từ BẢNG RAW, gom theo phút.
 
         Gom theo phút để giữ nguyên nhịp 1 bản ghi/phút của thiết bị. Tham số được
@@ -129,6 +161,7 @@ class MetricRepository(BaseRepository):
         table = model._table
         field = spec.raw_field
         agg_expr = self._aggregation_expr(field, aggregation, 'record_date')
+        bucket_expr = self._bucket_expr(bucket_granularity, 'record_date')
 
         params = [time_range.start_utc, time_range.end_utc]
         where = ["record_date >= %s", "record_date < %s"]
@@ -147,7 +180,7 @@ class MetricRepository(BaseRepository):
             sql = """
                 SELECT bucket, SUM(val) AS val
                   FROM (
-                        SELECT date_trunc('minute', record_date) AS bucket,
+                        SELECT {bucket_expr} AS bucket,
                                device_id, {agg_expr} AS val
                           FROM {table}
                          WHERE {where}
@@ -155,19 +188,21 @@ class MetricRepository(BaseRepository):
                        ) per_device
               GROUP BY bucket
               ORDER BY bucket
-            """.format(agg_expr=agg_expr, table=table, where=' AND '.join(where))
+            """.format(bucket_expr=bucket_expr, agg_expr=agg_expr, table=table,
+                       where=' AND '.join(where))
             self.env.cr.execute(sql, params)
             return [DataPoint(row[0], float(row[1] or 0.0))
                     for row in self.env.cr.fetchall()]
 
         sql = """
-            SELECT date_trunc('minute', record_date) AS bucket,
+            SELECT {bucket_expr} AS bucket,
                    {agg_expr} AS val
               FROM {table}
              WHERE {where}
           GROUP BY bucket
           ORDER BY bucket
-        """.format(agg_expr=agg_expr, table=table, where=' AND '.join(where))
+        """.format(bucket_expr=bucket_expr, agg_expr=agg_expr, table=table,
+                   where=' AND '.join(where))
         self.env.cr.execute(sql, params)
         return [DataPoint(row[0], float(row[1] or 0.0)) for row in self.env.cr.fetchall()]
 
@@ -185,7 +220,14 @@ class MetricRepository(BaseRepository):
             col = spec.summary_max_field
         else:
             col = spec.summary_field
-        agg_expr = self._aggregation_expr(col, aggregation, 'bucket_start')
+        if aggregation == AggregationType.AVG:
+            # Summary rows represent different numbers of raw samples. Averaging
+            # their averages would give a sparse bucket the same weight as a full one.
+            agg_expr = (
+                'SUM({0} * sample_count) / NULLIF(SUM(sample_count), 0)'.format(col)
+            )
+        else:
+            agg_expr = self._aggregation_expr(col, aggregation, 'bucket_start')
 
         params = [time_range.start_utc, time_range.end_utc]
         where = ["bucket_start >= %s", "bucket_start < %s"]
@@ -350,7 +392,8 @@ class MetricRepository(BaseRepository):
         whr = ' AND '.join(where)
         # first/last phải theo THỜI GIAN (bucket_start), không phải min/max giá trị.
         sql = """
-            SELECT AVG({col}) AS avg_v, MIN({col}) AS min_v,
+            SELECT SUM({col} * sample_count) / NULLIF(SUM(sample_count), 0) AS avg_v,
+                   MIN({col}) AS min_v,
                    MAX({max_col}) AS max_v, SUM({col}) AS sum_v,
                    (SELECT {col} FROM {table} WHERE {whr}
                      ORDER BY bucket_start DESC LIMIT 1) AS last_v,
@@ -374,13 +417,18 @@ class MetricRepository(BaseRepository):
                             device_id=None, system_id=None) -> dict:
         """Trả năng lượng và trạng thái, phân biệt số 0 thật với thiếu dữ liệu.
 
-        Kết quả chuẩn là ``{available, value, count, source}``. Summary được ưu
-        tiên; nếu không có thì dùng chênh lệch first/last của counter raw.
+        Kết quả chuẩn là ``{available, value, count, source}``. Chỉ các bucket
+        summary nằm trọn trong khoảng được dùng; hai mép thời gian đọc raw và
+        cộng delta có xử lý counter reset.
         """
-        if spec.summary_model:
+        if spec.summary_model and spec.summary_bucket == 'hour':
             energy_col = 'energy_kwh'
             table = self.env[spec.summary_model]._table
-            params = [time_range.start_utc, time_range.end_utc, spec.summary_bucket]
+            full_start = time_range.start_utc.replace(minute=0, second=0, microsecond=0)
+            if full_start < time_range.start_utc:
+                full_start += timedelta(hours=1)
+            full_end = time_range.end_utc.replace(minute=0, second=0, microsecond=0)
+            params = [full_start, full_end, spec.summary_bucket]
             where = ["bucket_start >= %s", "bucket_start < %s", "bucket_type = %s"]
             if device_id and spec.has_device:
                 where.append("device_id = %s")
@@ -390,14 +438,61 @@ class MetricRepository(BaseRepository):
                 params.append(system_id)
             sql = "SELECT SUM({col}), COUNT({col}) FROM {table} WHERE {whr}".format(
                 col=energy_col, table=table, whr=' AND '.join(where))
-            self.env.cr.execute(sql, params)
-            row = self.env.cr.fetchone() or (None, 0)
-            if row[0] is not None and row[1]:
+            summary_value = 0.0
+            summary_count = 0
+            if full_start < full_end:
+                self.env.cr.execute(sql, params)
+                row = self.env.cr.fetchone() or (None, 0)
+                summary_value = float(row[0] or 0.0)
+                summary_count = int(row[1] or 0)
+
+            if full_start >= full_end:
+                value, count = self._fetch_raw_counter_delta(
+                    spec, time_range.start_utc, time_range.end_utc,
+                    device_id, system_id)
+                if count:
+                    return {
+                        'available': True,
+                        'value': value,
+                        'count': count,
+                        'source': 'raw',
+                    }
+                return {'available': False, 'value': None, 'count': 0, 'source': None}
+
+            raw_value = 0.0
+            raw_count = 0
+            left_end = min(full_start, time_range.end_utc)
+            if time_range.start_utc < left_end:
+                value, count = self._fetch_raw_counter_delta(
+                    spec, time_range.start_utc, left_end, device_id, system_id)
+                raw_value += value
+                raw_count += count
+            right_start = max(full_end, time_range.start_utc)
+            if right_start < time_range.end_utc:
+                value, count = self._fetch_raw_counter_delta(
+                    spec, right_start, time_range.end_utc, device_id, system_id)
+                raw_value += value
+                raw_count += count
+
+            if summary_count or raw_count:
                 return {
                     'available': True,
-                    'value': float(row[0]),
-                    'count': int(row[1]),
-                    'source': 'summary',
+                    'value': summary_value + raw_value,
+                    'count': summary_count + raw_count,
+                    'source': 'summary+raw' if summary_count and raw_count
+                              else ('summary' if summary_count else 'raw'),
+                }
+
+        if spec.kind == MetricKind.COUNTER and spec.has_device:
+            value, count = self._fetch_raw_counter_delta(
+                spec, time_range.start_utc, time_range.end_utc,
+                device_id, system_id)
+            if count:
+                return {
+                    'available': True,
+                    'value': value,
+                    'count': count,
+                    'source': 'raw',
                 }
 
         stats = self.fetch_scalar(spec, time_range, device_id, system_id)
@@ -409,6 +504,66 @@ class MetricRepository(BaseRepository):
             'count': stats['count'],
             'source': 'raw',
         }
+
+    def _fetch_raw_counter_delta(self, spec, start_utc, end_utc,
+                                 device_id=None, system_id=None):
+        """Sum ordered positive counter steps, treating a decrease as a reset.
+
+        The last sample before ``start_utc`` is included only as the LAG seed, so
+        bucket boundaries remain connected without counting that seed as a sample.
+        """
+        table = self.env[spec.raw_model]._table
+        field = spec.raw_field
+        filters = []
+        extra = []
+        if device_id and spec.has_device:
+            filters.append('device_id = %s')
+            extra.append(device_id)
+        if system_id:
+            filters.append('system_id = %s')
+            extra.append(system_id)
+        suffix = (' AND ' + ' AND '.join(filters)) if filters else ''
+        sql = """
+            WITH active_devices AS (
+                SELECT DISTINCT device_id
+                  FROM {table}
+                 WHERE record_date >= %s AND record_date < %s {suffix}
+            ), source_rows AS (
+                SELECT id, device_id, record_date, {field} AS value
+                  FROM {table}
+                 WHERE record_date >= %s AND record_date < %s {suffix}
+                UNION ALL
+                SELECT p.id, p.device_id, p.record_date, p.{field} AS value
+                  FROM active_devices d
+                  JOIN LATERAL (
+                        SELECT id, device_id, record_date, {field}
+                          FROM {table}
+                         WHERE device_id = d.device_id AND record_date < %s
+                      ORDER BY record_date DESC, id DESC LIMIT 1
+                  ) p ON TRUE
+            ), ordered AS (
+                SELECT *, LAG(value) OVER (
+                    PARTITION BY device_id ORDER BY record_date, id
+                ) AS previous_value
+                  FROM source_rows
+            )
+            SELECT COALESCE(SUM(CASE
+                       WHEN value IS NULL OR previous_value IS NULL THEN 0
+                       WHEN value >= previous_value THEN value - previous_value
+                       ELSE GREATEST(value, 0)
+                   END), 0),
+                   COUNT(*)
+              FROM ordered
+             WHERE record_date >= %s AND record_date < %s
+        """.format(table=table, field=field, suffix=suffix)
+        params = (
+            [start_utc, end_utc] + extra
+            + [start_utc, end_utc] + extra
+            + [start_utc, start_utc, end_utc]
+        )
+        self.env.cr.execute(sql, params)
+        row = self.env.cr.fetchone() or (0.0, 0)
+        return float(row[0] or 0.0), int(row[1] or 0)
 
     def fetch_energy_detail(self, spec: MetricSpec, time_range: TimeRange,
                             device_id=None, system_id=None) -> dict:
