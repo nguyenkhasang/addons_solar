@@ -12,13 +12,58 @@ import threading
 
 from markupsafe import Markup
 
-from odoo import models, api
+from odoo import _, api, fields, models
+from odoo.exceptions import AccessError
+from odoo.addons.mail.tools.discuss import Store
 
 _logger = logging.getLogger(__name__)
 
 
 class DiscussChannel(models.Model):
     _inherit = 'discuss.channel'
+
+    is_smartsolar_ai_chat = fields.Boolean(
+        compute='_compute_is_smartsolar_ai_chat',
+        string='SmartSolar AI Chat',
+    )
+
+    def _compute_is_smartsolar_ai_chat(self):
+        """Đánh dấu đúng DM có bot để client chỉ hiện nút xóa tại đó."""
+        bot_user = self.env.ref(
+            'smartsolar_ai_chat.user_smartsolar_ai', raise_if_not_found=False)
+        bot_partner = bot_user.partner_id if bot_user else self.env['res.partner']
+        for channel in self:
+            channel.is_smartsolar_ai_chat = bool(
+                bot_partner
+                and channel.channel_type == 'chat'
+                and bot_partner in channel.channel_member_ids.partner_id
+            )
+
+    def _to_store_defaults(self, target: Store.Target):
+        """Gửi cờ nhận diện ra OWL store của Discuss."""
+        values = super()._to_store_defaults(target)
+        if target.is_current_user(self.env):
+            values.append('is_smartsolar_ai_chat')
+        return values
+
+    def action_clear_smartsolar_ai_history(self):
+        """Xóa lịch sử trong DM với bot nhưng giữ nguyên kênh để chat tiếp."""
+        self.ensure_one()
+        current_partner = self.env.user.partner_id
+        is_member = current_partner in self.channel_member_ids.partner_id
+        if not is_member or not self.is_smartsolar_ai_chat:
+            raise AccessError(_(
+                'Bạn chỉ có thể xóa lịch sử cuộc trò chuyện SmartSolar AI '
+                'mà mình là thành viên.'
+            ))
+
+        messages = self.env['mail.message'].sudo().search([
+            ('model', '=', 'discuss.channel'),
+            ('res_id', '=', self.id),
+        ])
+        deleted_count = len(messages)
+        messages.unlink()
+        return {'deleted_count': deleted_count}
 
     def _message_post_after_hook(self, message, msg_vals):
         result = super()._message_post_after_hook(message, msg_vals)
@@ -116,7 +161,6 @@ class DiscussChannel(models.Model):
         QUAN TRỌNG: hàm này chạy trong THREAD NỀN với cursor riêng; commit sau khi
         phát bus để flush postcommit -> notification tới client ngay cho từng bước.
         """
-        from odoo.addons.mail.tools.discuss import Store
         message.sudo().write({'body': self._smartsolar_text_to_html(text)})
         Store(bus_channel=message._bus_channel()).add(
             message, ['body', 'write_date']).bus_send()

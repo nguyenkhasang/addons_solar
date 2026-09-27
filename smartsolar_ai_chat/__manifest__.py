@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Smart Solar AI Chat',
-    'version': '19.0.1.0.0',
+    'version': '19.0.1.1.0',
     'category': 'Custom',
     'summary': 'Trợ lý AI giám sát điện mặt trời ngay trong Discuss (chat Odoo)',
     'description': """
@@ -35,6 +35,7 @@
     ],
     'assets': {
         'web.assets_backend': [
+            'smartsolar_ai_chat/static/src/js/clear_chat_history.js',
             'smartsolar_ai_chat/static/src/scss/settings.scss',
         ],
     },
