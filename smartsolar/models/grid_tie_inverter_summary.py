@@ -57,10 +57,10 @@ class GridTieInverterSummary(models.Model):
     temperature_avg = fields.Float(string='Nhiệt độ TB (°C)', digits=(16, 1))
     temperature_max = fields.Float(string='Nhiệt độ Max (°C)', digits=(16, 1))
 
-    _sql_constraints = [
-        ('bucket_unique', 'unique(bucket_start, bucket_type, device_id)',
-         'Mỗi bucket chỉ có một record per device!'),
-    ]
+    _bucket_unique = models.Constraint(
+        'UNIQUE(bucket_start, bucket_type, device_id)',
+        'Mỗi bucket chỉ có một record per device!',
+    )
 
     @api.depends('bucket_start', 'bucket_type', 'device_guid')
     def _compute_display_name(self):
