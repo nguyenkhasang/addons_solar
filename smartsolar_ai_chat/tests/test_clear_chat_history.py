@@ -14,7 +14,8 @@ class TestClearChatHistory(TransactionCase):
             'name': 'SmartSolar history test user',
             'login': 'smartsolar_history_test_user',
         })
-        cls.channel = cls.env['discuss.channel'].create({
+        cls.channel = cls.env['discuss.channel'].with_user(cls.user).create({
+            'name': 'SmartSolar history test',
             'channel_type': 'chat',
             'channel_member_ids': [
                 (0, 0, {'partner_id': cls.user.partner_id.id}),

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Các Tool cụ thể — 9 tool "theo năng lực" (capability) mà AI được phép gọi.
+"""Các Tool cụ thể — 12 tool "theo năng lực" (capability) mà AI được phép gọi.
 
 Mỗi tool là một lớp bọc mỏng: phân tích tham số -> gọi MỘT service -> trả về dict
 của DTO. Thêm metric mới KHÔNG BAO GIỜ đẻ thêm tool ở đây; metric chỉ là một tham
@@ -7,7 +7,7 @@ số truyền vào ``get_timeseries`` / ``get_aggregate`` / ...
 
 Vì sao thiết kế theo NĂNG LỰC, không theo câu hỏi?
     Nếu tạo tool kiểu today_report(), compare_week()... thì mỗi câu hỏi mới lại
-    phải viết tool mới -> không mở rộng được. Ngược lại, 9 tool tổng quát này ghép
+    phải viết tool mới -> không mở rộng được. Ngược lại, 12 tool tổng quát này ghép
     lại trả lời được vô số câu hỏi, còn AI (Planner) tự quyết định gọi tool nào,
     gọi bao nhiêu lần. Python không điều hướng — LLM mới là bộ lập kế hoạch.
 """
@@ -24,6 +24,7 @@ from ..services.anomaly_service import AnomalyService
 from ..services.device_service import DeviceService
 from ..services.forecast_service import ForecastService
 from ..services.health_service import HealthService
+from ..services.context_service import ContextService
 
 # Các mảnh JSON-schema tái sử dụng (để không lặp mô tả tham số ở mọi tool).
 _ISO = {'type': 'string',
@@ -39,6 +40,72 @@ _METRIC = {'type': 'string',
            'description': ('Khóa metric trong catalog cuối system prompt '
                            '(vd output_power, bat_voltage). '
                            'Không dùng metric có supported=false để kết luận số liệu.')}
+
+
+class GetSystemContextTool(Tool):
+    name = 'get_system_context'
+    description = ('Thông tin hệ thống được phép xem: ID, tên, vị trí, công suất định mức, '
+                   'nhóm metric và giới hạn cảm biến. Dùng để hiểu hệ thống/chọn thông số; '
+                   'không phải dữ liệu đo. Không trả mật khẩu hoặc token.')
+
+    def parameters(self):
+        return {'type': 'object', 'properties': {'system_id': _SYSTEM}, 'required': []}
+
+    def run(self, **kwargs):
+        return ContextService(self.env).get_context(self._opt_int(kwargs, 'system_id'))
+
+
+class GetSnapshotTool(Tool):
+    name = 'get_snapshot'
+    description = ('Ảnh chụp vận hành gồm nhiều thông số tự chọn và trạng thái thiết bị. '
+                   'Trả last/avg/min/max, timestamp, tuổi mẫu và cảnh báo chất lượng. '
+                   'Dùng cho câu hỏi hiện tại, pin, nhiệt, tổng quan; có thể chọn thêm '
+                   'thông số liên quan. Mặc định cửa sổ 10 phút; không tự coi mẫu cũ là hiện tại.')
+
+    def parameters(self):
+        return {'type': 'object', 'properties': {
+            'metrics': {'type': 'array', 'items': _METRIC, 'minItems': 1, 'maxItems': 10},
+            'window_minutes': {'type': 'integer', 'minimum': 1, 'maximum': 1440},
+            'device_id': _DEVICE, 'system_id': _SYSTEM,
+        }, 'required': []}
+
+    def run(self, **kwargs):
+        window = int(kwargs.get('window_minutes') or 10)
+        if not 1 <= window <= 1440:
+            raise ValueError('window_minutes phải nằm trong khoảng 1..1440')
+        metrics = kwargs.get('metrics') or ['pv_input', 'output_power', 'grid_import_power',
+                                          'bat_voltage', 'bat_current', 'inverter_temp', 'charger_temp']
+        return ContextService(self.env).get_snapshot(
+            metrics, TimeRange.from_iso('now-%dm' % window, 'now'),
+            self._opt_int(kwargs, 'system_id'), self._opt_int(kwargs, 'device_id'))
+
+
+class GetMetricTrendsTool(Tool):
+    name = 'get_metric_trends'
+    description = ('Diễn biến nhiều metric cùng khoảng: thống kê đầy đủ + chuỗi gom bucket. '
+                   'Dùng để đối chiếu pin/PV/lưới/nhiệt/thời tiết khi chẩn đoán. '
+                   'Chọn tối đa 6 metric; thời tiết theo ngày, không suy ra tương quan phút '
+                   'hoặc khẳng định nguyên nhân chỉ từ các đường cùng tăng/giảm.')
+
+    def parameters(self):
+        return {'type': 'object', 'properties': {
+            'metrics': {'type': 'array', 'items': _METRIC, 'minItems': 1, 'maxItems': 6},
+            'start': _ISO, 'end': _ISO, 'device_id': _DEVICE, 'system_id': _SYSTEM,
+            'interval': {'type': 'string', 'enum': [g.value for g in Granularity]},
+            'max_points': {'type': 'integer', 'minimum': 20, 'maximum': 120},
+        }, 'required': ['metrics', 'start', 'end']}
+
+    def run(self, **kwargs):
+        metrics = self._require(kwargs, 'metrics')
+        if not isinstance(metrics, list) or not 1 <= len(metrics) <= 6:
+            raise ValueError('metrics phải chứa từ 1 đến 6 khóa metric.')
+        max_points = int(kwargs.get('max_points') or 60)
+        if not 20 <= max_points <= 120:
+            raise ValueError('max_points phải nằm trong khoảng 20..120')
+        return ContextService(self.env).get_trends(
+            metrics, TimeRange.from_iso(self._require(kwargs, 'start'), self._require(kwargs, 'end')),
+            self._opt_int(kwargs, 'system_id'), self._opt_int(kwargs, 'device_id'),
+            kwargs.get('interval') or 'auto', max_points)
 
 
 class ListMetricsTool(Tool):
@@ -112,7 +179,10 @@ class GetAggregateTool(Tool):
                    'metric trong một lần gọi. Metric tức thời trả avg/min/max/last; '
                    'dùng last cho câu hỏi hiện tại. Counter trả energy của khoảng và '
                    'last là chỉ số tích lũy. Tool tự chọn raw/summary khi có; không tự '
-                   'cộng mẫu công suất hoặc counter.')
+                   'cộng mẫu công suất hoặc counter. Câu hỏi tổng tải tiêu thụ bao nhiêu kWh: '
+                   'dùng total_load_energy, đọc value (ước tính tích phân công suất), coverage_pct. '
+                   'output_power/grid_import_power/pv_input còn trả energy_estimate; '
+                   'dùng khi công-tơ đứng yên, không coi energy counter=0 là tiêu thụ 0.')
 
     def parameters(self):
         return {
@@ -177,7 +247,9 @@ class ComparePeriodsTool(Tool):
 
 class GetDeviceStatusTool(Tool):
     name = 'get_device_status'
-    description = 'Trạng thái online/offline hiện tại và thời lượng offline từng thiết bị.'
+    description = ('Trạng thái online/offline hiện tại, thời điểm đồng bộ và thời lượng offline '
+                   'từng thiết bị. Online chỉ nói về kết nối, không chứng minh công-tơ cập nhật '
+                   'hay thiết bị đang phát điện.')
 
     def parameters(self):
         return {'type': 'object',
@@ -201,8 +273,9 @@ class GetDeviceStatusTool(Tool):
 
 class GetAlarmsTool(Tool):
     name = 'get_alarms'
-    description = ('Lịch sử cảnh báo/sự kiện trên một khoảng (mất kết nối, trạng '
-                   'thái bất thường).')
+    description = ('Sự kiện suy ra từ trạng thái thiết bị trên một khoảng. Mã chưa có tài liệu '
+                   'trả severity=info, confirmed_fault=false; không coi là lỗi phần cứng. '
+                   'Offline là trạng thái hiện tại; đọc limitations trước khi kết luận lịch sử.')
 
     def parameters(self):
         return {
@@ -384,6 +457,9 @@ class ForecastTool(Tool):
 
 # Thứ tự ở đây là thứ tự tool được trình bày cho AI.
 ALL_TOOLS = [
+    GetSystemContextTool,
+    GetSnapshotTool,
+    GetMetricTrendsTool,
     ListMetricsTool,
     GetTimeseriesTool,
     GetAggregateTool,

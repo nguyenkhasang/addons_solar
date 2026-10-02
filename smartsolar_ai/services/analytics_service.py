@@ -152,10 +152,18 @@ class AnalyticsService:
         có 'count' vì không đọc bản ghi thô; thiếu dữ liệu ở đó biểu thị bằng
         value=None kèm ``available=False`` và lý do có cấu trúc.
         """
+        if isinstance(metrics, str):
+            metrics = [metrics]
+        if not isinstance(metrics, (list, tuple)) or not 1 <= len(metrics) <= 10:
+            raise ValueError('metrics phải chứa từ 1 đến 10 khóa metric.')
+        metrics = list(dict.fromkeys(metrics))
         result = {}
         for metric in metrics:
             spec = MetricRegistry.get(metric)
-            if spec.is_derived:
+            if metric == 'total_load_energy':
+                result[metric] = self._repo.fetch_power_energy(
+                    metric, time_range, device_id, system_id)
+            elif spec.is_derived:
                 result[metric] = self._compute_derived(
                     spec, time_range, device_id, system_id)
             elif spec.kind == MetricKind.COUNTER:
@@ -167,6 +175,7 @@ class AnalyticsService:
                 result[metric] = {
                     'unit': spec.unit,
                     'energy': round(energy['value'], 3) if energy['available'] else None,
+                    'energy_available': energy['available'],
                     'last': round(stats['last'], 3) if stats['count'] else None,
                     # Với khoảng dài raw có thể đã dọn nhưng summary vẫn còn. Dùng
                     # count summary làm tín hiệu availability thay vì trả count=0 giả.
@@ -188,6 +197,43 @@ class AnalyticsService:
                     'count': stats['count'], 'available': available,
                     'reason': None if available else 'Không có dữ liệu trong khoảng yêu cầu.',
                 }
+            if metric in ('output_power', 'grid_import_power', 'pv_input'):
+                result[metric]['energy_estimate'] = self._repo.fetch_power_energy(
+                    metric, time_range, device_id, system_id)
+            quality = {
+                'supported': spec.supported, 'unreliable': spec.unreliable,
+                'note': spec.note or None, 'warnings': [],
+            }
+            if not spec.is_derived:
+                quality.update(self._repo.fetch_observation_bounds(
+                    spec, time_range, device_id, system_id))
+                if (spec.kind == MetricKind.INSTANTANEOUS
+                        and quality.get('device_count', 0) > 1):
+                    quality['warnings'].append({
+                        'code': 'multiple_devices',
+                        'message': 'Thống kê gộp mẫu của nhiều thiết bị; last là một mẫu cuối, '
+                                   'không phải tổng công suất hệ thống. Dùng snapshot per_device '
+                                   'hoặc truy vấn từng device_id để phân tích tổng.',
+                    })
+                if (spec.kind == MetricKind.COUNTER and stats['count'] > 1
+                        and stats['min'] == stats['max']):
+                    quality['warnings'].append({
+                        'code': 'constant_counter',
+                        'message': 'Công-tơ không thay đổi trong các mẫu raw; có thể không phát sinh '
+                                   'điện năng hoặc bộ đếm không cập nhật. Đối chiếu công suất trước khi kết luận.',
+                    })
+            result[metric].update(label=spec.label, kind=spec.kind.value, quality=quality)
+        for counter, power in [('grid_import_energy_total', 'grid_import_power'),
+                               ('energy_exported_total', 'output_power'),
+                               ('pv_energy_total', 'pv_input')]:
+            if (counter in result and power in result
+                    and result[counter].get('energy') == 0
+                    and (result[power].get('avg') or 0) > 1):
+                result[counter]['quality']['warnings'].append({
+                    'code': 'zero_energy_with_nonzero_power',
+                    'message': 'Điện năng ghi nhận bằng 0 nhưng công suất trung bình cùng khoảng >1 W. '
+                               'Cần kiểm tra độ phân giải/cập nhật công-tơ; không kết luận không tiêu thụ/phát điện.',
+                })
         return AggregateResult(
             range_local=[time_range.start_local_iso(), time_range.end_local_iso()],
             metrics=result, device_id=device_id,
@@ -339,6 +385,8 @@ class AnalyticsService:
         """Chọn một số đại diện; thiếu dữ liệu luôn được giữ là ``None``."""
         if metric_stats.get('available') is False:
             return None
+        if 'energy' in metric_stats:
+            return metric_stats['energy']
         for key in ('energy', 'value', 'avg', 'last'):
             value = metric_stats.get(key)
             if value is not None:

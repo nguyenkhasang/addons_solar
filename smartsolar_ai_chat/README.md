@@ -65,8 +65,22 @@ odoo-bin -d <database> --stop-after-init -u smartsolar_ai,smartsolar_ai_chat
    lượt lấy dữ liệu. Lưu và thử `Báo cáo sản lượng hôm nay và so với hôm qua`.
 
 CLI phải hỗ trợ `exec --ignore-user-config --ignore-rules --ephemeral
---output-schema` (đã kiểm tra với 0.159.2). Khi extension VS Code cập nhật và đổi
-đường dẫn CLI, cập nhật lại trường đường dẫn hoặc cài CLI độc lập trong PATH.
+--output-schema` (đã kiểm tra với 0.159.2/0.159.3). Cài CLI độc lập cho service;
+đường dẫn trong `.vscode/extensions/...` thay đổi khi extension cập nhật. Odoo
+không cần VS Code đang mở.
+
+Ví dụ cài riêng trong thư mục dự án Odoo (chạy tại `odoo-19.0`):
+
+```bash
+npm install --prefix .odoo-runtime/codex-cli --no-audit --no-fund @openai/codex@0.159.3
+./.odoo-runtime/codex-cli/node_modules/.bin/codex login status
+```
+
+Nếu chưa đăng nhập, dùng cùng lệnh với `login` thay cho `login status`. Đặt trường
+**Đường dẫn Codex CLI** thành đường dẫn tuyệt đối đến
+`.odoo-runtime/codex-cli/node_modules/.bin/codex` trong dự án Odoo. Cài qua npm
+cần Node.js có trong PATH của service; xác thực CLI nằm ở tài khoản Linux chạy
+Odoo, không phụ thuộc vòng đời VS Code. Tham khảo [OpenAI Docs](https://learn.chatgpt.com/docs/codex/cli).
 
 Provider gửi lịch sử hội thoại và schema tool qua stdin, dùng output schema JSON
 để đổi yêu cầu của Codex thành `ToolCall`. Odoo thực thi qua registry hiện có rồi
@@ -92,7 +106,7 @@ Vào **Settings → Smart Solar AI**:
 | Provider | `Ollama` | Chạy local |
 | Base URL | để trống hoặc `http://localhost:11434` | Endpoint Ollama |
 | Model | `gpt-oss:20b` | Mặc định cho cài mới |
-| Max tool iterations | `5` | Giới hạn planner loop; runtime giữ trong khoảng 2–10 |
+| Max tool iterations | `8` | Ngân sách planner loop; runtime giữ trong khoảng 2–12 |
 | History limit | `6` | Số tin gần nhất; 0 để tắt nhớ |
 
 Module không gửi `temperature`, `num_predict`/`max_tokens` hay `num_ctx` trong
@@ -147,6 +161,22 @@ odoo-bin -d <test_database> --test-enable --stop-after-init \
 
 Regression tests bao phủ parser tool-call fallback, option Ollama, prompt an toàn,
 retry khi model bỏ tool, cache lời gọi trùng và fail-closed khi tool trả lỗi.
+
+## Phân tích tự chủ và độ sâu báo cáo
+
+Prompt cho phép AI chọn thêm thông số liên quan, kiểm tra giả thuyết và viết báo
+cáo có nhận định, so sánh, giới hạn dữ liệu và đề xuất kiểm tra theo ưu tiên.
+Không còn giới hạn cứng 1–3 nhận định. Câu hỏi hẹp vẫn trả lời trực tiếp; độ dài
+phụ thuộc nhu cầu, không buộc mọi câu hỏi vào một mẫu.
+
+Các tool ngữ cảnh, snapshot và xu hướng nhiều metric giúp AI lấy đủ bằng chứng
+với ít lượt hơn. `list_metrics` và `get_system_context` không tính là dữ liệu đo
+thành công. Mỗi vòng tối đa 12 tool; khi hết ngân sách, AI tổng hợp bằng chứng đã
+có và nêu phần chưa xác minh. Model đang cấu hình vẫn được giữ nguyên.
+
+Đối với database cũ, `noupdate` giữ ngân sách đã lưu; đổi **Max Tool Iterations**
+sang 8 nếu muốn tăng không gian phân tích. Tăng số vòng có thể tăng thời gian
+và token. AI vẫn không được sinh SQL, thay đổi hệ thống hoặc bịa thông số.
 
 ## Xử lý sự cố
 

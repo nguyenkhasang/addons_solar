@@ -137,6 +137,14 @@ class HealthResult:
             'available': self.available,
             'reason': self.reason,
             'coverage_pct': self.coverage_pct,
+            'assessment': ('unavailable' if not self.available else
+                           ('partial' if self.coverage_pct < 100 else 'complete')),
+            'missing_components': [name for name, component in self.components.items()
+                                   if not component.get('available')
+                                   and component.get('applicable', True)],
+            'interpretation': 'Điểm chỉ phản ánh thành phần có dữ liệu; không chứng minh toàn hệ thống '
+                              'hoạt động tốt. Thành phần availability là trạng thái hiện tại, '
+                              'không phải tỷ lệ uptime lịch sử.',
             'components': self.components,
         }
 
@@ -212,4 +220,8 @@ class AlarmResult:
             'returned_count': len(self.alarms),
             'truncated': self.truncated,
             'alarms': self.alarms,
+            'source': 'inferred_from_device_status',
+            'limitations': ['Không có kho sự cố phần cứng riêng. Mã trạng thái chưa được giải nghĩa '
+                            'chỉ là thông tin cần xác minh, không phải lỗi đã xác nhận.',
+                            'Sự kiện offline phản ánh trạng thái hiện tại, không phải toàn bộ lịch sử offline.'],
         }

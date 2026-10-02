@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Smart Solar AI Chat',
-    'version': '19.0.1.2.0',
+    'version': '19.0.1.3.0',
     'category': 'Custom',
     'summary': 'Trợ lý AI giám sát điện mặt trời ngay trong Discuss (chat Odoo)',
     'description': """
@@ -26,7 +26,7 @@
           smartsolar_ai.base_url  (rỗng = mặc định theo provider)
           smartsolar_ai.api_key   (cho provider cloud)
           smartsolar_ai.model     (phải hỗ trợ tool calling)
-          smartsolar_ai.max_tool_iterations (mặc định 5)
+          smartsolar_ai.max_tool_iterations (mặc định 8)
     """,
     'author': 'Sangnk',
     'website': 'https://www.sangnk.vn',

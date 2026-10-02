@@ -22,7 +22,7 @@ from odoo import fields
 
 from .base_repository import BaseRepository
 from ..domain.enums import AggregationType, Granularity, MetricKind
-from ..domain.metric_registry import MetricSpec
+from ..domain.metric_registry import MetricSpec, MetricRegistry
 from ..domain.value_objects import TimeRange, DataPoint
 
 # Ngưỡng chọn granularity tự động (AUTO):
@@ -275,6 +275,46 @@ class MetricRepository(BaseRepository):
         return [DataPoint(row[0], float(row[1] or 0.0)) for row in self.env.cr.fetchall()]
 
     # ---- Thống kê vô hướng -------------------------------------------------
+    def fetch_observation_bounds(self, spec, time_range, device_id=None, system_id=None):
+        """Observation timestamps, not the time at which the AI queried data."""
+        sources = [(spec.raw_model, 'record_date', None, spec.raw_field)]
+        if spec.summary_model and spec.summary_field:
+            sources.append((spec.summary_model, 'bucket_start', spec.summary_bucket,
+                            spec.summary_field))
+        for model, date_field, bucket, value_field in sources:
+            params = [time_range.start_utc, time_range.end_utc]
+            where = ['%s >= %%s' % date_field, '%s < %%s' % date_field,
+                     '%s IS NOT NULL' % value_field]
+            if bucket:
+                where.append('bucket_type = %s')
+                params.append(bucket)
+            if device_id and spec.has_device:
+                where.append('device_id = %s')
+                params.append(device_id)
+            if system_id:
+                where.append('system_id = %s')
+                params.append(system_id)
+            self.env.cr.execute(
+                'SELECT MIN({date}), MAX({date}), {devices} FROM {table} WHERE {where}'.format(
+                    date=date_field, devices='COUNT(DISTINCT device_id)' if spec.has_device else '0',
+                    table=self.env[model]._table, where=' AND '.join(where)),
+                params)
+            first, last, device_count = self.env.cr.fetchone()
+            if last:
+                local = lambda value: value.replace(tzinfo=timezone.utc).astimezone(
+                    timezone(timedelta(hours=7))).isoformat()
+                return {
+                    'first_observed_at': local(first), 'last_observed_at': local(last),
+                    'last_sample_age_seconds': max(0, round((fields.Datetime.now() - last).total_seconds())),
+                    'start_gap_seconds': max(0, round((first - time_range.start_utc).total_seconds())),
+                    'end_gap_seconds': max(0, round((time_range.end_utc - last).total_seconds())),
+                    'source': 'summary' if bucket else 'raw',
+                    'resolution': bucket or ('day' if spec.summary_bucket == 'day' else 'raw'),
+                    'timestamp_meaning': 'bucket_start' if bucket else 'record_date',
+                    'device_count': device_count,
+                }
+        return {'first_observed_at': None, 'last_observed_at': None, 'source': None}
+
     def fetch_scalar(self, spec: MetricSpec, time_range: TimeRange,
                      device_id=None, system_id=None) -> dict:
         """Trả về {avg, min, max, sum, last, first, count} cho metric trên khoảng.
@@ -564,6 +604,72 @@ class MetricRepository(BaseRepository):
         self.env.cr.execute(sql, params)
         row = self.env.cr.fetchone() or (0.0, 0)
         return float(row[0] or 0.0), int(row[1] or 0)
+
+    def fetch_power_energy(self, metric, time_range, device_id=None, system_id=None):
+        """Integrate raw power per device, without bridging telemetry outages.
+
+        Linear interpolation is used only between adjacent valid samples at most
+        five minutes apart. Boundary segments are clipped to the requested range.
+        Missing time is excluded, never filled with zero or extrapolated.
+        """
+        expressions = {
+            'output_power': 'output_power',
+            'grid_import_power': 'limiter_power',
+            'pv_input': 'charge_power',
+            'total_load_energy': '(output_power + limiter_power)',
+        }
+        if metric not in expressions or time_range.days > 31:
+            return {'value': None, 'available': False, 'reason':
+                    'Ước tính từ công suất chỉ hỗ trợ dữ liệu raw trong khoảng tối đa 31 ngày.'}
+        spec = MetricRegistry.get('output_power' if metric == 'total_load_energy' else metric)
+        table = self.env[spec.raw_model]._table
+        filters = ['record_date >= %s', 'record_date <= %s']
+        params = [time_range.start_utc - timedelta(minutes=5),
+                  time_range.end_utc + timedelta(minutes=5)]
+        for column, value in [('device_id', device_id), ('system_id', system_id)]:
+            if value:
+                filters.append(column + ' = %s')
+                params.append(value)
+        self.env.cr.execute(
+            'SELECT device_id, record_date, ' + expressions[metric] +
+            ' FROM ' + table + ' WHERE ' + ' AND '.join(filters) +
+            ' ORDER BY device_id, record_date, id', params)
+        previous, devices = {}, {}
+        for device, observed, power in self.env.cr.fetchall():
+            old = previous.get(device)
+            previous[device] = (observed, power)
+            if time_range.start_utc <= observed < time_range.end_utc:
+                devices.setdefault(device, {'kwh': 0.0, 'seconds': 0.0})
+            if old is None or old[1] is None or power is None:
+                continue
+            span = (observed - old[0]).total_seconds()
+            if not 0 < span <= 300:
+                continue
+            start = max(old[0], time_range.start_utc)
+            end = min(observed, time_range.end_utc)
+            seconds = (end - start).total_seconds()
+            if seconds <= 0:
+                continue
+            p0 = float(old[1]) + (float(power) - float(old[1])) * (start - old[0]).total_seconds() / span
+            p1 = float(old[1]) + (float(power) - float(old[1])) * (end - old[0]).total_seconds() / span
+            item = devices.setdefault(device, {'kwh': 0.0, 'seconds': 0.0})
+            item['kwh'] += (p0 + p1) / 2 * seconds / 3600000
+            item['seconds'] += seconds
+        duration = (time_range.end_utc - time_range.start_utc).total_seconds()
+        covered = sum(item['seconds'] for item in devices.values())
+        return {
+            'value': round(sum(item['kwh'] for item in devices.values()), 4) if covered else None,
+            'available': bool(covered), 'unit': 'kWh', 'estimated': True,
+            'method': 'trapezoidal_raw_power', 'source': 'raw', 'max_gap_seconds': 300,
+            'coverage_pct': round(covered / (duration * len(devices)) * 100, 2) if devices else 0,
+            'per_device': [{'device_id': device, 'value': round(item['kwh'], 4),
+                            'covered_seconds': item['seconds'],
+                            'coverage_pct': round(item['seconds'] / duration * 100, 2)}
+                           for device, item in devices.items()],
+            'reason': None if covered else 'Không có cặp mẫu công suất liên tiếp đủ gần để tích phân.',
+            'note': 'Chỉ tính phần thời gian có mẫu liên tiếp; không ngoại suy qua khoảng mất dữ liệu. '
+                    'Độ phủ tính trên thiết bị có dữ liệu, không xác nhận đủ mọi thiết bị cấu hình.',
+        }
 
     def fetch_energy_detail(self, spec: MetricSpec, time_range: TimeRange,
                             device_id=None, system_id=None) -> dict:

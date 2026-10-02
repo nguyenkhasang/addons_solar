@@ -143,8 +143,14 @@ User → AI Planner (LLM) → Tool Layer → Business Service → Repository →
 ```
 
 ### Nguyên tắc: Tool theo NĂNG LỰC, không theo câu hỏi
-9 tool tổng quát, **metric là tham số** — ghép lại trả lời vô số câu hỏi mà không phải viết tool mới:
-`list_metrics` · `get_timeseries` · `get_aggregate` · `compare_periods` · `get_device_status` · `get_alarms` · `find_anomalies` · `get_health_score` · `forecast`
+12 tool tổng quát, **metric là tham số** — AI tự chọn thông số và ghép tool theo bằng chứng cần thiết:
+`get_system_context` · `get_snapshot` · `get_metric_trends` · `list_metrics` · `get_timeseries` · `get_aggregate` · `compare_periods` · `get_device_status` · `get_alarms` · `find_anomalies` · `get_health_score` · `forecast`
+
+Ngữ cảnh hệ thống chỉ đọc whitelist thông tin công khai. Thống kê có timestamp/tuổi mẫu,
+nguồn dữ liệu và cảnh báo công-tơ. Snapshot phân tách số đo khi có nhiều thiết bị cùng loại.
+Health phân biệt đánh giá một phần/toàn bộ; mã trạng thái chưa xác minh là thông tin cần
+kiểm tra. Prompt cho phép phân tích chủ động và báo cáo theo độ sâu câu hỏi, giữ quy tắc
+không bịa số, không sinh SQL và phân biệt dữ kiện/giả thuyết.
 
 ### Điểm mở rộng DUY NHẤT: `domain/metric_registry.py`
 Thêm đại lượng đo mới (bức xạ, độ ẩm, SOC...) = thêm **1 dòng `MetricSpec`**. Không sửa Service/Tool/Adapter (Open/Closed). Logic hybrid khai báo ở đây một lần.

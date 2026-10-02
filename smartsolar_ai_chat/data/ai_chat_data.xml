@@ -33,7 +33,7 @@
         </record>
         <record id="config_max_iterations" model="ir.config_parameter">
             <field name="key">smartsolar_ai.max_tool_iterations</field>
-            <field name="value">5</field>
+            <field name="value">8</field>
         </record>
 
     </data>

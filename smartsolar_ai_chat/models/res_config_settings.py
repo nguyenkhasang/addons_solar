@@ -52,7 +52,8 @@ class ResConfigSettings(models.TransientModel):
     smartsolar_ai_max_tool_iterations = fields.Integer(
         string="Max Tool Iterations",
         config_parameter="smartsolar_ai.max_tool_iterations",
-        default=5,
+        default=8,
+        help="Ngân sách vòng suy luận/truy vấn (2–12). AI có thể gọi nhiều tool cùng vòng; báo cáo sâu cần nhiều vòng hơn.",
     )
     smartsolar_ai_history_limit = fields.Integer(
         string="History Limit",

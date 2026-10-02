@@ -18,10 +18,13 @@ User → AI Planner (Ollama/LM Studio/OpenAI) → Tool Layer
 Sai (không mở rộng được): `today_report()`, `compare_week()`, `get_battery()`...
 Mỗi câu hỏi mới lại phải viết hàm mới.
 
-Đúng (dùng cho vô số câu hỏi): 9 tool tổng quát, **metric là tham số**.
+Đúng (dùng cho vô số câu hỏi): 12 tool tổng quát, **metric là tham số**.
 
 | Tool | Trả lời lớp câu hỏi |
 |---|---|
+| `get_system_context(system_id)` | cấu hình công khai, công suất định mức, nhóm thông số và giới hạn cảm biến |
+| `get_snapshot(metrics[], window_minutes)` | nhiều số đo gần nhất, thời điểm mẫu, tuổi dữ liệu và trạng thái thiết bị |
+| `get_metric_trends(metrics[], start, end)` | thống kê và chuỗi thời gian của nhiều metric để đối chiếu diễn biến |
 | `list_metrics` | "Hệ thống đo được những gì?" — AI tự khám phá |
 | `get_timeseries(metric, start, end)` | mọi câu về diễn biến theo thời gian của 1 đại lượng |
 | `get_aggregate(metrics[], start, end)` | mọi câu tổng kết (kWh, đỉnh, trung bình) |
@@ -84,7 +87,7 @@ services/       Business logic thuần — nhận tham số có kiểu, trả DT
 
 tools/          Lớp bọc MỎNG, ổn định — không có business logic
   base_tool.py    Tool ABC + phong bì {ok, data, meta, error}
-  solar_tools.py  9 tool
+  solar_tools.py  12 tool
   registry.py     ToolRegistry — điểm vào cho mọi adapter
 
 adapters/       Dịch giao thức (đọc chung từ ToolRegistry.specs())
@@ -221,3 +224,52 @@ Test domain chạy không cần DB; test tool/service dùng `TransactionCase`.
 - `get_device_status`: mặc định 100, tối đa 200 thiết bị.
 - `get_alarms`: mặc định 50, tối đa 200 cảnh báo.
 - Mọi schema tool có `additionalProperties=false`; tham số lạ trả `bad_request`.
+
+## 11. Ngữ cảnh và chất lượng dữ liệu cho phân tích tự chủ
+
+AI tự chọn metric và ghép các tool theo bằng chứng cần cho câu hỏi. Không có
+template báo cáo cố định trong Python và không tự lấy mọi metric cho mọi câu hỏi.
+
+`get_system_context` chỉ đọc whitelist: tên/mã, vị trí, múi giờ, công suất cấu hình,
+ngày lắp đặt và trạng thái. Token MQSolar, mật khẩu và cấu hình kết nối không được trả.
+Cấu hình này không phải số đo; agent vẫn cần tool dữ liệu để báo cáo vận hành.
+
+`get_aggregate` trả thêm `label`, `kind`, `energy_available` cho counter và `quality`:
+
+- Thời điểm mẫu đầu/cuối; tuổi mẫu và khoảng trống ở hai mép thời gian.
+- Nguồn raw/summary, độ phân giải, ý nghĩa timestamp (summary là đầu bucket).
+- Cảnh báo công-tơ đứng yên và điện năng bằng 0 dù có công suất cùng khoảng.
+
+Đây là dấu hiệu cần kiểm tra, không phải phép tích phân công suất thành điện năng.
+Tuổi mẫu và khoảng trống không chứng minh số mẫu phủ đủ khoảng; chưa tính tỷ lệ
+coverage lịch sử theo lịch lấy mẫu. `last` là mẫu cuối, không luôn là giá trị hiện tại.
+
+`get_snapshot` mặc định lấy 7 metric điện/pin/nhiệt trong 10 phút, có thể chọn tối
+đa 10 metric và mở cửa sổ 1–1440 phút; phải công bố mẫu cũ khi mở rộng cửa sổ.
+`get_metric_trends` lấy 1–6 metric, mặc định 60, tối đa 120 điểm mỗi chuỗi. Chuỗi
+truncated/bucket và thời tiết theo ngày không dùng để khẳng định mọi mẫu đều bình thường.
+
+Health trả `assessment=partial` và `missing_components` khi chỉ có một phần dữ liệu.
+Điểm 100 với coverage 60% không chứng minh toàn hệ thống khỏe. Thành phần availability
+phản ánh online hiện tại, không phải uptime của khoảng lịch sử.
+
+Cảnh báo trạng thái chuẩn hóa cả `0` và `0.0`. Mã chưa có tài liệu giải nghĩa được
+trả là sự kiện `info`, `interpretation=unknown`, `confirmed_fault=false`. Không tự
+ánh xạ mã sạc thành lỗi hay gán ý nghĩa firmware chưa xác minh. Offline là trạng
+thái hiện tại; tool không có lịch sử sự cố phần cứng đầy đủ.
+
+### Điện năng từ công suất khi công-tơ không cập nhật
+
+`get_aggregate` với `total_load_energy` tích phân công suất tổng tải
+`output_power + limiter_power` theo từng thiết bị, trả kWh trong `value`.
+Các metric `output_power`, `grid_import_power`, `pv_input` trả thêm
+`energy_estimate` theo cùng phương pháp. Đây là ước tính từ mẫu công suất,
+không phải chỉ số công-tơ hay tổng chính xác cả ngày.
+
+Dùng hình thang giữa hai mẫu cách nhau tối đa 300 giây, cắt đoạn tại biên
+khoảng yêu cầu; không ngoại suy hoặc nối qua khoảng mất dữ liệu. Không có
+đoạn hợp lệ thì `value=null`, `available=false`, không trả 0 giả.
+`coverage_pct` và `per_device` mô tả thời gian thực sự được tích phân trên
+thiết bị có dữ liệu; không xác nhận đủ mọi thiết bị cấu hình. Chỉ hỗ trợ raw
+với khoảng truy vấn tối đa 31 ngày; dữ liệu cũ đã dọn không được khôi phục từ
+công suất trung bình. Không lấy kWh chia cho độ phủ để tự đoán tổng toàn kỳ.

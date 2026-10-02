@@ -22,6 +22,18 @@ from ..domain.value_objects import TimeRange, UTC7
 _NORMAL_STATUS = {'', '0', 'normal', 'ok', 'running', 'charging', 'online'}
 
 
+def classify_status(status):
+    text = str(status or '').strip().lower()
+    if text in _NORMAL_STATUS:
+        return 'normal'
+    try:
+        if float(text) == 0:
+            return 'normal'
+    except ValueError:
+        pass
+    return 'unknown'
+
+
 class AlarmRepository(BaseRepository):
 
     def fetch_alarms(self, time_range: TimeRange, severity=None,
@@ -90,16 +102,19 @@ class AlarmRepository(BaseRepository):
             """.format(table=table, whr=' AND '.join(where))
             self.env.cr.execute(sql, params)
             for dev_id, guid, status, last_seen, n in self.env.cr.fetchall():
-                if str(status).strip().lower() in _NORMAL_STATUS:
+                if classify_status(status) == 'normal':
                     continue
                 t = last_seen.replace(
                     tzinfo=timezone.utc).astimezone(UTC7).isoformat() if last_seen else None
                 out.append({
                     'type': 'device_status',
-                    'severity': 'warning',
+                    'severity': 'info',
+                    'status_code': str(status),
+                    'interpretation': 'unknown',
+                    'confirmed_fault': False,
                     'device_id': dev_id,
                     'device_name': guid,
-                    'message': 'Trạng thái: %s' % status,
+                    'message': 'Mã trạng thái chưa có tài liệu giải nghĩa: %s' % status,
                     'occurrences': int(n),
                     'time': t,
                 })

@@ -106,6 +106,15 @@ def _safe_div(numerator, denominator, default=0.0):
 # --------------------------------------------------------------------------
 _METRICS = {
 
+    'total_load_energy': MetricSpec(
+        key='total_load_energy', label='Điện năng tổng tải (ước tính từ công suất)',
+        unit='kWh', kind=MetricKind.DERIVED,
+        depends_on=('output_power', 'grid_import_power'),
+        note='get_aggregate tích phân (output_power + limiter_power) theo thời gian từng thiết bị; '
+             'đọc value và coverage_pct. Không dùng get_timeseries cho metric này.',
+        flow='Điện cấp tải trong nhà: điện hòa lưới + điện lấy lưới; không cộng PV nạp pin.',
+    ),
+
     # ---- Grid Tie Inverter: phía HÒA LƯỚI của chuỗi hybrid ----
     # ĐỌC KỸ TRƯỚC KHI SỬA: output_power và grid_import_power là hai dòng công suất
     # NGƯỢC CHIỀU nhau nhưng trùng nhau ở mọi trường khác (cùng W, cùng
@@ -127,7 +136,8 @@ _METRICS = {
         raw_model='grid.tie.inverter', raw_field='limiter_power',
         summary_model='grid.tie.inverter.summary', summary_field='limiter_power_avg',
         note=('Đây là công suất tức thời (W), không phải điện năng lấy lưới (kWh); '
-              'không dùng để tính tổng điện lưới hoặc tỷ lệ phụ thuộc lưới.'),
+              'không cộng các mẫu W để ra kWh. get_aggregate trả energy_estimate '
+              'bằng tích phân công suất theo thời gian khi công-tơ không cập nhật.'),
         flow=('LẤY TỪ lưới điện quốc gia vào nhà để cấp tải (điện phải mua). '
               'Tên bắt buộc: ĐIỆN LƯỚI; KHÔNG gọi là điện hòa lưới'),
     ),
