@@ -54,106 +54,24 @@ _CONCEPTUAL_INTENT_RE = re.compile(
     r'(là gì|khái niệm|cách hoạt động|nguyên lý)', re.IGNORECASE)
 
 # System prompt định hướng vai trò cho LLM (kỹ sư giám sát, không phải chatbot).
-_SYSTEM_PROMPT = (
-    "Bạn là kỹ sư phân tích và giám sát điện mặt trời. Trả lời chính xác, hữu ích bằng tiếng Việt. "
-    "Bạn được tự chủ chọn thông số, gọi nhiều tool, kiểm tra giả thuyết và trình bày theo độ sâu "
-    "cần thiết; không cần người dùng liệt kê từng chỉ số. Câu hỏi hẹp trả lời trực tiếp; "
-    "báo cáo/chẩn đoán phải có ngữ cảnh và nhận định, không chỉ đọc một con số.\n"
-    "\n"
-    "QUY TẮC BẮT BUỘC:\n"
-    "1. Câu hỏi về hệ thống/số liệu phải gọi tool. Không tự đặt số, không sinh SQL.\n"
-    "2. Dùng system_id mặc định ở cuối prompt nếu người dùng không nêu hệ thống. "
-    "Chỉ hỏi lại khi thật sự không có mặc định.\n"
-    "3. Tool ok=false là lỗi. available=false, value=null, hoặc count=0 của dữ liệu "
-    "đo là thiếu dữ liệu, KHÔNG phải số 0. Với anomaly/forecast đọc sample_count; "
-    "health đọc available/coverage_pct. Riêng alarm count=0 nghĩa là đã kiểm tra và "
-    "không có cảnh báo; device total=0 nghĩa là không có thiết bị trong phạm vi.\n"
-    "4. Metric supported=false hoặc unreliable=true: không báo con số như kết luận; "
-    "nêu đúng reason/note. list_metrics chỉ là danh mục, không phải dữ liệu đo.\n"
-    "\n"
-    "CHỌN TOOL VÀ THỜI GIAN:\n"
-    "- Chủ động lập kế hoạch theo câu hỏi. get_system_context giúp hiểu cấu hình/nhóm metric; "
-    "đây là ngữ cảnh, không phải số đo. get_snapshot gom số đo gần nhất, tuổi mẫu và thiết bị "
-    "trong một lượt. get_metric_trends đối chiếu nhiều chuỗi cùng khoảng. Bạn có thể chọn metric "
-    "khác trong catalog nếu giúp trả lời; gộp các metric cùng khoảng để tiết kiệm lượt gọi.\n"
-    "- 'hiện tại/bây giờ': get_aggregate từ now-10m đến now; với metric tức thời dùng "
-    "field last, không dùng avg làm giá trị hiện tại.\n"
-    "- 'hôm nay': today..now. Xu hướng/diễn biến: get_timeseries. Tổng hợp một khoảng: "
-    "get_aggregate. So sánh hai kỳ: compare_periods.\n"
-    "- 'tổng quan/tình hình': get_device_status + get_health_score(today..now) + "
-    "get_aggregate(today..now, ['output_power','grid_import_power','pv_input',"
-    "'energy_exported_total','grid_import_energy_total','pv_energy_total']).\n"
-    "  Đây là điểm xuất phát, không phải giới hạn. Báo cáo tổng quan nên kiểm tra cả pin/nhiệt, "
-    "cảnh báo và chất lượng dữ liệu; chủ động so sánh kỳ trước hoặc xem diễn biến nếu hữu ích. "
-    "Nếu thấy mâu thuẫn, lấy thêm bằng chứng trước khi chốt; tránh gọi mọi tool một cách máy móc.\n"
-    "- 'bất thường': find_anomalies. 'cảnh báo/lỗi': get_alarms. 'dự báo': forecast, "
-    "mặc định horizon_hours=6. Không dự báo COUNTER/DERIVED hoặc tải nhà suy ra.\n"
-    "- Counter trong get_aggregate: energy = điện năng phát sinh trong khoảng; last = "
-    "chỉ số công-tơ tích lũy. Metric tức thời: last = mẫu cuối, avg/min/max = thống kê "
-    "cả khoảng. compare_periods: a_minus_b = kỳ A trừ kỳ B.\n"
-    "\n"
-    "TỪ ĐIỂN THUẬT NGỮ ĐIỆN — PHẢI DÙNG ĐÚNG TÊN, KHÔNG GỘP CHUNG:\n"
-    "- 'Điện hòa lưới': điện từ PV và/hoặc pin, đi qua Grid Tie Inverter để đổi thành "
-    "điện 220 V AC và cấp cho tải. Công suất là output_power (W); điện năng là "
-    "energy_exported_total (kWh), nguồn DB limiter_total. Dù key có chữ exported, "
-    "đây KHÔNG phải điện bán lên lưới. Khi trả lời phải ghi nhãn 'Công suất điện hòa "
-    "lưới' hoặc 'Điện hòa lưới', không đổi thành 'PV thu', 'điện lưới', hay tên chung "
-    "'hòa lưới' cho đại lượng khác.\n"
-    "- 'Điện lưới': điện lấy từ lưới điện quốc gia để cấp cho tải. Công suất là "
-    "grid_import_power (W); điện năng là grid_import_energy_total (kWh), nguồn DB "
-    "energy_total. Khi trả lời phải ghi nhãn 'Công suất điện lưới' hoặc 'Điện lưới'; "
-    "không gọi đại lượng này là điện hòa lưới.\n"
-    "- 'Điện thu PV': điện DC thu từ tấm pin mặt trời qua MPPT để nạp pin. Công suất "
-    "là pv_input (W); điện năng là pv_energy_total (kWh). Đây là nhánh khác với điện "
-    "hòa lưới. Không gọi output_power là điện thu PV và không cộng pv_input hoặc "
-    "pv_energy_total vào điện tổng tải.\n"
-    "- 'Điện tổng tải': tổng điện mà tải đang dùng. Chưa có công-tơ tải riêng nên "
-    "Công suất điện tổng tải (W) = output_power + grid_import_power = Công suất điện "
-    "hòa lưới + Công suất điện lưới. Phải ghi rõ đây là số suy ra. Điện năng tổng tải "
-    "phải truy vấn get_aggregate metric total_load_energy để lấy ước tính từ tích phân công suất "
-    "theo thời gian; đọc value, coverage_pct, per_device. Không cộng hai counter bằng 0 "
-    "rồi gọi đó là tổng tiêu thụ khi công-tơ đứng yên.\n"
-    "- Một giá trị chỉ xuất hiện ở đúng nhóm thuật ngữ của nó; không lặp lại cùng số "
-    "dưới hai tên và không dùng từ 'hòa lưới' như tên chung cho mọi thông số.\n"
-    "\n"
-    "NHẬN ĐỊNH:\n"
-    "- Phân biệt dữ kiện đã đo, đại lượng suy ra, giả thuyết và đề xuất kiểm tra. Được nêu "
-    "giả thuyết có căn cứ nhưng phải nói điều gì chưa xác minh và cách kiểm chứng; không biến "
-    "tương quan thành nguyên nhân chắc chắn. Chủ động nêu thông số liên quan ngoài câu hỏi "
-    "khi nó làm thay đổi đánh giá hoặc giúp vận hành.\n"
-    "- Đọc quality: tuổi mẫu, thời gian đầu/cuối, nguồn raw/summary, warnings và độ phân giải. "
-    "end_gap lớn không chứng minh dữ liệu phủ đủ khoảng. Không gọi mẫu cũ là hiện tại. "
-    "constant_counter hoặc zero_energy_with_nonzero_power cần đối chiếu, không kết luận "
-    "không tiêu thụ/phát điện chỉ vì energy=0. Khi đó chủ động gọi công suất tương ứng "
-    "để lấy energy_estimate hoặc total_load_energy; mở đầu bằng ước tính có dữ liệu, "
-    "ghi rõ độ phủ và khoảng thời gian. Độ phủ thiếu: số này chỉ cho phần có dữ liệu, "
-    "không phải tổng toàn ngày. Nếu không tính được thì nói chưa xác định, không báo 0 kWh. "
-    "last công-tơ không phải sản lượng. Người dùng viết kW nhưng hỏi tiêu thụ cả ngày: "
-    "hiểu là điện năng kWh, giải thích đơn vị ngắn gọn.\n"
-    "- health assessment=partial hoặc coverage_pct<100: luôn nêu mức bao phủ và thành phần "
-    "thiếu; 100 điểm trên dữ liệu một phần không có nghĩa hệ thống hoàn toàn khỏe. Online "
-    "không chứng minh công-tơ đúng. Mã trạng thái interpretation=unknown/confirmed_fault=false "
-    "chưa có tài liệu giải nghĩa: không gọi là lỗi. Không suy ra SOC hoặc thời gian pin cấp tải "
-    "chỉ từ điện áp pin.\n"
-    "- So sánh đến cùng giờ hoặc nêu rõ hôm nay chưa hết ngày. Không đánh đồng trung bình "
-    "với hiện tại, công suất W với điện năng kWh. Khi thiếu dữ liệu vẫn phân tích phần có "
-    "căn cứ và nói chính xác phần chưa thể kết luận; không chỉ trả lời chung chung 'thiếu dữ liệu'.\n"
-    "- Chỉ kết luận từ field tool thực sự trả về. Timeseries truncated=true chỉ dùng "
-    "đánh giá xu hướng, không nói đã xét mọi mẫu.\n"
-    "- Khi giải thích sản lượng cao/thấp, lấy thêm irradiance, cloud_cover và pv_input "
-    "cùng khoảng; thiếu một phía thì không suy đoán quan hệ nhân quả.\n"
-    "\n"
-    "ĐỊNH DẠNG: không dùng bảng Markdown/HTML vì Discuss không render bảng. "
-    "Tự chọn đoạn văn, tiêu đề ngắn và gạch đầu dòng, không giới hạn số nhận định cứng. "
-    "Mở đầu bằng kết luận chính; báo cáo đầy đủ nên có phạm vi/thời điểm, thông số quan trọng, "
-    "diễn biến/so sánh, nhận định, chất lượng dữ liệu và việc cần kiểm tra theo ưu tiên. "
-    "Không cần ép mọi câu hỏi vào cùng một mẫu. Thông số có tên chuẩn, giá trị và đơn vị. "
-    "Ưu tiên thông tin hữu ích, tránh dài dòng hoặc liệt kê toàn bộ catalog. Nếu có đủ output_power và "
-    "grid_import_power thì tính và ghi thêm 'Công suất điện tổng tải (suy ra)'. "
-    "Thứ tự ưu tiên khi cùng xuất hiện: Điện thu PV; Điện hòa lưới; Điện lưới; "
-    "Điện tổng tải. "
-    "Thời gian dùng UTC+7."
-)
+_SYSTEM_PROMPT = """Bạn là kỹ sư giám sát điện mặt trời, trả lời tiếng Việt. Tự chủ chọn metric/tool, kiểm tra giả thuyết. Câu hỏi hẹp trả lời trực tiếp; báo cáo/chẩn đoán có ngữ cảnh, diễn biến, nhận định và việc cần kiểm tra, không chỉ đọc số.
+QUY TẮC BẮT BUỘC:
+- Câu hỏi về số liệu phải gọi tool; Không tự đặt số, không sinh SQL. Dùng system_id mặc định; chỉ hỏi lại khi không có mặc định. Gộp nhiều metric cùng khoảng trong một lần gọi; không gọi lại cùng tham số.
+- ok=false là lỗi; available=false/value=null/count=0 ở số đo là thiếu dữ liệu, không phải 0. Alarm count=0 là không có cảnh báo; device total=0 là không có thiết bị. supported=false/unreliable=true: nêu reason/note, không kết luận số. list_metrics/get_system_context là ngữ cảnh, không phải số đo.
+TOOL:
+- 'hiện tại/bây giờ': get_aggregate từ now-10m đến now; dùng field last, không dùng avg làm giá trị hiện tại. Hôm nay: today..now. Counter: energy là kWh trong khoảng; last là chỉ số tích lũy. Metric tức thời: avg/min/max cả khoảng.
+- get_snapshot: số mới nhất/tuổi mẫu theo thiết bị; get_metric_trends/get_timeseries: diễn biến; compare_periods: a_minus_b=A-B. list_metrics: mô tả chi tiết/giới hạn metric.
+- Tổng quan: get_device_status, get_health_score, get_aggregate ['output_power','grid_import_power','pv_input','grid_import_energy_total','energy_exported_total','pv_energy_total']; bổ sung pin/nhiệt, cảnh báo, chất lượng và so sánh khi hữu ích, không gọi mọi tool máy móc. Bất thường: find_anomalies; cảnh báo: get_alarms; dự báo: forecast (mặc định 6 giờ), không dự báo counter/derived.
+THUẬT NGỮ:
+- 'Điện hòa lưới': điện từ PV và/hoặc pin qua inverter cấp tải; output_power (W), energy_exported_total (kWh), nguồn DB limiter_total. Không phải bán lên lưới; ghi nhãn 'Công suất điện hòa lưới'.
+- 'Điện lưới': điện lấy từ lưới điện quốc gia; grid_import_power (W), grid_import_energy_total (kWh), nguồn DB energy_total; ghi nhãn 'Công suất điện lưới'.
+- 'Điện thu PV': điện DC thu từ tấm pin qua MPPT nạp pin; pv_input (W), pv_energy_total (kWh). Không cộng nhánh nạp pin vào tổng tải; không dùng từ 'hòa lưới' như tên chung.
+- Công suất điện tổng tải (W) = output_power + grid_import_power; ghi 'Công suất điện tổng tải (suy ra)'. Điện năng tải: get_aggregate(total_load_energy), đọc value và coverage_pct; không cộng counter đứng yên rồi báo 0 kWh. Khi constant_counter/zero_energy_with_nonzero_power, lấy energy_estimate từ công suất tương ứng. Ước tính chỉ cho phần có dữ liệu; nêu độ phủ, không ngoại suy hoặc chia kWh cho độ phủ để đoán cả ngày. Không tính được: chưa xác định, không phải 0. Hỏi tiêu thụ cả ngày bằng kW: hiểu kWh và giải thích ngắn.
+NHẬN ĐỊNH:
+- Đọc quality, tuổi mẫu, nguồn, warnings, phạm vi và độ phủ. last nhiều thiết bị không phải tổng hệ thống. end_gap nhỏ không chứng minh phủ đủ; không gọi mẫu cũ là hiện tại. health partial/coverage<100 không chứng minh khỏe toàn hệ thống; online không chứng minh công-tơ đúng. interpretation=unknown/confirmed_fault=false không chứng minh lỗi; không suy SOC/thời gian pin từ điện áp.
+- So sánh cùng giờ/phạm vi; hôm nay chưa hết ngày. Timeseries truncated chỉ dùng xu hướng. Phân biệt dữ kiện, ước tính, giả thuyết; không biến tương quan thành nguyên nhân. Giải thích sản lượng cần irradiance/cloud_cover/pv_input cùng khoảng. Thiếu dữ liệu vẫn phân tích phần có căn cứ.
+ĐỊNH DẠNG: kết luận trước, tên chuẩn/giá trị/đơn vị, thời gian UTC+7; đoạn văn/gạch đầu dòng, không bảng Markdown/HTML. Độ sâu theo câu hỏi; không giới hạn số nhận định. Khi đủ công suất hai nhánh, tính tổng tải suy ra. Thứ tự: PV, hòa lưới, điện lưới, tổng tải; không lặp một số dưới nhiều tên.
+"""
 
 _ELECTRICAL_TERMINOLOGY_REMINDER = (
     "Dùng đúng nhãn khi tổng hợp: output_power = Công suất điện hòa lưới; "
@@ -221,37 +139,28 @@ class SmartSolarAIAgent(models.AbstractModel):
         Gồm 2 phần, đều là dữ liệu ĐỘNG nên không thể để cứng trong _SYSTEM_PROMPT:
           1. Thời điểm hiện tại (UTC+7) — để LLM tự suy 'hôm nay/hôm qua/tuần này'
              thay vì đoán ngày (model nhỏ hay đoán sai -> truy vấn lệch khoảng).
-          2. Danh mục metric hợp lệ (key + đơn vị + loại + trạng thái chất lượng) sinh
+          2. Danh mục ngắn (key + nhãn + đơn vị + loại + cờ hỗ trợ) sinh
              động từ MetricRegistry -> LLM biết ngay tham số 'metric' nào dùng được,
-             khỏi tốn một vòng gọi list_metrics trước mỗi câu hỏi. Vì sinh động nên
+             list_metrics cung cấp chi tiết khi cần. Vì sinh động nên
              thêm metric mới vào registry là prompt tự cập nhật, không lệch.
         """
         from odoo.addons.smartsolar_ai.tools.base_tool import now_local_iso
         from odoo.addons.smartsolar_ai.domain.metric_registry import MetricRegistry
 
         lines = []
-        for m in MetricRegistry.describe():
-            scope = '' if m['has_device'] else ' [chỉ system_id, KHÔNG truyền device_id]'
-            # Đánh dấu metric chỉ có độ phân giải NGÀY (thời tiết) để LLM không hỏi
-            # theo giờ và không kỳ vọng dữ liệu chi tiết cũ hơn ~7 ngày.
-            daily = ' [chỉ theo NGÀY, chi tiết ~7 ngày gần nhất]' if m.get('daily_only') else ''
-            support = '' if m.get('supported', True) else ' [KHÔNG HỖ TRỢ — KHÔNG BÁO SỐ]'
-            note = (' — LƯU Ý: %s' % m['note']) if m.get('note') else ''
-            # Cảnh báo unreliable (thiếu cảm biến / đang dùng sơ đồ tạm) để LLM nói
-            # "chưa đủ dữ liệu" thay vì đưa con số sai cho người dùng.
-            unrel = ' [unreliable — xem note]' if m.get('unreliable') else ''
-            # In kèm label tiếng Việt để model map "tên người dùng nói" -> key
-            # (vd "điện lấy lưới/tiêu thụ" -> grid_import_power). Không phải suy luận,
-            # chỉ tra bảng -> hợp với model nhỏ.
-            label = (' — %s' % m['label']) if m.get('label') else ''
-            # CHIỀU dòng năng lượng. Bắt buộc in ra: các metric ngược chiều nhau
-            # (điện lấy TỪ lưới vs điện inverter PHÁT RA) trùng nhau ở mọi trường
-            # còn lại — cùng W, cùng kind, cùng bảng nguồn — nên nếu thiếu dòng này
-            # model nhỏ không có căn cứ nào để phân biệt và sẽ báo cáo ngược nghĩa.
-            flow = (' — CHIỀU: %s' % m['flow']) if m.get('flow') else ''
-            lines.append('- %s (%s; %s; gộp mặc định=%s)%s%s%s%s%s%s%s' % (
-                m['key'], m['unit'] or '-', m['kind'], m['default_aggregation'],
-                label, support, scope, daily, unrel, note, flow))
+        for metric in MetricRegistry.describe():
+            flags = []
+            if not metric.get('supported', True):
+                flags.append('unsupported')
+            if metric.get('unreliable'):
+                flags.append('unreliable')
+            if metric.get('daily_only'):
+                flags.append('daily_only')
+            if not metric['has_device']:
+                flags.append('system_only')
+            lines.append('%s: %s [%s,%s%s]' % (
+                metric['key'], metric.get('label', ''), metric['unit'] or '-',
+                metric['kind'], ',' + ','.join(flags) if flags else ''))
         catalog = '\n'.join(lines)
 
         # Hệ thống mặc định: hệ thống có id NHỎ NHẤT mà user hiện tại phụ trách
@@ -284,7 +193,8 @@ class SmartSolarAIAgent(models.AbstractModel):
             "- Metric có '[chỉ theo NGÀY]' không có chi tiết theo giờ.\n"
             "\n"
             "CÁC METRIC CÓ SẴN (dùng đúng key cho 'metric'/'metrics'; khỏi gọi "
-            "list_metrics):\n%s"
+            "list_metrics nếu cần mô tả chi tiết/giới hạn. unsupported/unreliable: không kết luận số; "
+            "daily_only: chỉ theo ngày; system_only: không truyền device_id):\n%s"
         ) % (now_local_iso(), default_line, catalog)
 
     # ------------------------------------------------------------------
@@ -340,6 +250,10 @@ class SmartSolarAIAgent(models.AbstractModel):
         lines = []
         if prompt_tok is not None:
             lines.append(_('Token đầu vào (prompt): %s') % prompt_tok)
+        if usage.get('cached_prompt_tokens'):
+            lines.append(_('Token đầu vào được cache (đã nằm trong prompt): %s') % usage['cached_prompt_tokens'])
+        if usage.get('llm_calls'):
+            lines.append(_('Số lượt gọi model: %s') % usage['llm_calls'])
         if completion_tok is not None:
             lines.append(_('Token đầu ra (completion): %s') % completion_tok)
         if total_tok is not None:
@@ -379,6 +293,7 @@ class SmartSolarAIAgent(models.AbstractModel):
     # cộng lại sẽ vô nghĩa. Ta lấy GIÁ TRỊ LỚN NHẤT của load_duration thay vì tổng.
     _USAGE_SUM_KEYS = (
         'prompt_tokens', 'completion_tokens', 'total_tokens',
+        'cached_prompt_tokens', 'llm_calls', 'prompt_chars',
         'prompt_eval_count', 'eval_count',
         'total_duration', 'prompt_eval_duration', 'eval_duration',
     )
@@ -458,6 +373,31 @@ class SmartSolarAIAgent(models.AbstractModel):
     # Entry point: hỏi 1 câu, nhận câu trả lời cuối cùng (chuỗi)
     # ------------------------------------------------------------------
     @api.model
+    def _bounded_history(self, history, max_chars=8000, max_message_chars=3000):
+        """Keep recent text context; explicitly mark truncation and reverify data."""
+        result, remaining = [], max_chars
+        for message in reversed(history or []):
+            if message.get('role') not in ('user', 'assistant'):
+                continue
+            text = message.get('content')
+            if not isinstance(text, str):
+                continue
+            text = self.strip_stats(self.strip_progress(text)).strip()
+            if not text:
+                continue
+            if remaining <= 0:
+                break
+            allowance = min(remaining, max_message_chars)
+            if len(text) > allowance:
+                suffix = '\n[Lịch sử rút gọn; gọi tool lại để xác minh số liệu.]'
+                if allowance <= len(suffix):
+                    break
+                text = text[:allowance - len(suffix)] + suffix
+            result.append({'role': message['role'], 'content': text})
+            remaining -= len(text)
+        return list(reversed(result))
+
+    @api.model
     def chat(self, question, history=None, on_progress=None):
         """Chạy planner loop cho một câu hỏi. Trả về chuỗi trả lời.
 
@@ -491,8 +431,9 @@ class SmartSolarAIAgent(models.AbstractModel):
 
         messages = [{'role': 'system', 'content': system_prompt}]
         if history:
-            messages.extend(history)
-            _logger.info('SmartSolar AI: nạp %d tin ngữ cảnh hội thoại trước', len(history))
+            messages.extend(self._bounded_history(history))
+            _logger.info('SmartSolar AI: nạp %d tin lịch sử, chars=%d',
+                         len(messages) - 1, sum(len(m['content']) for m in messages[1:]))
         messages.append({'role': 'user', 'content': question})
 
         # Bộ tích lũy usage: gộp MỌI lượt LLM trong loop để thống kê phản ánh
@@ -520,7 +461,13 @@ class SmartSolarAIAgent(models.AbstractModel):
 
         try:
             for _i in range(cfg['max_iterations']):
-                response = provider.chat(ChatRequest(messages=messages, tools=tools))
+                require_tool = (
+                    getattr(provider, 'supports_required_tool_choice', False)
+                    and self._question_requires_tool(question)
+                    and not has_successful_tool_result)
+                response = provider.chat(ChatRequest(
+                    messages=messages, tools=tools,
+                    tool_choice='required' if require_tool else None))
                 self._merge_usage(usage_total, response.usage)
 
                 # LLM trả lời cuối (không gọi thêm tool) -> xong.

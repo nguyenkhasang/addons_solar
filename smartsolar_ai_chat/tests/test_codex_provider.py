@@ -132,3 +132,76 @@ class TestCodexProvider(TestCase):
             messages, images = provider._prepare_messages([message], Path(tmp))
             self.assertEqual(Path(images[0]).read_bytes(), b'abc')
             self.assertNotIn('YWJj', json.dumps(messages))
+
+    def test_compact_tool_specs_preserve_constraints_and_do_not_mutate(self):
+        tools = {'read': {'name': 'read', 'description': 'Read measurements',
+                         'parameters': {'type': 'object', 'required': ['metrics', 'start'],
+                                        'properties': {
+                                            'metrics': {'type': 'array', 'minItems': 1, 'maxItems': 10,
+                                                        'description': 'Repeated metric prose',
+                                                        'items': {'type': 'string', 'enum': ['power', 'energy']}},
+                                            'start': {'type': 'string', 'description': 'Repeated time prose'},
+                                            'threshold': {'type': 'number', 'minimum': 0,
+                                                          'description': 'Deviation in standard deviations'},
+                                        }}}}
+        before = json.dumps(tools)
+        compact = CodexCLIProvider._compact_tools(tools)[0]
+        self.assertEqual(json.dumps(tools), before)
+        parameters = compact['parameters']
+        self.assertEqual(parameters['required'], ['metrics', 'start'])
+        self.assertEqual(parameters['properties']['metrics']['maxItems'], 10)
+        self.assertEqual(parameters['properties']['metrics']['items']['enum'], ['power', 'energy'])
+        self.assertNotIn('description', parameters['properties']['start'])
+        self.assertEqual(parameters['properties']['threshold']['minimum'], 0)
+        self.assertIn('description', parameters['properties']['threshold'])
+
+    def test_compact_tool_result_preserves_evidence_and_warnings(self):
+        envelope = {'ok': True, 'data': {'value': None, 'available': False,
+                                       'coverage_pct': 65.74, 'range': ['a', 'b'],
+                                       'quality': {'warnings': [{'code': 'constant_counter'}]}},
+                    'meta': {'tool': 'read', 'generated_at': 'now',
+                             'electrical_terminology': 'Repeated prose',
+                             'instruction': 'Unavailable is not zero', 'cached': True},
+                    'error': None}
+        messages = [{'role': 'tool', 'content': json.dumps(envelope), 'tool_call_id': 'test'}]
+        compact = CodexCLIProvider._compact_messages(messages)
+        data = json.loads(compact[0]['content'])
+        self.assertEqual(data['data'], envelope['data'])
+        self.assertEqual(data['meta'], {'instruction': 'Unavailable is not zero', 'cached': True})
+        self.assertEqual(compact[0]['tool_call_id'], 'test')
+        self.assertIn('Repeated prose', messages[0]['content'])
+
+    def test_cli_uses_local_planner_instructions_and_reports_cached_usage(self):
+        provider = CodexCLIProvider(binary='/opt/codex', model='test-model')
+        def spawn(command, **kwargs):
+            config = next(value for value in command if value.startswith('model_instructions_file='))
+            path = Path(json.loads(config.split('=', 1)[1]))
+            instructions = path.read_text()
+            self.assertIn('Không chạy lệnh', instructions)
+            self.assertIn('tool_calls', instructions)
+            self.assertEqual(path.parent, Path(kwargs['cwd']))
+            process = MagicMock()
+            process.returncode = 0
+            process.__enter__.return_value = process
+            def communicate(prompt, timeout):
+                Path(command[command.index('-o') + 1]).write_text(
+                    json.dumps({'content': 'ok', 'tool_calls': []}))
+                self.assertEqual(json.loads(prompt)['tools'], [])
+                return json.dumps({'type': 'turn.completed', 'usage': {
+                    'input_tokens': 100, 'cached_input_tokens': 60, 'output_tokens': 5}}), ''
+            process.communicate.side_effect = communicate
+            return process
+        with patch('shutil.which', return_value='/opt/codex'), patch('subprocess.Popen', side_effect=spawn):
+            response = provider.chat(ChatRequest(messages=[{'role': 'user', 'content': 'hello'}],
+                                                  tools=self.tools, tool_choice='none'))
+        self.assertEqual(response.usage['prompt_tokens'], 100)
+        self.assertEqual(response.usage['cached_prompt_tokens'], 60)
+        self.assertEqual(response.usage['llm_calls'], 1)
+
+    def test_required_tool_choice_schema_does_not_block_final_answers(self):
+        required = CodexCLIProvider._schema({'read': {}}, require_tool=True)
+        self.assertEqual(required['properties']['tool_calls']['minItems'], 1)
+        automatic = CodexCLIProvider._schema({'read': {}})
+        self.assertNotIn('minItems', automatic['properties']['tool_calls'])
+        final = CodexCLIProvider._schema({}, require_tool=True)
+        self.assertEqual(final['properties']['tool_calls']['maxItems'], 0)

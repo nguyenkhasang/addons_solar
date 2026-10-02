@@ -190,3 +190,51 @@ và token. AI vẫn không được sinh SQL, thay đổi hệ thống hoặc b�
 
 Xem thêm [AI Tool Layer](../smartsolar_ai/README.md) và
 [kiến trúc toàn repo](../ARCHITECTURE.md).
+
+## Giảm token đầu vào
+
+Bridge Codex dùng `model_instructions_file` trong thư mục tạm của từng lượt
+để thay hướng dẫn lập trình mặc định bằng giao thức planner Solar. Không sửa
+cấu hình Codex cá nhân, không lưu phiên chat chung giữa người dùng. Giữ sandbox
+read-only, tắt shell/web/apps/hooks và chỉ thực thi tool qua registry Odoo.
+
+System prompt giữ chiều dòng điện, kWh từ tích phân công suất, độ phủ, dữ liệu
+không khả dụng, mẫu cũ và giới hạn pin. Catalog mặc định chỉ gửi key/nhãn/đơn
+vị/loại/cờ hỗ trợ; `list_metrics` vẫn cung cấp toàn bộ mô tả khi cần. Câu hỏi cần số liệu dùng schema bắt buộc chọn tool đến khi có bằng chứng hợp lệ,
+tránh một lượt trả lời sớm rồi retry. Cả 12 tool
+vẫn khả dụng; không chọn một tập tool cố định theo từ khóa câu hỏi.
+
+Payload Codex dùng JSON gọn, bỏ mô tả lặp của tham số chung (thời gian, phạm
+vi, metric) nhưng giữ nguyên required/type/enum/limits. Kết quả tool giữ nguyên
+số liệu, null, lỗi, đơn vị, khoảng thời gian, độ phủ và cảnh báo; chỉ bỏ metadata
+lặp đã có trong system prompt. Các provider khác vẫn nhận schema nguyên bản.
+
+Lịch sử văn bản tối đa 8.000 ký tự, tối đa 3.000 ký tự/tin, ưu tiên tin mới;
+phần cắt có dấu và yêu cầu kiểm chứng lại bằng tool. Không cắt câu hỏi hiện tại
+hoặc bằng chứng tool trong lượt hiện tại. Bỏ khối tiến trình/thống kê trước khi
+gửi lại lịch sử, kể cả caller trực tiếp không đi qua Discuss.
+
+Đo kiểm cùng `gpt-6-luna`, lịch sử rỗng, câu hỏi tổng tải 02/10/2026
+00:00–23:02, hai lượt model:
+
+| Phiên bản | Token đầu vào cộng dồn |
+|---|---:|
+| Trước tối ưu | 56.380 |
+| Hướng dẫn CLI/catalog/schema gọn | 23.548 |
+| Thêm system prompt gọn | 21.763 |
+| Bản cuối, bắt buộc tool trước số liệu (đo lại) | 32.836 |
+
+Usage CLI dao động giữa lần chạy dù payload tương tự: lần cuối giảm khoảng
+42%, lần trước đạt 61%. Không cam kết tỷ lệ cho mọi câu hỏi. Các lần trả 6,8039 kWh với độ phủ 65,74%, không suy thành tổng toàn ngày.
+Số liệu là usage CLI, không phải ước lượng từ số ký tự hay bảng giá.
+
+Thống kê cộng dồn mọi lượt, hiện thêm số lượt gọi model và cached input tokens
+(nằm trong input tokens, không cộng lần nữa hoặc tự suy ra chi phí). Log chỉ
+lưu số ký tự, số message/tool và usage từng lượt, không log toàn prompt.
+
+Cấu hình chính thức: https://learn.chatgpt.com/docs/config-file/config-reference
+
+Kiểm tra lịch sử dài: giảm 82.623 xuống 47.559 input tokens và 3 xuống 2 lượt
+model; công suất trả từ field last, có thời điểm/tuổi mẫu. Báo cáo tổng quan
+vẫn phân tích đủ tải/PV/pin/nhiệt/cảnh báo/độ phủ trong 2 lượt. 86 kiểm thử của
+hai module AI đạt trên database sao chép tạm, không đăng tin thử vào Discuss.
