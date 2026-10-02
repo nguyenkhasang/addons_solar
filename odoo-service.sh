@@ -29,15 +29,47 @@ is_running() {
 }
 
 start() {
-    systemctl --user start "$SERVICE_NAME"
+    echo "Đang khởi động Odoo..."
+    if ! systemctl --user start "$SERVICE_NAME"; then
+        echo "Khởi động Odoo thất bại. Xem: journalctl --user -u $SERVICE_NAME -n 50" >&2
+        return 1
+    fi
+    confirm_running "khởi động"
 }
 
 stop() {
-    systemctl --user stop "$SERVICE_NAME"
+    echo "Đang dừng Odoo..."
+    if ! systemctl --user stop "$SERVICE_NAME"; then
+        echo "Không thể dừng Odoo." >&2
+        return 1
+    fi
+    echo "Odoo đã dừng."
+}
+
+confirm_running() {
+    sleep 2
+    if systemctl --user is-active --quiet "$SERVICE_NAME" && is_running; then
+        echo "Odoo đã $1 thành công (PID $(read_pid))."
+        echo "Log: $LOG_FILE"
+    else
+        echo "Odoo chưa chạy ổn định. Xem: journalctl --user -u $SERVICE_NAME -n 50" >&2
+        return 1
+    fi
+}
+
+restart() {
+    echo "Đang restart Odoo..."
+    if ! systemctl --user restart "$SERVICE_NAME"; then
+        echo "Restart Odoo thất bại. Xem: journalctl --user -u $SERVICE_NAME -n 50" >&2
+        return 1
+    fi
+    confirm_running "restart"
 }
 
 status() {
-    local pid http_port os_name memory disk load uptime_text external_pids
+    local pid http_port os_name memory disk load uptime_text external_pids active_state sub_state
+    active_state="$(systemctl --user show "$SERVICE_NAME" -p ActiveState --value)"
+    sub_state="$(systemctl --user show "$SERVICE_NAME" -p SubState --value)"
     http_port="$(awk -F= '/^[[:space:]]*http_port[[:space:]]*=/ {gsub(/[[:space:]]/, "", $2); print $2; exit}' "$CONFIG")"
     http_port="${http_port:-8069}"
     os_name="$(. /etc/os-release 2>/dev/null && printf '%s' "${PRETTY_NAME:-Linux}")"
@@ -70,7 +102,13 @@ status() {
         printf '%-14s %s\n' "Cấu hình:" "$CONFIG"
         printf '%-14s %s\n' "Log:" "$LOG_FILE"
     else
-        printf '%-14s %s\n' "Trạng thái:" "ĐANG DỪNG"
+        case "$active_state/$sub_state" in
+            activating/auto-restart) printf '%-14s %s\n' "Trạng thái:" "ĐANG TỰ RESTART" ;;
+            activating/*) printf '%-14s %s\n' "Trạng thái:" "ĐANG KHỞI ĐỘNG" ;;
+            deactivating/*) printf '%-14s %s\n' "Trạng thái:" "ĐANG DỪNG" ;;
+            failed/*) printf '%-14s %s\n' "Trạng thái:" "LỖI" ;;
+            *) printf '%-14s %s\n' "Trạng thái:" "ĐÃ DỪNG" ;;
+        esac
         external_pids="$(pgrep -f -- "$ODOO_BIN" | paste -sd, - 2>/dev/null || true)"
         if [[ -n "$external_pids" ]]; then
             printf '%-14s %s\n' "Lưu ý:" "Có tiến trình chạy ngoài script (PID $external_pids)"
@@ -89,7 +127,7 @@ case "${1:-}" in
     start) start ;;
     stop) stop ;;
     restart)
-        systemctl --user restart "$SERVICE_NAME"
+        restart
         ;;
     status) status ;;
     logs) tail -f "$LOG_FILE" ;;
