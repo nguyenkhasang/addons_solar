@@ -3,6 +3,7 @@ from datetime import timedelta
 from urllib.parse import urlencode, quote
 import json
 import logging
+import math
 import time
 import pytz
 
@@ -264,31 +265,56 @@ class SmartSolarSystem(models.Model):
         return True
 
     @api.model
+    def _summary_lookback(self, key, sources, buffer, seconds):
+        """Replay the normal buffer plus time since the last successful run.
+
+        On first use, rebuild from the oldest available source. Checkpoints are
+        saved in the same transaction as summaries, so failures never advance them.
+        """
+        value = self.env['ir.config_parameter'].sudo().get_param(key)
+        try:
+            anchor = fields.Datetime.to_datetime(value) if value else None
+        except (TypeError, ValueError):
+            anchor = None
+        if anchor is None:
+            dates = []
+            for model, date_field, domain in sources:
+                first = self.env[model].search(domain, order=date_field, limit=1)
+                if first and first[date_field]:
+                    dates.append(first[date_field])
+            anchor = min(dates) if dates else None
+        if anchor is None:
+            return buffer
+        elapsed = (fields.Datetime.now() - anchor).total_seconds()
+        return max(buffer, math.ceil(elapsed / seconds) + buffer)
+
+    @api.model
     def _cron_aggregate_hourly(self):
-        try:
-            with self.env.cr.savepoint():
-                self.env['charge.power.summary']._aggregate_hourly()
-        except Exception as e:
-            _logger.error('Aggregate hourly charge.power failed: %s', e, exc_info=True)
-        try:
-            with self.env.cr.savepoint():
-                self.env['grid.tie.inverter.summary']._aggregate_hourly()
-        except Exception as e:
-            _logger.error('Aggregate hourly grid.tie.inverter failed: %s', e, exc_info=True)
+        key = 'smartsolar.summary_hourly_last_success'
+        started = fields.Datetime.now()
+        hours = self._summary_lookback(key, [
+            ('charge.power', 'record_date', []),
+            ('grid.tie.inverter', 'record_date', []),
+        ], buffer=48, seconds=3600)
+        # Let the cron transaction fail if any source cannot be aggregated.
+        self.env['charge.power.summary']._aggregate_hourly(hours)
+        self.env['grid.tie.inverter.summary']._aggregate_hourly(hours)
+        self.env['ir.config_parameter'].sudo().set_param(key, started)
         return True
 
     @api.model
     def _cron_aggregate_daily(self):
-        try:
-            with self.env.cr.savepoint():
-                self.env['charge.power.summary']._aggregate_daily()
-        except Exception as e:
-            _logger.error('Aggregate daily charge.power failed: %s', e, exc_info=True)
-        try:
-            with self.env.cr.savepoint():
-                self.env['grid.tie.inverter.summary']._aggregate_daily()
-        except Exception as e:
-            _logger.error('Aggregate daily grid.tie.inverter failed: %s', e, exc_info=True)
+        # Daily jobs must see complete hourly data, regardless of cron ordering.
+        self._cron_aggregate_hourly()
+        key = 'smartsolar.summary_daily_last_success'
+        started = fields.Datetime.now()
+        days = self._summary_lookback(key, [
+            ('charge.power.summary', 'bucket_start', [('bucket_type', '=', 'hour')]),
+            ('grid.tie.inverter.summary', 'bucket_start', [('bucket_type', '=', 'hour')]),
+        ], buffer=7, seconds=86400)
+        self.env['charge.power.summary']._aggregate_daily(days)
+        self.env['grid.tie.inverter.summary']._aggregate_daily(days)
+        self.env['ir.config_parameter'].sudo().set_param(key, started)
         return True
 
     @api.model
@@ -312,6 +338,8 @@ class SmartSolarSystem(models.Model):
 
     @api.model
     def _cron_purge_old_data(self):
+        # Never remove source data after a failed aggregation.
+        self._cron_aggregate_daily()
         ICP = self.env['ir.config_parameter'].sudo()
         now = fields.Datetime.now()
 

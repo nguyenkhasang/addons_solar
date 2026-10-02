@@ -9,7 +9,7 @@ _logger = logging.getLogger(__name__)
 
 HOURLY_BUFFER_HOURS = 48
 DAILY_BUFFER_DAYS = 7
-AGGREGATION_VERSION = 2
+AGGREGATION_VERSION = 3
 
 
 class GridTieInverterSummary(models.Model):
@@ -32,7 +32,11 @@ class GridTieInverterSummary(models.Model):
                                  related='system_id.company_id', store=True)
 
     sample_count = fields.Integer(string='Số mẫu')
-    online_ratio = fields.Float(string='Tỷ lệ online (%)', digits=(5, 2))
+    online_ratio = fields.Float(
+        string='Tỷ lệ online (%)', digits=(5, 2),
+        help='Ước tính theo số mẫu online và chu kỳ đồng bộ; '
+             'khoảng thiếu dữ liệu không được tính là online.',
+    )
     aggregation_version = fields.Integer(string='Phiên bản tổng hợp', default=AGGREGATION_VERSION)
 
     dc_voltage_avg = fields.Float(string='DC Voltage TB (V)', digits=(16, 3))
@@ -57,10 +61,10 @@ class GridTieInverterSummary(models.Model):
     temperature_avg = fields.Float(string='Nhiệt độ TB (°C)', digits=(16, 1))
     temperature_max = fields.Float(string='Nhiệt độ Max (°C)', digits=(16, 1))
 
-    _sql_constraints = [
-        ('bucket_unique', 'unique(bucket_start, bucket_type, device_id)',
-         'Mỗi bucket chỉ có một record per device!'),
-    ]
+    _bucket_unique = models.Constraint(
+        'UNIQUE(bucket_start, bucket_type, device_id)',
+        'Mỗi bucket chỉ có một record per device!',
+    )
 
     @api.depends('bucket_start', 'bucket_type', 'device_guid')
     def _compute_display_name(self):
@@ -227,11 +231,6 @@ class GridTieInverterSummary(models.Model):
         scan_start = now - timedelta(days=days + 2)
 
         self.env.cr.execute("""
-            DELETE FROM grid_tie_inverter_summary
-             WHERE bucket_type = 'day' AND bucket_start >= %s
-        """, [scan_start])
-
-        self.env.cr.execute("""
             WITH hourly_local AS (
                 SELECT h.*,
                        timezone(
@@ -247,6 +246,19 @@ class GridTieInverterSummary(models.Model):
                                )
                            )
                        ) AS local_bucket_start,
+                       timezone(
+                           'UTC',
+                           timezone(
+                               COALESCE(NULLIF(s.timezone, ''), 'Asia/Ho_Chi_Minh'),
+                               date_trunc(
+                                   'day',
+                                   timezone(
+                                       COALESCE(NULLIF(s.timezone, ''), 'Asia/Ho_Chi_Minh'),
+                                       h.bucket_start AT TIME ZONE 'UTC'
+                                   )
+                               ) + INTERVAL '1 day'
+                           )
+                       ) AS local_next_day_start,
                        timezone(
                            'UTC',
                            timezone(
@@ -289,7 +301,12 @@ class GridTieInverterSummary(models.Model):
                 (ARRAY_AGG(system_id ORDER BY bucket_start DESC))[1],
                 (ARRAY_AGG(device_guid ORDER BY bucket_start DESC))[1],
                 SUM(sample_count),
-                SUM(online_ratio * sample_count) / NULLIF(SUM(sample_count), 0),
+                LEAST(
+                    SUM(online_ratio) * 3600.0 / NULLIF(
+                        EXTRACT(EPOCH FROM (MAX(local_next_day_start) - local_bucket_start)),
+                        0
+                    ), 100.0
+                ),
                 %s,
                 SUM(dc_voltage_avg * sample_count) / NULLIF(SUM(sample_count), 0),
                 MAX(dc_voltage_max),

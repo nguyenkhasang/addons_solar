@@ -215,11 +215,13 @@ class SmartSolarSystem(models.Model):
         nghĩa; xem giải thích trong smartsolar_environment_summary.py.)
         """
         res = super()._cron_aggregate_daily()
-        try:
-            with self.env.cr.savepoint():
-                self.env['smartsolar.environment.summary']._aggregate_daily()
-        except Exception as e:
-            _logger.error('Aggregate daily smartsolar.environment failed: %s', e, exc_info=True)
+        key = 'smartsolar.summary_environment_last_success'
+        started = fields.Datetime.now()
+        days = self._summary_lookback(key, [
+            ('smartsolar.environment', 'record_date', []),
+        ], buffer=7, seconds=86400)
+        self.env['smartsolar.environment.summary']._aggregate_daily(days)
+        self.env['ir.config_parameter'].sudo().set_param(key, started)
         return res
 
     @api.model
@@ -257,11 +259,23 @@ class SmartSolarSystem(models.Model):
         daily_days = _to_int(ICP.get_param('smartsolar.daily_retention_days', '0'), 0)
 
         if raw_days > 0:
-            cutoff = now - timedelta(days=raw_days)
-            self.env.cr.execute(
-                "DELETE FROM smartsolar_environment WHERE record_date < %s", [cutoff])
-            _logger.info('[purge] smartsolar_environment: deleted %s rows older than %s',
-                         self.env.cr.rowcount, cutoff)
+            # Keep complete local days for the daily replay window.
+            self.env.cr.execute('''
+                DELETE FROM smartsolar_environment e
+                 USING smartsolar_system s
+                 WHERE e.system_id = s.id
+                   AND e.record_date < timezone(
+                       'UTC', timezone(
+                           COALESCE(NULLIF(s.timezone, ''), 'Asia/Ho_Chi_Minh'),
+                           date_trunc('day', timezone(
+                               COALESCE(NULLIF(s.timezone, ''), 'Asia/Ho_Chi_Minh'),
+                               %s AT TIME ZONE 'UTC'
+                           )) - (%s * INTERVAL '1 day')
+                       )
+                   )
+            ''', [now, max(raw_days, 7)])
+            _logger.info('[purge] smartsolar_environment: deleted %s rows outside retained local days',
+                         self.env.cr.rowcount)
 
         if daily_days > 0:  # 0 (mặc định) -> giữ bucket ngày vĩnh viễn
             cutoff = now - timedelta(days=daily_days)

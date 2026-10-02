@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
+from unittest.mock import patch
 
 from odoo import fields
 from odoo.tests import TransactionCase, tagged
@@ -132,3 +133,102 @@ class TestSummaryAggregation(TransactionCase):
             summary.bucket_start.replace(tzinfo=timezone.utc).astimezone(tz).hour,
             0,
         )
+
+    def test_daily_rebuild_preserves_history_outside_window(self):
+        old_day = (fields.Datetime.now().replace(hour=0, minute=0, second=0,
+                                                microsecond=0) - timedelta(days=8))
+        for name in ('charge.power.summary', 'grid.tie.inverter.summary'):
+            with self.subTest(model=name):
+                record = self.env[name].create({
+                    'bucket_start': old_day, 'bucket_type': 'day',
+                    'device_id': self.device.id, 'system_id': self.system.id,
+                    'sample_count': 60, 'energy_kwh': 3.0,
+                })
+                self.env[name]._aggregate_daily(7)
+                self.assertTrue(record.exists())
+                self.assertEqual(record.energy_kwh, 3.0)
+        if 'smartsolar.environment.summary' in self.env:
+            record = self.env['smartsolar.environment.summary'].create({
+                'bucket_start': old_day, 'bucket_type': 'day',
+                'system_id': self.system.id, 'sample_count': 60,
+            })
+            self.env['smartsolar.environment.summary']._aggregate_daily(7)
+            self.assertTrue(record.exists())
+
+    def test_daily_online_uses_whole_day_including_missing_hours(self):
+        tz = ZoneInfo(self.system.timezone)
+        today = fields.Datetime.now().replace(tzinfo=timezone.utc).astimezone(tz)
+        day = (today.replace(hour=0, minute=0, second=0, microsecond=0)
+               - timedelta(days=1)).astimezone(timezone.utc).replace(tzinfo=None)
+        for name in ('charge.power.summary', 'grid.tie.inverter.summary'):
+            with self.subTest(model=name):
+                self.env[name].create([
+                    {'bucket_start': day, 'bucket_type': 'hour',
+                     'device_id': self.device.id, 'system_id': self.system.id,
+                     'sample_count': 60, 'online_ratio': 100.0},
+                    {'bucket_start': day + timedelta(hours=1), 'bucket_type': 'hour',
+                     'device_id': self.device.id, 'system_id': self.system.id,
+                     'sample_count': 30, 'online_ratio': 50.0},
+                ])
+                self.env[name]._aggregate_daily(2)
+                summary = self.env[name].search([
+                    ('device_id', '=', self.device.id), ('bucket_type', '=', 'day'),
+                    ('bucket_start', '=', day),
+                ])
+                self.assertEqual(len(summary), 1)
+                self.assertAlmostEqual(summary.online_ratio, 150.0 / 24, places=3)
+
+    def test_failed_hourly_run_propagates_and_keeps_checkpoint(self):
+        icp = self.env['ir.config_parameter'].sudo()
+        key = 'smartsolar.summary_hourly_last_success'
+        original = icp.get_param(key)
+        with patch.object(type(self.env['grid.tie.inverter.summary']),
+                          '_aggregate_hourly', side_effect=RuntimeError('test failure')):
+            with self.assertRaisesRegex(RuntimeError, 'test failure'):
+                with self.env.cr.savepoint():
+                    self.env['smartsolar.system']._cron_aggregate_hourly()
+        self.assertEqual(icp.get_param(key), original)
+
+    def test_hourly_cron_catches_up_beyond_normal_buffer(self):
+        hour = (fields.Datetime.now().replace(minute=0, second=0, microsecond=0)
+                - timedelta(days=6))
+        self._create_gti(hour + timedelta(minutes=1), 10.0)
+        self._create_gti(hour + timedelta(minutes=2), 11.0)
+        self.env['ir.config_parameter'].sudo().set_param(
+            'smartsolar.summary_hourly_last_success', hour - timedelta(days=1))
+        self.env['smartsolar.system']._cron_aggregate_hourly()
+        summary = self.env['grid.tie.inverter.summary'].search([
+            ('device_id', '=', self.device.id), ('bucket_type', '=', 'hour'),
+            ('bucket_start', '=', hour),
+        ])
+        self.assertEqual(len(summary), 1)
+        self.assertAlmostEqual(summary.energy_kwh, 1.0, places=3)
+
+    def test_daily_cron_catches_up_beyond_normal_buffer(self):
+        tz = ZoneInfo(self.system.timezone)
+        today = fields.Datetime.now().replace(tzinfo=timezone.utc).astimezone(tz)
+        day = (today.replace(hour=0, minute=0, second=0, microsecond=0)
+               - timedelta(days=10)).astimezone(timezone.utc).replace(tzinfo=None)
+        self.env['grid.tie.inverter.summary'].create({
+            'bucket_start': day, 'bucket_type': 'hour',
+            'device_id': self.device.id, 'system_id': self.system.id,
+            'sample_count': 60, 'energy_kwh': 2.0,
+        })
+        self.env['ir.config_parameter'].sudo().set_param(
+            'smartsolar.summary_daily_last_success', day - timedelta(days=1))
+        self.env['smartsolar.system']._cron_aggregate_daily()
+        summary = self.env['grid.tie.inverter.summary'].search([
+            ('device_id', '=', self.device.id), ('bucket_type', '=', 'day'),
+            ('bucket_start', '=', day),
+        ])
+        self.assertEqual(len(summary), 1)
+        self.assertAlmostEqual(summary.energy_kwh, 2.0, places=3)
+
+    def test_purge_does_not_delete_raw_after_aggregation_failure(self):
+        raw = self._create_gti(fields.Datetime.now() - timedelta(days=40), 5.0)
+        with patch.object(type(self.env['smartsolar.system']),
+                          '_cron_aggregate_daily', side_effect=RuntimeError('test failure')):
+            with self.assertRaisesRegex(RuntimeError, 'test failure'):
+                with self.env.cr.savepoint():
+                    self.env['smartsolar.system']._cron_purge_old_data()
+        self.assertTrue(raw.exists())

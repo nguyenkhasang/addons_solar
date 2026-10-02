@@ -65,10 +65,10 @@ class SmartSolarEnvironmentSummary(models.Model):
     uv_index_max = fields.Float(string='UV Max', digits=(6, 2))
     sunshine_duration_max = fields.Float(string='Giờ nắng (giây)', digits=(12, 2))
 
-    _sql_constraints = [
-        ('bucket_unique', 'unique(bucket_start, bucket_type, system_id)',
-         'Mỗi bucket chỉ có một record per system!'),
-    ]
+    _bucket_unique = models.Constraint(
+        'UNIQUE(bucket_start, bucket_type, system_id)',
+        'Mỗi bucket chỉ có một record per system!',
+    )
 
     @api.depends('bucket_start', 'system_id')
     def _compute_display_name(self):
@@ -83,11 +83,6 @@ class SmartSolarEnvironmentSummary(models.Model):
         now = fields.Datetime.now()
         days = max(1, int(lookback_days or DAILY_BUFFER_DAYS))
         scan_start = now - timedelta(days=days + 2)
-
-        self.env.cr.execute("""
-            DELETE FROM smartsolar_environment_summary
-             WHERE bucket_type = 'day' AND bucket_start >= %s
-        """, [scan_start])
 
         self.env.cr.execute("""
             WITH raw_local AS (
