@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Smart Solar AI Chat',
-    'version': '19.0.1.1.0',
+    'version': '19.0.1.2.0',
     'category': 'Custom',
     'summary': 'Trợ lý AI giám sát điện mặt trời ngay trong Discuss (chat Odoo)',
     'description': """
@@ -16,11 +16,13 @@
         - Tái sử dụng toàn bộ Tool Layer của smartsolar_ai (không lặp logic).
 
         Provider Layer hỗ trợ đa nhà cung cấp (đổi bằng cấu hình, không sửa code):
-          Ollama, OpenAI, NVIDIA Build API, OpenRouter, LM Studio, và mọi
+          Codex CLI, Ollama, OpenAI, NVIDIA Build API, OpenRouter, LM Studio, và mọi
           provider OpenAI-compatible khác.
 
         Cấu hình trong Settings > Smart Solar AI:
-          smartsolar_ai.provider  (ollama|openai|nvidia|openrouter|lmstudio)
+          smartsolar_ai.provider  (codex|ollama|openai|nvidia|openrouter|lmstudio)
+          smartsolar_ai.codex_binary (lệnh hoặc đường dẫn Codex CLI)
+          smartsolar_ai.codex_model (rỗng = model mặc định Codex CLI)
           smartsolar_ai.base_url  (rỗng = mặc định theo provider)
           smartsolar_ai.api_key   (cho provider cloud)
           smartsolar_ai.model     (phải hỗ trợ tool calling)

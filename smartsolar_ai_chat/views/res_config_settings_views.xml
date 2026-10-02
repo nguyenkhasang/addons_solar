@@ -11,23 +11,35 @@
                     <block title="Nhà cung cấp AI"
                            help="Chọn provider và cấu hình kết nối. Đổi provider chỉ cần đổi ở đây, toàn hệ thống hoạt động.">
                         <setting string="AI Provider"
-                                 help="Ollama (local), OpenAI, NVIDIA Build API, OpenRouter, LM Studio.">
+                                 help="Codex CLI, Ollama, OpenAI, NVIDIA Build API, OpenRouter, LM Studio.">
                             <field name="smartsolar_ai_provider"/>
                         </setting>
-                        <setting string="Base URL"
+                        <setting string="Codex CLI" invisible="smartsolar_ai_provider != 'codex'"
+                                 help="Codex chạy trên máy chủ Odoo. Đăng nhập bằng codex login với cùng tài khoản Linux chạy Odoo.">
+                            <field name="smartsolar_ai_codex_binary" placeholder="codex hoặc /đường/dẫn/codex"/>
+                        </setting>
+                        <setting string="Model Codex" invisible="smartsolar_ai_provider != 'codex'"
+                                 help="Để trống dùng model mặc định của Codex CLI.">
+                            <field name="smartsolar_ai_codex_model"/>
+                        </setting>
+                        <setting string="Base URL" invisible="smartsolar_ai_provider == 'codex'"
                                  help="Để trống dùng URL mặc định của provider.">
                             <field name="smartsolar_ai_base_url"
                                    placeholder="mặc định theo provider (vd http://localhost:11434)"/>
                         </setting>
-                        <setting string="API Key"
+                        <setting string="API Key" invisible="smartsolar_ai_provider == 'codex'"
                                  help="Cần cho provider cloud (NVIDIA, OpenRouter, OpenAI). Local thường không cần.">
                             <field name="smartsolar_ai_api_key" password="True"
                                    placeholder="nv-... / sk-... (để trống nếu local)"/>
                         </setting>
-                        <setting string="Model"
+                        <setting string="Model" invisible="smartsolar_ai_provider == 'codex'"
                                  help="Phải hỗ trợ tool calling.">
                             <field name="smartsolar_ai_model"
                                    placeholder="gpt-oss:20b / gpt-4o-mini / meta/llama-3.1-70b-instruct"/>
+                        </setting>
+                        <setting string="Thời gian chờ AI (giây)"
+                                 help="Giới hạn mỗi lượt gọi AI; câu hỏi cần dữ liệu có thể gọi nhiều lượt.">
+                            <field name="smartsolar_ai_timeout"/>
                         </setting>
                     </block>
                     <block title="Hành vi Trợ lý"

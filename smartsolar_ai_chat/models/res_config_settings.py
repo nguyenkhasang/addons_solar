@@ -19,6 +19,23 @@ class ResConfigSettings(models.TransientModel):
         help="Để trống sẽ dùng URL mặc định của provider "
              "(vd Ollama http://localhost:11434, OpenAI https://api.openai.com/v1).",
     )
+    smartsolar_ai_codex_binary = fields.Char(
+        string="Đường dẫn Codex CLI",
+        config_parameter="smartsolar_ai.codex_binary",
+        default="codex",
+        help="Tên lệnh trong PATH hoặc đường dẫn tuyệt đối đến Codex CLI trên máy chạy Odoo.",
+    )
+    smartsolar_ai_codex_model = fields.Char(
+        string="Model Codex",
+        config_parameter="smartsolar_ai.codex_model",
+        help="Để trống dùng model mặc định của Codex CLI. Không dùng tên model Ollama.",
+    )
+    smartsolar_ai_timeout = fields.Integer(
+        string="Thời gian chờ AI (giây)",
+        config_parameter="smartsolar_ai.timeout",
+        default=120,
+        help="Giới hạn mỗi lượt gọi AI. Một câu hỏi có thể cần nhiều lượt truy vấn tool.",
+    )
     smartsolar_ai_api_key = fields.Char(
         string="API Key",
         config_parameter="smartsolar_ai.api_key",
@@ -78,6 +95,7 @@ class ResConfigSettings(models.TransientModel):
         """Lấy danh sách provider từ factory (thêm provider = tự có trong dropdown)."""
         from odoo.addons.smartsolar_ai_chat.providers.factory import available_providers
         labels = {
+            'codex': 'Codex CLI (ChatGPT)',
             'ollama': 'Ollama (local)',
             'openai': 'OpenAI',
             'nvidia': 'NVIDIA Build API',

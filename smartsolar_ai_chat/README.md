@@ -8,7 +8,7 @@ gian thực trong lúc planner chạy nền.
 ## Luồng xử lý
 
 ```text
-Discuss → SmartSolar AI Agent → Provider (Ollama/OpenAI-compatible)
+Discuss → SmartSolar AI Agent → Provider (Codex CLI/Ollama/OpenAI-compatible)
         → ToolRegistry → Service → Repository → PostgreSQL
         ← JSON có trạng thái availability ←─────────────────────┘
 ```
@@ -26,6 +26,7 @@ Module hỗ trợ:
 
 | Provider | Base URL mặc định | API key |
 |---|---|---|
+| Codex CLI | Không dùng HTTP endpoint | Đăng nhập CLI bằng ChatGPT |
 | Ollama | `http://localhost:11434` | Không |
 | LM Studio | `http://localhost:1234/v1` | Thường không |
 | OpenAI | `https://api.openai.com/v1` | Có |
@@ -50,6 +51,37 @@ Sau khi cập nhật code:
 ```bash
 odoo-bin -d <database> --stop-after-init -u smartsolar_ai,smartsolar_ai_chat
 ```
+
+## Dùng Codex CLI thay Ollama
+
+1. Cài Codex CLI trên **máy chạy Odoo** và chạy `codex login` bằng cùng tài khoản
+   Linux chạy service Odoo. Kiểm tra bằng `codex login status`.
+2. Upgrade module `smartsolar_ai_chat`, rồi vào **Settings → Smart Solar AI**.
+3. Chọn **Codex CLI (ChatGPT)**. Nhập đường dẫn tuyệt đối tới CLI nếu service
+   không có `codex` trong PATH (`command -v codex` để tìm đường dẫn).
+4. Nhập **Model Codex** phù hợp với tài khoản; để trống dùng mặc định của CLI.
+   Tên model Ollama cũ không được dùng cho Codex. Base URL/API Key không cần.
+5. Thời gian chờ mặc định là 120 giây **mỗi lượt**; một báo cáo có thể cần nhiều
+   lượt lấy dữ liệu. Lưu và thử `Báo cáo sản lượng hôm nay và so với hôm qua`.
+
+CLI phải hỗ trợ `exec --ignore-user-config --ignore-rules --ephemeral
+--output-schema` (đã kiểm tra với 0.159.2). Khi extension VS Code cập nhật và đổi
+đường dẫn CLI, cập nhật lại trường đường dẫn hoặc cài CLI độc lập trong PATH.
+
+Provider gửi lịch sử hội thoại và schema tool qua stdin, dùng output schema JSON
+để đổi yêu cầu của Codex thành `ToolCall`. Odoo thực thi qua registry hiện có rồi
+gửi kết quả lại. Codex chạy trong thư mục tạm riêng, read-only, tắt shell, web
+search, apps, hooks và multi-agent; bỏ cấu hình cá nhân và không lưu phiên chat
+CLI. Ảnh được truyền bằng `--image`; file tạm được xóa sau mỗi lượt, kể cả khi lỗi.
+Không gọi SQL trực tiếp từ Codex. Cấu hình và kiểm tra dữ liệu của planner vẫn áp dụng.
+
+**Dữ liệu hội thoại và kết quả truy vấn Solar được gửi tới dịch vụ OpenAI** để
+Codex suy luận; đây không phải suy luận local như Ollama. CLI dùng xác thực đã
+lưu của tài khoản Linux chạy Odoo (hoặc `CODEX_HOME` của service), không sao chép
+token vào cấu hình Odoo. Cần Internet và tài khoản có quyền sử dụng model/hạn mức
+đủ. Không tự chuyển về Ollama khi Codex lỗi; lỗi được trả về chat.
+
+Tham khảo [tài liệu OpenAI về codex exec](https://learn.chatgpt.com/docs/non-interactive-mode).
 
 ## Cấu hình kết nối Ollama
 

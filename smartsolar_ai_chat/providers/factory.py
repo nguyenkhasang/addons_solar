@@ -12,11 +12,13 @@ from __future__ import annotations
 from .base import AIProvider
 from .openai_compatible import OpenAICompatibleProvider
 from .ollama import OllamaProvider
+from .codex_cli import CodexCLIProvider
 
 # Bảng đăng ký provider: tên -> (class, base_url mặc định).
 # NVIDIA / OpenRouter / LM Studio / OpenAI đều là OpenAI-compatible -> cùng class,
 # chỉ khác base_url. Đổi/ thêm ở đây, không đụng nơi khác.
 _PROVIDERS = {
+    'codex':      (CodexCLIProvider,          ''),
     'ollama':     (OllamaProvider,           'http://localhost:11434'),
     'openai':     (OpenAICompatibleProvider, 'https://api.openai.com/v1'),
     'nvidia':     (OpenAICompatibleProvider, 'https://integrate.api.nvidia.com/v1'),
@@ -46,6 +48,13 @@ def get_provider(env) -> AIProvider:
 
     name = (Param.get_param('smartsolar_ai.provider') or _DEFAULT_PROVIDER).strip().lower()
     provider_cls, default_url = _PROVIDERS.get(name, _PROVIDERS[_DEFAULT_PROVIDER])
+
+    if name == 'codex':
+        return CodexCLIProvider(
+            binary=(Param.get_param('smartsolar_ai.codex_binary') or 'codex').strip(),
+            model=(Param.get_param('smartsolar_ai.codex_model') or '').strip() or None,
+            timeout=max(1, int(Param.get_param('smartsolar_ai.timeout', 120) or 120)),
+        )
 
     base_url = (Param.get_param('smartsolar_ai.base_url') or '').strip() or default_url
     api_key = (Param.get_param('smartsolar_ai.api_key') or '').strip()
