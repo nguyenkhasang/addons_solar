@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from odoo.tests import TransactionCase, tagged
 from odoo.addons.smartsolar_ai.services.analytics_service import AnalyticsService
 from odoo.addons.smartsolar_ai.domain.value_objects import TimeRange
+from odoo.addons.smartsolar_ai.domain.metric_registry import MetricRegistry
 
 
 @tagged('post_install', '-at_install', 'smartsolar_ai')
@@ -82,3 +83,73 @@ class TestPowerEnergy(TransactionCase):
             TimeRange(self.start, self.start + timedelta(seconds=120)),
             system_id=other.id).metrics['total_load_energy']
         self.assertFalse(result['available'])
+
+    def extrema(self, metric='total_load_power', device_id=None):
+        return self.service.get_extrema(metric,
+            TimeRange(self.start, self.start + timedelta(seconds=180)),
+            device_id=device_id, system_id=self.system.id)
+
+    def test_extrema_adds_branches_at_same_sample_not_separate_maxima(self):
+        self.samples([0, 60, 120])
+        rows = self.env['grid.tie.inverter'].search(
+            [('device_id', '=', self.device.id)], order='record_date')
+        for row, values in zip(rows, [(2000, 0), (0, 1900), (1000, 1800)]):
+            row.write({'output_power': values[0], 'limiter_power': values[1]})
+        self.env.flush_all()
+        result = self.extrema()
+        self.assertEqual(result['max']['value'], 2800)
+        self.assertEqual(result['max']['observed_at'], '2026-07-02T07:02:00+07:00')
+        self.assertEqual(result['max']['components'], {'output_power': 1000, 'grid_import_power': 1800})
+        self.assertEqual(result['min']['value'], 1900)
+        self.assertEqual(result['sample_count'], 3)
+        self.assertNotIn('points', result)
+
+    def test_extrema_ties_earliest_and_filters_device_scope(self):
+        self.samples([0, 60, 120])
+        result = self.extrema()
+        self.assertEqual(result['max']['observed_at'], '2026-07-02T07:00:00+07:00')
+        self.assertEqual(result['max']['device_ids'], [self.device.id])
+        self.assertFalse(self.extrema(device_id=self.device.id + 999)['available'])
+
+    def test_extrema_sums_only_synchronized_device_samples(self):
+        self.samples([0, 60, 120])
+        second = self.env['smartsolar.device'].create({
+            'device_guid': 'peak_second', 'system_id': self.system.id,
+            'device_type': 'grid_tie_inverter'})
+        self.samples([0, 60, 120], second)
+        result = self.extrema()
+        self.assertEqual(result['max']['value'], 3000)
+        self.assertEqual(result['observed_device_count'], 2)
+        self.assertEqual(result['evaluated_observations'], 3)
+        self.assertEqual(self.extrema(device_id=second.id)['max']['value'], 1500)
+
+    def test_extrema_does_not_invent_peak_from_asynchronous_devices(self):
+        self.samples([0, 60, 120])
+        second = self.env['smartsolar.device'].create({
+            'device_guid': 'peak_async', 'system_id': self.system.id,
+            'device_type': 'grid_tie_inverter'})
+        self.samples([30, 90, 150], second)
+        result = self.extrema()
+        self.assertFalse(result['available'])
+        self.assertIsNone(result['max'])
+        self.assertEqual(result['evaluated_observations'], 0)
+
+    def test_extrema_keeps_peak_omitted_by_timeseries_downsampling(self):
+        self.samples([0, 60, 120, 180])
+        rows = self.env['grid.tie.inverter'].search(
+            [('device_id', '=', self.device.id)], order='record_date')
+        rows[1].write({'limiter_power': 9000})
+        self.env.flush_all()
+        from odoo.addons.smartsolar_ai.domain.enums import Granularity, AggregationType
+        series = self.service._repo.fetch_series(
+            MetricRegistry.get('total_load_power'),
+            TimeRange(self.start, self.start + timedelta(seconds=240)),
+            AggregationType.MAX, Granularity.RAW, system_id=self.system.id)
+        reduced = self.service._downsample(series, 2)
+        self.assertTrue(all(point.value < 10000 for point in reduced))
+        self.assertEqual(self.extrema()['max']['value'], 10000)
+        self.assertEqual(self.extrema()['max']['observed_at'], '2026-07-02T07:01:00+07:00')
+
+    def test_extrema_rejects_energy_counters(self):
+        with self.assertRaises(ValueError):
+            self.extrema('grid_import_energy_total')

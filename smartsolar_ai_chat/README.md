@@ -201,7 +201,7 @@ read-only, tắt shell/web/apps/hooks và chỉ thực thi tool qua registry Odo
 System prompt giữ chiều dòng điện, kWh từ tích phân công suất, độ phủ, dữ liệu
 không khả dụng, mẫu cũ và giới hạn pin. Catalog mặc định chỉ gửi key/nhãn/đơn
 vị/loại/cờ hỗ trợ; `list_metrics` vẫn cung cấp toàn bộ mô tả khi cần. Câu hỏi cần số liệu dùng schema bắt buộc chọn tool đến khi có bằng chứng hợp lệ,
-tránh một lượt trả lời sớm rồi retry. Cả 12 tool
+tránh một lượt trả lời sớm rồi retry. Cả 13 tool
 vẫn khả dụng; không chọn một tập tool cố định theo từ khóa câu hỏi.
 
 Payload Codex dùng JSON gọn, bỏ mô tả lặp của tham số chung (thời gian, phạm
@@ -238,3 +238,131 @@ Kiểm tra lịch sử dài: giảm 82.623 xuống 47.559 input tokens và 3 xu�
 model; công suất trả từ field last, có thời điểm/tuổi mẫu. Báo cáo tổng quan
 vẫn phân tích đủ tải/PV/pin/nhiệt/cảnh báo/độ phủ trong 2 lượt. 86 kiểm thử của
 hai module AI đạt trên database sao chép tạm, không đăng tin thử vào Discuss.
+
+### Khắc phục câu hỏi đỉnh tải tốn 250k token
+
+Log ngày 03/10/2026 cho thấy câu hỏi "ngày hôm qua thời điểm nào tổng tải lên
+cao nhất" dùng 5 lượt model: trends theo giờ, trends raw với max_points=500
+(bị từ chối vì tool chỉ hỗ trợ 120), trends 120 điểm, rồi hai timeseries raw
+500 điểm. Payload lượt cuối lên 88.172 ký tự; riêng lượt đó 140.192 input tokens.
+Chuỗi bị rút gọn còn làm mất mẫu đỉnh nên câu trả lời chỉ ra 2.317 W lúc 23:16.
+
+Bổ sung `get_extrema` và `total_load_power`, hướng dẫn dùng truy vấn trực tiếp
+cực trị thay vì drill-down chuỗi. Các chuỗi thực sự cần phân tích được mã hóa
+thành hàng `[t,v]` kèm `point_columns`, giữ mọi timestamp/giá trị/null và cờ
+truncated, giảm key JSON lặp; không cắt thêm bằng chứng.
+
+Đo lại đúng câu hỏi, cùng gpt-6-luna và đúng lịch sử gốc (1 tin, 270 ký tự):
+
+| Chỉ số | Log trước sửa | Đo sau sửa |
+|---|---:|---:|
+| Lượt gọi model | 5 | 2 |
+| Token đầu vào cộng dồn | 252.519 | 22.596 |
+| Token đầu vào cache (nằm trong input) | 164.096 | 3.840 |
+| Token đầu ra | 1.735 | 210 |
+
+Giảm khoảng 91% input tokens trong phép đo cùng câu hỏi/lịch sử này. Lần đo
+không có lịch sử trước đó dùng 22.377 input tokens. Token CLI có thể dao động
+giữa lần chạy, nên không cam kết tỷ lệ cho mọi câu hỏi.
+Nguyên nhân được xác nhận từ log là drill-down/đầu vào sai giới hạn/tích lũy
+chuỗi lớn. Tool mới tìm 2.319 W lúc 23:19:04.823841 ngày 02/10/2026 UTC+7 trên
+789 bản ghi raw; hai thành phần tại cùng mẫu là 0 W hòa lưới + 2.319 W điện lưới.
+Không xác nhận dữ liệu phủ liên tục cả ngày hoặc đỉnh giữa các mẫu.
+
+93 kiểm thử của hai module AI đạt sau bổ sung extrema và biểu diễn chuỗi gọn.
+
+### Tối ưu tiếp: lấy dữ liệu trước và JSON không mã hóa kép
+
+Các câu hỏi độc lập rõ nghĩa như “Tổng tải hôm nay/hôm qua tiêu thụ bao nhiêu
+kWh?” và “Công suất điện lưới/hòa lưới/PV hiện tại bao nhiêu W?” được lấy dữ
+liệu qua `get_aggregate` trước lượt model đầu tiên. Đây là bằng chứng tool,
+không phải câu trả lời viết sẵn. AI vẫn nhận mọi tool từ registry và có thể
+lấy thêm dữ liệu. Provider mặc định hiện tại không bị thay đổi.
+
+Chỉ dùng đường nhanh khi không có lịch sử, có hệ thống mặc định người dùng
+được phép xem và câu hỏi khớp mẫu rõ nghĩa. Câu hỏi có hệ thống riêng, ngày
+cụ thể, so sánh, báo cáo hoặc chỉ dẫn khác dùng planner như trước. Tool lỗi
+thì quay về planner, không dùng lỗi làm số liệu. Cơ chế dùng chung cho các
+provider có bộ chuyển đổi assistant/tool message.
+
+Trong payload CLI, content của kết quả tool là object JSON trực tiếp thay
+vì chuỗi JSON bị escape lần nữa. Giữ toàn bộ số liệu/null/cảnh báo/phạm vi,
+đồng thời giữ dạng bảng chuỗi thời gian có `point_columns` hiện có. Định dạng
+message gửi các API/adapter khác không thay đổi.
+
+Đo riêng Codex `gpt-6-luna` ngày 03/10/2026, giữ nguyên cấu hình provider của
+Odoo, cùng câu hỏi “Tổng tải hôm qua tiêu thụ bao nhiêu kWh?”:
+
+| Chế độ | Input tokens | Lượt model |
+|---|---:|---:|
+| Mô phỏng bản trước: không prefetch, JSON kép | 22.718 | 2 |
+| Prefetch + JSON trực tiếp | 11.166 | 1 |
+
+Giảm khoảng 51% so với bản trước trong phép đo này, không phải cam kết cho
+mọi câu hỏi. Cả hai trả 8,3873 kWh với độ phủ 67,12%, không ngoại suy thời gian
+thiếu dữ liệu. Câu hỏi phức tạp vẫn cần nhiều lượt; lịch sử vẫn có giới hạn
+để giữ đúng hệ thống/phạm vi được chọn trong hội thoại.
+
+Vòng tối ưu này: 108 kiểm thử của hai module AI đạt trên database sao chép,
+bao gồm giữ toàn bộ tool, không đoán scope từ lịch sử, fallback khi prefetch lỗi
+và bảo toàn dữ liệu/cảnh báo khi bỏ JSON kép.
+
+### Kiểm tra mẫu “báo cáo hệ thông hôm nay”
+
+Báo cáo hôm nay độc lập, không có lịch sử hoặc phạm vi riêng, được lấy trước
+`get_aggregate`, `get_device_status`, `get_alarms`, `get_health_score` và
+`get_snapshot` (pin/nhiệt). Chấp nhận cả “hệ thông” và “hệ thống”. AI vẫn có
+thể gọi thêm tool; trường hợp có lịch sử, hệ thống/ngày/giờ riêng hoặc câu hỏi
+phức tạp dùng planner bình thường. Lỗi trong kế hoạch báo cáo được gửi rõ là
+lỗi, không xem là bằng chứng; truy vấn thành công được đưa vào cache lượt đó.
+
+Thử riêng Codex `gpt-6-luna` ngày 03/10/2026, giữ provider Odoo nguyên trạng:
+
+| Bản báo cáo | Input tokens | Lượt model | Chất lượng |
+|---|---:|---:|---|
+| Ban đầu | 25.393 | 2 | Thiếu pin/nhiệt/sức khỏe |
+| Ràng buộc đủ nhóm | 42.430 | 2 | Đủ tổng quan cơ bản |
+| Lấy trước 5 nhóm | 15.934 | 1 | Đủ tổng quan cơ bản |
+
+Bản cuối giảm khoảng 62% so với bản đủ nhóm hai lượt và 37% so với bản thiếu
+thông tin ban đầu. Token dao động, dữ liệu hôm nay cập nhật theo thời gian;
+không phải benchmark giá tiền cố định. 110 kiểm thử AI đạt. Báo cáo cơ bản
+không thay thế chẩn đoán sâu với xu hướng, so sánh cùng giờ và thời tiết.
+Provider Odoo đang chọn Ollama; lần thử này timeout, không đổi provider/model.
+
+
+### Bộ thử 29 câu thường gặp (04/10/2026)
+
+Danh sách câu hỏi độc lập, cách nói tự nhiên, lỗi chính tả và câu nối tiếp nằm ở
+`tests/fixtures/common_questions_vi.json`. Đây là bộ đo thực trên model, không tự
+gọi dịch vụ bên ngoài trong unit tests. Khi đo, dùng database snapshot, cố định
+mốc UTC+7 và lưu evidence/usage; câu nối tiếp dùng câu trả lời thật của câu cha.
+
+Preset lấy dữ liệu mở rộng cho tổng tải/PV/pin/thiết bị/đỉnh tải/chẩn đoán và kỳ
+ngày/tuần/tháng rõ nghĩa. Scope/ngày riêng, câu ghép hoặc lịch sử vẫn do planner
+xử lý; mọi tool của registry tiếp tục được cung cấp. Preset không tạo câu trả lời.
+Tổng quan có total_load_power để không phụ thuộc phép cộng của model; chẩn đoán
+PV/inverter lấy xu hướng gọn ngay cùng nhóm dữ liệu. Thiếu SOC/dung lượng không
+được suy thời gian dùng; thiếu khung giờ đêm qua thì hỏi lại. Context có đơn giá
+ước tính dashboard để không hỏi giá đã được cấu hình.
+
+Kết quả đo Codex CLI gpt-6-luna trên system_id=1, snapshot
+2026-10-03 23:41 UTC+7:
+
+| Chỉ số toàn bộ 29 câu | Trước | Sau |
+|---|---:|---:|
+| Input tokens (gồm cache) | 955.601 | 469.544 |
+| Input chưa cache | 547.025 | 289.832 |
+| Trung vị input/câu | 30.540 | 12.286 |
+| Vòng Odoo gọi Codex CLI | 59 | 33 |
+
+Tổng input giảm 50,86%; 5 câu chưa giảm trong lượt đo. Token CLI có thể dao động
+vì cache/hoạt động nội bộ và số truy vấn do model chọn; không cam kết mức giảm
+cố định cho từng câu. Thống kê/warnings/null/coverage không bị cắt để đạt số này.
+Lượt trước tuổi mẫu theo đồng hồ chạy; lượt sau cố định freshness, nên chỉ dùng
+cùng snapshot số đo/phạm vi để đối chiếu. Báo cáo đầy đủ cùng evidence được lưu
+cục bộ trong Odoo workspace `.odoo-runtime/ai-question-eval/report.md`.
+
+117 kiểm thử Odoo đạt trên database clone (0 failed, 0 errors). Runtime đã được
+nạp lại và smoke-test tool, nhưng benchmark không thay đổi lựa chọn provider;
+Settings tại thời điểm đo vẫn chọn Ollama/gemma4:12b-it-qat.

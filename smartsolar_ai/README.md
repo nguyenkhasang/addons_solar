@@ -246,7 +246,7 @@ coverage lịch sử theo lịch lấy mẫu. `last` là mẫu cuối, không lu
 
 `get_snapshot` mặc định lấy 7 metric điện/pin/nhiệt trong 10 phút, có thể chọn tối
 đa 10 metric và mở cửa sổ 1–1440 phút; phải công bố mẫu cũ khi mở rộng cửa sổ.
-`get_metric_trends` lấy 1–6 metric, mặc định 60, tối đa 120 điểm mỗi chuỗi. Chuỗi
+`get_metric_trends` lấy 1–6 metric, mặc định 20, tối đa 120 điểm mỗi chuỗi. Chuỗi
 truncated/bucket và thời tiết theo ngày không dùng để khẳng định mọi mẫu đều bình thường.
 
 Health trả `assessment=partial` và `missing_components` khi chỉ có một phần dữ liệu.
@@ -273,3 +273,25 @@ khoảng yêu cầu; không ngoại suy hoặc nối qua khoảng mất dữ li�
 thiết bị có dữ liệu; không xác nhận đủ mọi thiết bị cấu hình. Chỉ hỗ trợ raw
 với khoảng truy vấn tối đa 31 ngày; dữ liệu cũ đã dọn không được khôi phục từ
 công suất trung bình. Không lấy kWh chia cho độ phủ để tự đoán tổng toàn kỳ.
+
+### Tìm cực trị và thời điểm bằng `get_extrema`
+
+Câu hỏi "tổng tải cao nhất lúc nào" dùng `get_extrema` với
+`metric=total_load_power`, `start=yesterday`, `end=today`. Repository truy vấn
+min/max trên mọi bản ghi raw còn lưu, trả `max/min.value`, `observed_at`, đơn vị,
+phạm vi và số mẫu, không tải chuỗi. Tổng tải cộng `output_power + limiter_power`
+trên cùng bản ghi; không cộng hai cực đại ở hai thời điểm khác nhau.
+
+Nếu nhiều thiết bị, tổng chỉ tính tại thời điểm có mẫu đồng thời của mọi thiết
+bị xuất hiện trong phạm vi. Không có mẫu đồng thời thì unavailable; có thể chọn
+`device_id` để xem riêng. Kết quả không xác nhận đủ thiết bị cấu hình hoặc mọi
+khoảng thời gian giữa các mẫu. Mẫu đỉnh bằng nhau: chọn thời điểm sớm nhất.
+Raw đã dọn thì unavailable, không suy thời điểm từ summary theo giờ. COUNTER/DERIVED dùng aggregate,
+không dùng extrema để suy điện năng. Chuỗi RAW hiện vẫn gom theo phút rồi rút
+điểm, nên không dùng chuỗi trả về để xác định chính xác thời điểm đỉnh raw.
+
+
+
+### Ngữ cảnh báo cáo và kỳ so sánh
+
+Context cung cấp đơn giá dashboard đã lưu qua allowlist; thiếu/không hợp lệ trả null, không đoán biểu giá. compare_periods trả period_alignment phân biệt thời lượng yêu cầu với độ phủ số đo.

@@ -14,6 +14,7 @@ class ContextService:
 
     def get_context(self, system_id=None):
         result = self._context.fetch_systems(system_id)
+        result['reporting_settings'] = self._context.fetch_reporting_settings()
         result['metric_groups'] = {
             'power': ['pv_input', 'output_power', 'grid_import_power'],
             'energy': ['pv_energy_total', 'energy_exported_total', 'grid_import_energy_total'],

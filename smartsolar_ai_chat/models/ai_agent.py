@@ -44,8 +44,8 @@ _PROGRESS_RE = re.compile(r'\s*' + re.escape(_PROGRESS_MARKER) + r'.*\Z', re.DOT
 # chung để tránh ép tool không cần thiết.
 _DATA_INTENT_RE = re.compile(
     r'(bao nhiêu|hiện tại|bây giờ|kiểm tra|xem số liệu|báo cáo|tình trạng|'
-    r'online|offline|cảnh báo|bất thường|sức khỏe|dự báo|so sánh|'
-    r'hôm nay|hôm qua|tuần này|tháng này|công suất|sản lượng|năng lượng|'
+    r'online|offline|cao nhất|thấp nhất|mất kết nối|chạy ổn|lỗi|cảnh báo|bất thường|sức khỏe|dự báo|so sánh|'
+    r'hôm nay|hôm qua|đêm qua|tuần này|tháng này|tiền điện|tiết kiệm|dashboard|công suất|sản lượng|năng lượng|'
     r'điện áp|dòng điện|nhiệt độ|pin|ắc quy|pv|inverter|lấy lưới|điện lưới|'
     r'hòa lưới|tổng tải|tiêu thụ|thiết bị)',
     re.IGNORECASE,
@@ -59,9 +59,10 @@ QUY TẮC BẮT BUỘC:
 - Câu hỏi về số liệu phải gọi tool; Không tự đặt số, không sinh SQL. Dùng system_id mặc định; chỉ hỏi lại khi không có mặc định. Gộp nhiều metric cùng khoảng trong một lần gọi; không gọi lại cùng tham số.
 - ok=false là lỗi; available=false/value=null/count=0 ở số đo là thiếu dữ liệu, không phải 0. Alarm count=0 là không có cảnh báo; device total=0 là không có thiết bị. supported=false/unreliable=true: nêu reason/note, không kết luận số. list_metrics/get_system_context là ngữ cảnh, không phải số đo.
 TOOL:
+- Cao nhất/thấp nhất/đỉnh lúc nào: get_extrema, tổng tải dùng metric=total_load_power. Trả max/min.value và observed_at. Không tải trends/timeseries để dò đỉnh, không cộng hai cực đại riêng; hôm qua dùng yesterday..today. Tôn trọng source, counter_quality và coverage_pct; kWh ước tính phải ghi rõ ước tính. Chỉ nói đỉnh trên mẫu có dữ liệu, không khẳng định cả thời gian mất mẫu.
 - 'hiện tại/bây giờ': get_aggregate từ now-10m đến now; dùng field last, không dùng avg làm giá trị hiện tại. Hôm nay: today..now. Counter: energy là kWh trong khoảng; last là chỉ số tích lũy. Metric tức thời: avg/min/max cả khoảng.
 - get_snapshot: số mới nhất/tuổi mẫu theo thiết bị; get_metric_trends/get_timeseries: diễn biến; compare_periods: a_minus_b=A-B. list_metrics: mô tả chi tiết/giới hạn metric.
-- Tổng quan: get_device_status, get_health_score, get_aggregate ['output_power','grid_import_power','pv_input','grid_import_energy_total','energy_exported_total','pv_energy_total']; bổ sung pin/nhiệt, cảnh báo, chất lượng và so sánh khi hữu ích, không gọi mọi tool máy móc. Bất thường: find_anomalies; cảnh báo: get_alarms; dự báo: forecast (mặc định 6 giờ), không dự báo counter/derived.
+- Tổng quan: get_device_status, get_health_score, get_aggregate ['output_power','grid_import_power','pv_input','grid_import_energy_total','energy_exported_total','pv_energy_total']; Với yêu cầu báo cáo hệ thống (kể cả viết nhầm hệ thông), trước khi kết luận phải có get_snapshot cho bat_voltage/bat_current/inverter_temp/charger_temp và get_health_score cùng phạm vi, ngoài điện năng/công suất, thiết bị và cảnh báo. Nêu pin/nhiệt, độ phủ/sức khỏe và việc cần kiểm tra; thiếu dữ liệu phải nêu rõ phần thiếu. Gọi các nhóm cơ bản cùng lượt; câu 'chi tiết hơn' tiếp nối phạm vi cũ, gom các nhóm và diễn biến cần bổ sung cùng lượt, không tải lại chỉ để lặp báo cáo. Xu hướng bắt đầu với max_points=20, tăng khi cần chi tiết. Lấy diễn biến/so sánh/thời tiết khi giúp đánh giá; không gọi mọi tool máy móc. Bất thường: find_anomalies; cảnh báo: get_alarms; dự báo: forecast (mặc định 6 giờ), không dự báo counter/derived.
 THUẬT NGỮ:
 - 'Điện hòa lưới': điện từ PV và/hoặc pin qua inverter cấp tải; output_power (W), energy_exported_total (kWh), nguồn DB limiter_total. Không phải bán lên lưới; ghi nhãn 'Công suất điện hòa lưới'.
 - 'Điện lưới': điện lấy từ lưới điện quốc gia; grid_import_power (W), grid_import_energy_total (kWh), nguồn DB energy_total; ghi nhãn 'Công suất điện lưới'.
@@ -69,7 +70,10 @@ THUẬT NGỮ:
 - Công suất điện tổng tải (W) = output_power + grid_import_power; ghi 'Công suất điện tổng tải (suy ra)'. Điện năng tải: get_aggregate(total_load_energy), đọc value và coverage_pct; không cộng counter đứng yên rồi báo 0 kWh. Khi constant_counter/zero_energy_with_nonzero_power, lấy energy_estimate từ công suất tương ứng. Ước tính chỉ cho phần có dữ liệu; nêu độ phủ, không ngoại suy hoặc chia kWh cho độ phủ để đoán cả ngày. Không tính được: chưa xác định, không phải 0. Hỏi tiêu thụ cả ngày bằng kW: hiểu kWh và giải thích ngắn.
 NHẬN ĐỊNH:
 - Đọc quality, tuổi mẫu, nguồn, warnings, phạm vi và độ phủ. last nhiều thiết bị không phải tổng hệ thống. end_gap nhỏ không chứng minh phủ đủ; không gọi mẫu cũ là hiện tại. health partial/coverage<100 không chứng minh khỏe toàn hệ thống; online không chứng minh công-tơ đúng. interpretation=unknown/confirmed_fault=false không chứng minh lỗi; không suy SOC/thời gian pin từ điện áp.
-- So sánh cùng giờ/phạm vi; hôm nay chưa hết ngày. Timeseries truncated chỉ dùng xu hướng. Phân biệt dữ kiện, ước tính, giả thuyết; không biến tương quan thành nguyên nhân. Giải thích sản lượng cần irradiance/cloud_cover/pv_input cùng khoảng. Thiếu dữ liệu vẫn phân tích phần có căn cứ.
+- So sánh cùng giờ/phạm vi; hôm nay chưa hết ngày. 'Tuần này' từ thứ Hai 00:00 đến now; so tuần trước với đoạn cùng thứ/giờ, nêu rõ khoảng, không so tuần dở với cả tuần. Câu mơ hồ về khoảng/tiêu chí: nêu giả định hoặc hỏi lại; 'đêm qua' cần xác nhận khung giờ. Timeseries truncated chỉ dùng xu hướng. Phân biệt dữ kiện, ước tính, giả thuyết; không biến tương quan thành nguyên nhân. Giải thích sản lượng cần irradiance/cloud_cover/pv_input cùng khoảng. Thiếu dữ liệu vẫn phân tích phần có căn cứ.
+- Inverter cấp tải có thể dùng pin: ban đêm không tự chứng minh inverter nghỉ; chưa xác minh chế độ/ngưỡng/SOC thì nguyên nhân là giả thuyết. Dòng pin 0 A không xác nhận SOC hoặc pin đầy; dấu dòng chưa xác minh không tự khẳng định sạc/xả. Không gán nguyên nhân PV thấp cho mây theo ngày.
+- Thiếu SOC/dung lượng để tính thời gian pin thì nói rõ phần thiếu, không truy vấn lặp các số đo đã có.
+- Tiền điện/tiết kiệm: get_system_context trả reporting_settings.electricity_price nếu đã cấu hình (đơn giá ước tính dashboard, không phải biểu giá điện lực đã xác minh). Chỉ ước tính theo giá này và ghi giả định; thiếu giá/phạm vi/điện solar tự dùng thì hỏi bổ sung trước. Cần biểu giá do người dùng cung cấp/cấu hình, phạm vi và điện tự dùng đã đo; không mặc định giá hoặc lấy toàn bộ PV nạp pin nhân giá. Dashboard khác AI: kiểm tra cùng hệ thống/khoảng/đơn vị/nguồn/cách gộp; chưa đọc cấu hình dashboard thì chỉ nêu khả năng, không khẳng định nó sai.
 ĐỊNH DẠNG: kết luận trước, tên chuẩn/giá trị/đơn vị, thời gian UTC+7; đoạn văn/gạch đầu dòng, không bảng Markdown/HTML. Độ sâu theo câu hỏi; không giới hạn số nhận định. Khi đủ công suất hai nhánh, tính tổng tải suy ra. Thứ tự: PV, hòa lưới, điện lưới, tổng tải; không lặp một số dưới nhiều tên.
 """
 
@@ -133,6 +137,121 @@ class SmartSolarAIAgent(models.AbstractModel):
                 and bool(_DATA_INTENT_RE.search(text)))
 
     @api.model
+    def _default_system(self):
+        System = self.env['smartsolar.system']
+        return (System.search([('user_id', '=', self.env.uid)], order='id asc', limit=1)
+                or System.search([], order='id asc', limit=1))
+
+    @staticmethod
+    def _prefetch_arguments(question, history=None):
+        """Only unambiguous standalone questions; complex intent stays with the AI.
+
+        Never guess scope from old conversation or parse arbitrary dates/IDs.
+        Prefetch supplies evidence, not an answer, and never removes available tools.
+        """
+        if history:
+            return None
+        text = ' '.join((question or '').casefold().split())
+        load = re.fullmatch(
+            r'(?:tổng tải|điện năng tổng tải) (hôm nay|hôm qua) '
+            r'(?:tiêu thụ|dùng) bao nhiêu(?: (?:kwh|kw|điện))?[?!.]*', text)
+        if load:
+            today = load.group(1) == 'hôm nay'
+            return {'metrics': ['total_load_energy'],
+                    'start': 'today' if today else 'yesterday',
+                    'end': 'now' if today else 'today'}
+        colloquial = re.fullmatch(
+            r'(hôm nay|hôm qua) (?:nhà dùng bao nhiêu điện|tốn bao nhiêu số điện|'
+            r'dùng bao nhiêu điện|tiêu thụ bao nhiêu điện)[?!.]*', text)
+        if colloquial:
+            today = colloquial.group(1) == 'hôm nay'
+            return {'metrics': ['total_load_energy'],
+                    'start': 'today' if today else 'yesterday',
+                    'end': 'now' if today else 'today'}
+        pv = re.fullmatch(r'(hôm nay|hôm qua) thu được bao nhiêu điện mặt trời[?!.]*', text)
+        if pv:
+            today = pv.group(1) == 'hôm nay'
+            return {'metrics': ['pv_energy_total', 'pv_input'],
+                    'start': 'today' if today else 'yesterday',
+                    'end': 'now' if today else 'today'}
+        if re.fullmatch(r'(?:bây giờ|hiện tại) tải bao nhiêu(?: w| kw)?[?!.]*', text):
+            return {'metrics': ['total_load_power'], 'start': 'now-10m', 'end': 'now'}
+        power = re.fullmatch(
+            r'công suất (điện lưới|điện hòa lưới|điện thu pv|pv) '
+            r'(?:hiện tại|bây giờ)(?: là)?(?: bao nhiêu)?(?: w| kw)?[?!.]*', text)
+        if power:
+            metric = {'điện lưới': 'grid_import_power', 'điện hòa lưới': 'output_power',
+                      'điện thu pv': 'pv_input', 'pv': 'pv_input'}[power.group(1)]
+            return {'metrics': [metric], 'start': 'now-10m', 'end': 'now'}
+        return None
+
+    @api.model
+    def _prefetch_plan(self, question, history=None):
+        """A bounded overview dataset; scope/time overrides remain with the planner."""
+        args = self._prefetch_arguments(question, history)
+        if args:
+            return [('get_aggregate', args)]
+        text = ' '.join((question or '').casefold().split())
+        if history:
+            return []
+        # Exact aliases only: explicit dates, scope, negation or extra requests
+        # fall through to the planner. These presets supply evidence, not conclusions.
+        from datetime import datetime, timedelta
+        from odoo.addons.smartsolar_ai.tools.base_tool import now_local_iso
+        now = datetime.fromisoformat(now_local_iso())
+        week = now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=now.weekday())
+        month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+        standalone = {
+            'hôm nay có tốt hơn hôm qua không': [('compare_periods', {
+                'metrics': ['total_load_energy', 'pv_input', 'output_power', 'grid_import_power'],
+                'a_start': 'today', 'a_end': 'now', 'b_start': 'yesterday',
+                'b_end': (now - timedelta(days=1)).isoformat()})],
+            'tuần này dùng điện nhiều hơn không': [('compare_periods', {
+                'metrics': ['total_load_energy'], 'a_start': week.isoformat(), 'a_end': 'now',
+                'b_start': (week - timedelta(days=7)).isoformat(),
+                'b_end': (now - timedelta(days=7)).isoformat()})],
+            'tháng này tiền điện khoảng bao nhiêu': [('get_aggregate', {
+                'metrics': ['grid_import_power', 'grid_import_energy_total'], 'start': month, 'end': 'now'}),
+                ('get_system_context', {})],
+            'đêm qua dùng bao nhiêu điện': [('get_system_context', {})],
+            'solar tiết kiệm được bao nhiêu tiền': [('get_system_context', {})],
+            'sao dashboard khác ai': [('get_system_context', {})],
+            'sao công suất có mà điện năng bằng 0': [('get_aggregate', {
+                'metrics': ['output_power', 'grid_import_power', 'energy_exported_total',
+                            'grid_import_energy_total', 'total_load_energy'], 'start': 'today', 'end': 'now'})],
+            'sao pv thấp vậy': [('get_snapshot', {'metrics': ['pv_input', 'pv_voltage', 'pv_current', 'irradiance', 'cloud_cover']}),
+                ('get_aggregate', {'metrics': ['pv_input', 'pv_energy_total'], 'start': 'today', 'end': 'now'}),
+                ('get_metric_trends', {'metrics': ['pv_input', 'irradiance', 'cloud_cover'], 'start': 'today', 'end': 'now', 'max_points': 20})],
+            'sao inverter không phát điện': [('get_snapshot', {'metrics': ['output_power', 'grid_import_power', 'pv_input', 'bat_voltage', 'bat_current', 'inverter_temp']}),
+                ('get_alarms', {'start': 'today', 'end': 'now'}),
+                ('get_metric_trends', {'metrics': ['output_power', 'pv_input', 'bat_voltage', 'bat_current'], 'start': 'today', 'end': 'now', 'max_points': 20})],
+            'pin còn bao nhiêu': [('get_snapshot', {'metrics': ['bat_voltage', 'bat_current']})],
+            'pin còn nhiêu': [('get_snapshot', {'metrics': ['bat_voltage', 'bat_current']})],
+            'pin có đang sạc không': [('get_snapshot', {'metrics': ['bat_voltage', 'bat_current', 'pv_input']})],
+            'đang dùng điện lưới hay pin': [('get_snapshot', {'metrics': ['output_power', 'grid_import_power', 'bat_voltage', 'bat_current']})],
+            'dùng được đến sáng không': [('get_system_context', {}), ('get_snapshot', {'metrics': ['total_load_power', 'output_power', 'grid_import_power', 'bat_voltage', 'bat_current']})],
+            'thiết bị nào mất kết nối': [('get_device_status', {})],
+            'có lỗi gì không': [('get_alarms', {'start': 'today', 'end': 'now'}), ('get_device_status', {})],
+            'mấy giờ tải cao nhất': [('get_extrema', {'metric': 'total_load_power', 'start': 'today', 'end': 'now'})],
+        }
+        plan = standalone.get(text.rstrip('?!.'))
+        if plan:
+            return plan
+        if not re.fullmatch(
+                r'(?:(?:báo cáo|báo cáo tổng quan|tổng quan) hệ (?:thống|thông) hôm nay|hệ thống chạy ổn không)[?!.]*', text):
+            return []
+        period = {'start': 'today', 'end': 'now'}
+        return [
+            ('get_aggregate', dict(period, metrics=[
+                'pv_input', 'output_power', 'grid_import_power', 'total_load_power', 'total_load_energy',
+                'pv_energy_total', 'energy_exported_total', 'grid_import_energy_total'])),
+            ('get_device_status', {}), ('get_alarms', dict(period)),
+            ('get_health_score', dict(period)),
+            ('get_snapshot', {'metrics': ['bat_voltage', 'bat_current',
+                                         'inverter_temp', 'charger_temp']}),
+        ]
+
+    @api.model
     def _runtime_context(self):
         """Ngữ cảnh runtime nối thêm vào system prompt mỗi lần chat.
 
@@ -168,11 +287,7 @@ class SmartSolarAIAgent(models.AbstractModel):
         # thông số hệ thống hôm nay") LLM khỏi phải hỏi lại system_id. Record rules
         # đã tự lọc theo công ty; nếu user không phụ trách hệ thống nào thì lấy hệ
         # thống đầu tiên user được phép xem (fallback), hoặc rỗng.
-        System = self.env['smartsolar.system']
-        default_system = System.search(
-            [('user_id', '=', self.env.uid)], order='id asc', limit=1)
-        if not default_system:
-            default_system = System.search([], order='id asc', limit=1)
+        default_system = self._default_system()
         if default_system:
             default_line = (
                 "HỆ THỐNG MẶC ĐỊNH: system_id=%d (\"%s\"). Hỏi chung chung không nêu "
@@ -193,7 +308,7 @@ class SmartSolarAIAgent(models.AbstractModel):
             "- Metric có '[chỉ theo NGÀY]' không có chi tiết theo giờ.\n"
             "\n"
             "CÁC METRIC CÓ SẴN (dùng đúng key cho 'metric'/'metrics'; khỏi gọi "
-            "list_metrics nếu cần mô tả chi tiết/giới hạn. unsupported/unreliable: không kết luận số; "
+            "list_metrics; chỉ gọi khi cần mô tả chi tiết/giới hạn. unsupported/unreliable: không kết luận số; "
             "daily_only: chỉ theo ngày; system_only: không truyền device_id):\n%s"
         ) % (now_local_iso(), default_line, catalog)
 
@@ -413,7 +528,7 @@ class SmartSolarAIAgent(models.AbstractModel):
         """
         from odoo.addons.smartsolar_ai.tools.registry import ToolRegistry
         from odoo.addons.smartsolar_ai.adapters.openai_adapter import OpenAIAdapter
-        from ..providers.base import ChatRequest, ProviderError
+        from ..providers.base import ChatRequest, ChatResponse, ProviderError, ToolCall
         from ..providers.factory import get_provider
 
         registry = ToolRegistry(self.env)
@@ -458,6 +573,34 @@ class SmartSolarAIAgent(models.AbstractModel):
                 _logger.warning('SmartSolar AI: on_progress lỗi (bỏ qua): %s', e)
 
         _emit(_('🔍 Đang phân tích câu hỏi...'))
+
+        # Supply bounded, deterministic evidence before the first LLM call.
+        # No history/scope/date guessing; the model may still query any tool.
+        if getattr(provider, 'supports_data_prefetch', False) is True:
+            plan = self._prefetch_plan(question, history)
+            if plan:
+                system = self._default_system()
+                if system:
+                    for index, (name, args) in enumerate(plan):
+                        args = dict(args, system_id=system.id)
+                        envelope = registry.execute(name, args)
+                        if not envelope.get('ok') and len(plan) == 1:
+                            continue
+                        if not envelope.get('ok'):
+                            # Include failed planned queries as context, never as evidence.
+                            envelope.setdefault('meta', {})['instruction'] = (
+                                'Truy vấn dữ liệu trước bị lỗi; không dùng làm số liệu. '
+                                'Sửa tham số hoặc dùng tool phù hợp nếu cần.')
+                        tc = ToolCall('prefetch_%d' % index, name, args)
+                        messages.append(provider.assistant_message(ChatResponse(tool_calls=[tc])))
+                        messages.append(provider.tool_result_message(
+                            tc, json.dumps(envelope, ensure_ascii=False, default=str)))
+                        if envelope.get('ok'):
+                            cache_key = (name, json.dumps(
+                                args, ensure_ascii=False, sort_keys=True, default=str))
+                            tool_cache[cache_key] = json.dumps(envelope, ensure_ascii=False, default=str)
+                            has_successful_tool_result = True
+                        _emit(_('🔧 Đã lấy dữ liệu %s') % name)
 
         try:
             for _i in range(cfg['max_iterations']):

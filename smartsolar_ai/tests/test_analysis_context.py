@@ -130,3 +130,68 @@ class TestAnalysisContext(TransactionCase):
             'metrics': ['grid_import_power'] * 7, 'start': 'today', 'end': 'now',
         })
         self.assertFalse(response['ok'])
+
+
+    def test_context_exposes_only_configured_public_price_and_no_secret(self):
+        Param = self.env['ir.config_parameter'].sudo()
+        Param.set_param('smartsolar.currency_symbol', '₫')
+        Param.set_param('smartsolar_ai.api_key', 'secret-reporting-test')
+        for raw, expected in [('2000', 2000.0), ('0', 0.0), ('NaN', None),
+                              ('inf', None), ('-100', None), ('invalid', None)]:
+            Param.set_param('smartsolar.electricity_price', raw)
+            response = self.registry_tools.execute('get_system_context', {'system_id': self.system.id})
+            self.assertTrue(response['ok'], response['error'])
+            price = response['data']['reporting_settings']['electricity_price']
+            self.assertEqual(price['value'], expected)
+            self.assertEqual(price['available'], expected is not None)
+            self.assertTrue(price['is_estimate'])
+            self.assertNotIn('secret-reporting-test', json.dumps(response))
+        Param.search([('key', '=', 'smartsolar.electricity_price')]).unlink()
+        response = self.registry_tools.execute('get_system_context', {'system_id': self.system.id})
+        price = response['data']['reporting_settings']['electricity_price']
+        self.assertIsNone(price['value'])
+        self.assertFalse(price['available'])
+
+    def test_compact_trend_retains_full_stats_and_exposes_sampling(self):
+        from datetime import timedelta
+        self.env['grid.tie.inverter'].create([{
+            'device_id': self.device.id, 'system_id': self.system.id,
+            'device_guid': self.device.device_guid,
+            'record_date': datetime(2026, 7, 1, 1) + timedelta(minutes=index),
+            'limiter_power': 12345 if index == 31 else 100,
+        } for index in range(1, 60)])
+        self.env.flush_all()
+        response = self.registry_tools.execute('get_metric_trends', {
+            'system_id': self.system.id, 'metrics': ['grid_import_power'],
+            'start': '2026-07-01T07:00:00', 'end': '2026-07-01T10:00:00', 'interval': 'raw',
+        })
+        self.assertTrue(response['ok'], response['error'])
+        metric = response['data']['metrics']['grid_import_power']
+        self.assertEqual(metric['statistics']['max'], 12345)
+        self.assertEqual(metric['statistics']['count'], 61)
+        self.assertLessEqual(len(metric['series']['points']), 20)
+        self.assertTrue(metric['series']['truncated'])
+        detailed = self.registry_tools.execute('get_metric_trends', {
+            'system_id': self.system.id, 'metrics': ['grid_import_power'],
+            'start': '2026-07-01T07:00:00', 'end': '2026-07-01T10:00:00', 'interval': 'raw',
+            'max_points': 80,
+        })['data']['metrics']['grid_import_power']
+        self.assertEqual(detailed['statistics']['max'], 12345)
+        self.assertEqual(len(detailed['series']['points']), 61)
+        self.assertFalse(detailed['series']['truncated'])
+
+
+    def test_period_alignment_is_independent_of_missing_measurements(self):
+        args = {'system_id': self.system.id, 'metrics': ['grid_import_power'],
+                'a_start': '2026-07-01T07:00:00', 'a_end': '2026-07-01T10:00:00',
+                'b_start': '2026-06-30T07:00:00', 'b_end': '2026-06-30T10:00:00'}
+        response = self.registry_tools.execute('compare_periods', args)
+        self.assertTrue(response['ok'], response['error'])
+        data = response['data']
+        self.assertFalse(data['period_b']['metrics']['grid_import_power']['available'])
+        self.assertTrue(data['period_alignment']['equal_duration'])
+        self.assertEqual(data['period_alignment']['a_duration_seconds'], 10800)
+        args['b_end'] = '2026-06-30T09:00:00'
+        data = self.registry_tools.execute('compare_periods', args)['data']
+        self.assertFalse(data['period_alignment']['equal_duration'])
+        self.assertEqual(data['period_alignment']['b_duration_seconds'], 7200)

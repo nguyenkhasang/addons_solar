@@ -417,3 +417,158 @@ class TestAgentReliability(TransactionCase):
         with patch('odoo.addons.smartsolar_ai_chat.providers.factory.get_provider', return_value=provider):
             self.env['smartsolar.ai.agent'].chat('Kiểm tra thiết bị đang online')
         self.assertEqual(provider.choices, ['required', None])
+
+    def test_prefetch_only_accepts_unambiguous_questions_without_history(self):
+        agent = self.env['smartsolar.ai.agent']
+        self.assertEqual(agent._prefetch_arguments('Tổng tải hôm qua tiêu thụ bao nhiêu kWh?'),
+                         {'metrics': ['total_load_energy'], 'start': 'yesterday', 'end': 'today'})
+        self.assertEqual(agent._prefetch_arguments('Công suất điện lưới hiện tại bao nhiêu W?'),
+                         {'metrics': ['grid_import_power'], 'start': 'now-10m', 'end': 'now'})
+        for question in ['Tổng tải hôm qua tiêu thụ bao nhiêu kWh? Hệ thống 7.',
+                         'So sánh tổng tải hôm nay với hôm qua',
+                         'Tổng tải ngày 02/10 tiêu thụ bao nhiêu kWh?',
+                         'Không gọi tool; tổng tải hôm qua tiêu thụ bao nhiêu kWh?',
+                         'Báo cáo tổng quan hệ thống', 'Điện tổng tải là gì?']:
+            self.assertIsNone(agent._prefetch_arguments(question))
+        self.assertIsNone(agent._prefetch_arguments(
+            'Tổng tải hôm qua tiêu thụ bao nhiêu kWh?', [{'role': 'user', 'content': 'Hệ thống 7'}]))
+
+    def test_prefetch_grounded_answer_keeps_all_tools_available(self):
+        from odoo.addons.smartsolar_ai_chat.providers.openai_compatible import OpenAICompatibleProvider
+        class CaptureProvider(OpenAICompatibleProvider):
+            supports_data_prefetch = True
+            def __init__(self):
+                super().__init__(model='test')
+                self.requests = []
+            def chat(self, request):
+                self.requests.append(request)
+                return ChatResponse(content='6.8 kWh, chỉ phần có dữ liệu.')
+        provider = CaptureProvider()
+        class System:
+            id = 7
+            name = 'Test scope'
+        with patch('odoo.addons.smartsolar_ai_chat.providers.factory.get_provider', return_value=provider), \
+             patch.object(type(self.env['smartsolar.ai.agent']), '_default_system', return_value=System()), \
+             patch('odoo.addons.smartsolar_ai.tools.registry.ToolRegistry.execute',
+                   return_value={'ok': True, 'data': {'metrics': {'total_load_energy': {
+                       'value': 6.8, 'available': True, 'coverage_pct': 65}}}, 'meta': {}}) as execute:
+            answer = self.env['smartsolar.ai.agent'].chat('Tổng tải hôm qua tiêu thụ bao nhiêu kWh?')
+        self.assertEqual(len(provider.requests), 1)
+        self.assertIn('6.8', answer)
+        request = provider.requests[0]
+        from odoo.addons.smartsolar_ai.tools.registry import ToolRegistry
+        self.assertEqual({tool['function']['name'] for tool in request.tools},
+                         set(ToolRegistry(self.env).names()))
+        self.assertIsNone(request.tool_choice)
+        self.assertEqual(execute.call_args.args[1]['system_id'], 7)
+        tool_messages = [message for message in request.messages if message['role'] == 'tool']
+        self.assertEqual(json.loads(tool_messages[0]['content'])['data']['metrics']['total_load_energy']['coverage_pct'], 65)
+
+    def test_failed_prefetch_falls_back_to_planning_without_fabricating_data(self):
+        from odoo.addons.smartsolar_ai_chat.providers.openai_compatible import OpenAICompatibleProvider
+        class NoDataProvider(OpenAICompatibleProvider):
+            supports_data_prefetch = True
+            def __init__(self):
+                super().__init__(model='test')
+                self.requests = []
+            def chat(self, request):
+                self.requests.append(request)
+                return ChatResponse(content='9999 kWh')
+        class System:
+            id = 7
+            name = 'Test scope'
+        provider = NoDataProvider()
+        with patch('odoo.addons.smartsolar_ai_chat.providers.factory.get_provider', return_value=provider), \
+             patch.object(type(self.env['smartsolar.ai.agent']), '_default_system', return_value=System()), \
+             patch('odoo.addons.smartsolar_ai.tools.registry.ToolRegistry.execute',
+                   return_value={'ok': False, 'data': None, 'error': {'message': 'missing'}, 'meta': {}}):
+            answer = self.env['smartsolar.ai.agent'].chat('Tổng tải hôm qua tiêu thụ bao nhiêu kWh?')
+        self.assertEqual(len(provider.requests), 2)
+        self.assertNotIn('9999 kWh', answer)
+        self.assertFalse(any(message['role'] == 'tool' for message in provider.requests[0].messages))
+
+    def test_overview_prompt_requires_battery_thermal_and_health_evidence(self):
+        prompt = self.env['smartsolar.ai.agent']._get_config()['system_prompt']
+        for required in ['báo cáo hệ thống', 'hệ thông',
+                         'get_snapshot cho bat_voltage/bat_current/inverter_temp/charger_temp',
+                         'get_health_score cùng phạm vi', 'thiếu dữ liệu phải nêu rõ phần thiếu']:
+            self.assertIn(required, prompt)
+
+    def test_overview_prefetch_has_all_basic_evidence_groups(self):
+        agent = self.env['smartsolar.ai.agent']
+        for question in ['báo cáo hệ thông hôm nay', 'Báo cáo hệ thống hôm nay?']:
+            plan = agent._prefetch_plan(question)
+            self.assertEqual([name for name, args in plan], [
+                'get_aggregate', 'get_device_status', 'get_alarms', 'get_health_score', 'get_snapshot'])
+            self.assertIn('total_load_energy', plan[0][1]['metrics'])
+            self.assertEqual(plan[0][1]['start'], 'today')
+            self.assertEqual(plan[0][1]['end'], 'now')
+            self.assertEqual(plan[-1][1]['metrics'], ['bat_voltage', 'bat_current',
+                                                    'inverter_temp', 'charger_temp'])
+        self.assertEqual(agent._prefetch_plan('báo cáo hệ thống hôm nay của hệ thống 7'), [])
+        self.assertEqual(agent._prefetch_plan('báo cáo hệ thống hôm nay đến 13h'), [])
+        self.assertEqual(agent._prefetch_plan('báo cáo hệ thông hôm nay',
+            [{'role': 'user', 'content': 'Tôi đang xem hệ thống 7'}]), [])
+
+
+    def test_common_question_prefetch_keeps_scope_and_units(self):
+        agent = self.env['smartsolar.ai.agent']
+        for question in ['Hôm nay nhà dùng bao nhiêu điện?', 'hôm nay tốn bao nhiêu số điện']:
+            self.assertEqual(agent._prefetch_arguments(question), {
+                'metrics': ['total_load_energy'], 'start': 'today', 'end': 'now'})
+        self.assertEqual(agent._prefetch_arguments('Hôm qua thu được bao nhiêu điện mặt trời?'), {
+            'metrics': ['pv_energy_total', 'pv_input'], 'start': 'yesterday', 'end': 'today'})
+        self.assertEqual(agent._prefetch_arguments('Bây giờ tải bao nhiêu W?'), {
+            'metrics': ['total_load_power'], 'start': 'now-10m', 'end': 'now'})
+        # Extra scope/time, compound intent and negation must never be swallowed.
+        for question in ['hôm nay nhà dùng bao nhiêu điện của hệ thống 7',
+                         'hôm nay tốn bao nhiêu số điện đến 12h',
+                         'pin còn nhiêu ở thiết bị 4', 'không xem pin còn nhiêu',
+                         'bây giờ tải bao nhiêu W và hôm qua ra sao',
+                         'tuần này dùng điện nhiều hơn tháng trước không']:
+            self.assertEqual(agent._prefetch_plan(question), [])
+        self.assertEqual(agent._prefetch_plan('pin còn nhiêu', [
+            {'role': 'user', 'content': 'Xem hệ thống 7'}]), [])
+
+    def test_calendar_prefetch_compares_equal_elapsed_periods_at_boundaries(self):
+        from datetime import datetime, timedelta
+        agent = self.env['smartsolar.ai.agent']
+        # Monday/month boundary and New Year: rolling seven-day/day endpoints
+        # retain the local hour and do not turn an unfinished week into a full week.
+        for stamp in ['2026-03-02T10:15:00+07:00', '2026-01-01T00:01:00+07:00']:
+            now = datetime.fromisoformat(stamp)
+            with patch('odoo.addons.smartsolar_ai.tools.base_tool.now_local_iso', return_value=stamp):
+                name, args = agent._prefetch_plan('Tuần này dùng điện nhiều hơn không?')[0]
+                self.assertEqual(name, 'compare_periods')
+                a_start = datetime.fromisoformat(args['a_start'])
+                b_start = datetime.fromisoformat(args['b_start'])
+                b_end = datetime.fromisoformat(args['b_end'])
+                self.assertEqual(a_start.weekday(), 0)
+                self.assertEqual((a_start.hour, a_start.minute), (0, 0))
+                self.assertEqual(a_start - b_start, timedelta(days=7))
+                self.assertEqual(now - a_start, b_end - b_start)
+                self.assertEqual(args['a_end'], 'now')
+                day = agent._prefetch_plan('Hôm nay có tốt hơn hôm qua không?')[0][1]
+                self.assertEqual(day['a_start'], 'today')
+                self.assertEqual(day['b_start'], 'yesterday')
+                self.assertEqual(datetime.fromisoformat(day['b_end']), now - timedelta(days=1))
+                bill = agent._prefetch_plan('Tháng này tiền điện khoảng bao nhiêu?')[0][1]
+                self.assertEqual(datetime.fromisoformat(bill['start']),
+                                 now.replace(day=1, hour=0, minute=0, second=0, microsecond=0))
+                self.assertIn('grid_import_power', bill['metrics'])
+                self.assertNotIn('total_load_energy', bill['metrics'])
+
+    def test_ambiguous_night_savings_and_dashboard_do_not_guess_measurement_scope(self):
+        agent = self.env['smartsolar.ai.agent']
+        for question in ['Đêm qua dùng bao nhiêu điện?', 'Solar tiết kiệm được bao nhiêu tiền?',
+                         'Sao dashboard khác AI?']:
+            self.assertEqual(agent._prefetch_plan(question), [('get_system_context', {})])
+        for question in ['Mấy giờ tải cao nhất?', 'Thiết bị nào mất kết nối?', 'Có lỗi gì không?']:
+            self.assertTrue(agent._question_requires_tool(question))
+        pv = agent._prefetch_plan('Sao PV thấp vậy?')
+        self.assertEqual([name for name, args in pv],
+                         ['get_snapshot', 'get_aggregate', 'get_metric_trends'])
+        self.assertEqual(pv[-1][1]['max_points'], 20)
+        peak = agent._prefetch_plan('Mấy giờ tải cao nhất?')
+        self.assertEqual(peak, [('get_extrema', {
+            'metric': 'total_load_power', 'start': 'today', 'end': 'now'})])

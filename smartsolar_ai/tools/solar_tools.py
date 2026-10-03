@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Các Tool cụ thể — 12 tool "theo năng lực" (capability) mà AI được phép gọi.
+"""Các Tool cụ thể — 13 tool "theo năng lực" (capability) mà AI được phép gọi.
 
 Mỗi tool là một lớp bọc mỏng: phân tích tham số -> gọi MỘT service -> trả về dict
 của DTO. Thêm metric mới KHÔNG BAO GIỜ đẻ thêm tool ở đây; metric chỉ là một tham
@@ -7,7 +7,7 @@ số truyền vào ``get_timeseries`` / ``get_aggregate`` / ...
 
 Vì sao thiết kế theo NĂNG LỰC, không theo câu hỏi?
     Nếu tạo tool kiểu today_report(), compare_week()... thì mỗi câu hỏi mới lại
-    phải viết tool mới -> không mở rộng được. Ngược lại, 12 tool tổng quát này ghép
+    phải viết tool mới -> không mở rộng được. Ngược lại, 13 tool tổng quát này ghép
     lại trả lời được vô số câu hỏi, còn AI (Planner) tự quyết định gọi tool nào,
     gọi bao nhiêu lần. Python không điều hướng — LLM mới là bộ lập kế hoạch.
 """
@@ -46,7 +46,7 @@ class GetSystemContextTool(Tool):
     name = 'get_system_context'
     description = ('Thông tin hệ thống được phép xem: ID, tên, vị trí, công suất định mức, '
                    'nhóm metric và giới hạn cảm biến. Dùng để hiểu hệ thống/chọn thông số; '
-                   'không phải dữ liệu đo. Không trả mật khẩu hoặc token.')
+                   'có đơn giá ước tính dashboard nếu được cấu hình; không phải dữ liệu đo. Không trả mật khẩu hoặc token.')
 
     def parameters(self):
         return {'type': 'object', 'properties': {'system_id': _SYSTEM}, 'required': []}
@@ -80,11 +80,32 @@ class GetSnapshotTool(Tool):
             self._opt_int(kwargs, 'system_id'), self._opt_int(kwargs, 'device_id'))
 
 
+class GetExtremaTool(Tool):
+    name = 'get_extrema'
+    description = ('Tìm giá trị cao nhất/thấp nhất VÀ thời điểm chính xác trên mẫu gốc còn lưu '
+                   'trong khoảng, trả kết quả ngắn không tải chuỗi. Câu hỏi tổng tải cao nhất '
+                   'lúc nào: metric=total_load_power. Không cộng cực đại riêng của hai nhánh '
+                   'và không dùng chuỗi rút gọn để tìm đỉnh. Mẫu bằng nhau trả thời điểm sớm nhất.')
+
+    def parameters(self):
+        return {'type': 'object', 'properties': {
+            'metric': _METRIC, 'start': _ISO, 'end': _ISO,
+            'device_id': _DEVICE, 'system_id': _SYSTEM,
+        }, 'required': ['metric', 'start', 'end']}
+
+    def run(self, **kwargs):
+        return AnalyticsService(self.env).get_extrema(
+            self._require(kwargs, 'metric'),
+            TimeRange.from_iso(self._require(kwargs, 'start'), self._require(kwargs, 'end')),
+            self._opt_int(kwargs, 'device_id'), self._opt_int(kwargs, 'system_id'))
+
+
 class GetMetricTrendsTool(Tool):
     name = 'get_metric_trends'
     description = ('Diễn biến nhiều metric cùng khoảng: thống kê đầy đủ + chuỗi gom bucket. '
                    'Dùng để đối chiếu pin/PV/lưới/nhiệt/thời tiết khi chẩn đoán. '
-                   'Chọn tối đa 6 metric; thời tiết theo ngày, không suy ra tương quan phút '
+                   'Không dùng để tìm chính xác thời điểm cực trị: dùng get_extrema. '
+                   'max_points tối đa 120, mặc định 20; tăng khi cần thêm chi tiết. Chọn tối đa 6 metric; không suy ra tương quan phút '
                    'hoặc khẳng định nguyên nhân chỉ từ các đường cùng tăng/giảm.')
 
     def parameters(self):
@@ -99,7 +120,7 @@ class GetMetricTrendsTool(Tool):
         metrics = self._require(kwargs, 'metrics')
         if not isinstance(metrics, list) or not 1 <= len(metrics) <= 6:
             raise ValueError('metrics phải chứa từ 1 đến 6 khóa metric.')
-        max_points = int(kwargs.get('max_points') or 60)
+        max_points = int(kwargs.get('max_points') or 20)
         if not 20 <= max_points <= 120:
             raise ValueError('max_points phải nằm trong khoảng 20..120')
         return ContextService(self.env).get_trends(
@@ -125,7 +146,8 @@ class GetTimeseriesTool(Tool):
     name = 'get_timeseries'
     description = ('Chuỗi thời gian để xem diễn biến/xu hướng của một metric. AUTO '
                    'tự chọn raw/hour/day và giới hạn 240 điểm. Không dùng cho metric '
-                   'DERIVED; hãy dùng get_aggregate cho KPI dẫn xuất.')
+                   'DERIVED; hãy dùng get_aggregate cho KPI dẫn xuất. '
+                   'Cao nhất/thấp nhất lúc nào: dùng get_extrema, không dò chuỗi rút gọn.')
 
     def parameters(self):
         return {
@@ -239,10 +261,18 @@ class ComparePeriodsTool(Tool):
         rb = TimeRange.from_iso(self._require(kwargs, 'b_start'),
                                 self._require(kwargs, 'b_end'))
         svc = AnalyticsService(self.env)
-        return svc.compare_periods(
+        result = svc.compare_periods(
             metrics, ra, rb,
             device_id=self._opt_int(kwargs, 'device_id'),
             system_id=self._opt_int(kwargs, 'system_id')).to_dict()
+        result['period_alignment'] = {
+            'a_duration_seconds': ra.duration.total_seconds(),
+            'b_duration_seconds': rb.duration.total_seconds(),
+            'equal_duration': ra.duration == rb.duration,
+            'note': 'Độ dài khoảng yêu cầu khác với độ phủ số đo. equal_duration=true: '
+                    'hai khoảng dài bằng nhau dù coverage_pct khác; không nói lệch số ngày.',
+        }
+        return result
 
 
 class GetDeviceStatusTool(Tool):
@@ -459,6 +489,7 @@ class ForecastTool(Tool):
 ALL_TOOLS = [
     GetSystemContextTool,
     GetSnapshotTool,
+    GetExtremaTool,
     GetMetricTrendsTool,
     ListMetricsTool,
     GetTimeseriesTool,

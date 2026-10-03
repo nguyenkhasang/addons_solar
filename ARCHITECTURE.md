@@ -143,8 +143,8 @@ User → AI Planner (LLM) → Tool Layer → Business Service → Repository →
 ```
 
 ### Nguyên tắc: Tool theo NĂNG LỰC, không theo câu hỏi
-12 tool tổng quát, **metric là tham số** — AI tự chọn thông số và ghép tool theo bằng chứng cần thiết:
-`get_system_context` · `get_snapshot` · `get_metric_trends` · `list_metrics` · `get_timeseries` · `get_aggregate` · `compare_periods` · `get_device_status` · `get_alarms` · `find_anomalies` · `get_health_score` · `forecast`
+13 tool tổng quát, **metric là tham số** — AI tự chọn thông số và ghép tool theo bằng chứng cần thiết:
+`get_system_context` · `get_snapshot` · `get_extrema` · `get_metric_trends` · `list_metrics` · `get_timeseries` · `get_aggregate` · `compare_periods` · `get_device_status` · `get_alarms` · `find_anomalies` · `get_health_score` · `forecast`
 
 Ngữ cảnh hệ thống chỉ đọc whitelist thông tin công khai. Thống kê có timestamp/tuổi mẫu,
 nguồn dữ liệu và cảnh báo công-tơ. Snapshot phân tách số đo khi có nhiều thiết bị cùng loại.

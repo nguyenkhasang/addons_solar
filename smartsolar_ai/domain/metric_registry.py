@@ -106,6 +106,15 @@ def _safe_div(numerator, denominator, default=0.0):
 # --------------------------------------------------------------------------
 _METRICS = {
 
+    'total_load_power': MetricSpec(
+        key='total_load_power', label='Công suất điện tổng tải (suy ra)', unit='W',
+        kind=MetricKind.INSTANTANEOUS,
+        raw_model='grid.tie.inverter', raw_field='(output_power + limiter_power)',
+        note='Cộng hai nhánh trên cùng bản ghi đo, không cộng hai cực đại riêng. '
+             'Dùng get_extrema để tìm chính xác mẫu đỉnh và thời điểm, không dò chuỗi rút gọn.',
+        flow='Điện hòa lưới + điện lấy lưới cùng thời điểm; không cộng PV nạp pin.',
+    ),
+
     'total_load_energy': MetricSpec(
         key='total_load_energy', label='Điện năng tổng tải (ước tính từ công suất)',
         unit='kWh', kind=MetricKind.DERIVED,

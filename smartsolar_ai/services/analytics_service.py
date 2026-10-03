@@ -53,6 +53,15 @@ class AnalyticsService:
     def __init__(self, env):
         self._repo = MetricRepository(env)
 
+    def get_extrema(self, metric, time_range, device_id=None, system_id=None):
+        spec = MetricRegistry.get(metric)
+        if spec.is_derived or spec.kind == MetricKind.COUNTER or not spec.supported:
+            raise ValueError('get_extrema chỉ hỗ trợ metric tức thời; dùng get_aggregate cho điện năng/KPI.')
+        result = self._repo.fetch_extrema(spec, time_range, device_id, system_id)
+        result.update(metric=metric, label=spec.label, unit=spec.unit,
+                      range=[time_range.start_local_iso(), time_range.end_local_iso()])
+        return result
+
     # ---- Chuỗi thời gian ---------------------------------------------------
     def get_timeseries(self, metric: str, time_range: TimeRange,
                        aggregation: AggregationType = None,

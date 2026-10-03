@@ -165,7 +165,7 @@ class TestCodexProvider(TestCase):
                     'error': None}
         messages = [{'role': 'tool', 'content': json.dumps(envelope), 'tool_call_id': 'test'}]
         compact = CodexCLIProvider._compact_messages(messages)
-        data = json.loads(compact[0]['content'])
+        data = compact[0]['content']
         self.assertEqual(data['data'], envelope['data'])
         self.assertEqual(data['meta'], {'instruction': 'Unavailable is not zero', 'cached': True})
         self.assertEqual(compact[0]['tool_call_id'], 'test')
@@ -205,3 +205,39 @@ class TestCodexProvider(TestCase):
         self.assertNotIn('minItems', automatic['properties']['tool_calls'])
         final = CodexCLIProvider._schema({}, require_tool=True)
         self.assertEqual(final['properties']['tool_calls']['maxItems'], 0)
+
+    def test_compact_series_table_preserves_every_timestamp_and_value(self):
+        data = {'series': {'points': [{'t': 'a', 'v': 0}, {'t': 'b', 'v': None},
+                                     {'t': 'c', 'v': 2319}], 'truncated': True,
+                           'original_count': 778, 'unit': 'W'}}
+        compact = CodexCLIProvider._compact_series(data)
+        self.assertEqual(compact['series']['point_columns'], ['t', 'v'])
+        self.assertEqual(compact['series']['points'], [['a', 0], ['b', None], ['c', 2319]])
+        self.assertTrue(compact['series']['truncated'])
+        self.assertEqual(compact['series']['original_count'], 778)
+        self.assertEqual(data['series']['points'][2]['v'], 2319)
+
+    def test_cli_tool_json_is_not_double_encoded(self):
+        envelope = {'ok': True, 'data': {'value': 6.8, 'available': True,
+                                       'quality': {'warnings': [{'code': 'constant_counter'}]}}}
+        original = [{'role': 'tool', 'tool_call_id': 'id', 'content': json.dumps(envelope)}]
+        wire = json.dumps({'messages': CodexCLIProvider._compact_messages(original)},
+                          ensure_ascii=False, separators=(',', ':'))
+        recovered = json.loads(wire)['messages'][0]
+        self.assertEqual(recovered['content'], envelope)
+        self.assertEqual(recovered['tool_call_id'], 'id')
+        self.assertIsInstance(original[0]['content'], str)
+        double_encoded = json.dumps({'messages': original}, separators=(',', ':'))
+        self.assertLess(len(wire), len(double_encoded))
+
+
+    def test_compare_schema_deduplicates_actual_period_names(self):
+        from odoo.addons.smartsolar_ai.tools.registry import ToolRegistry
+        tool = next(t for t in ToolRegistry(None).specs()
+                    if t['name'] == 'compare_periods')
+        compact = CodexCLIProvider._compact_tools({'compare_periods': tool})[0]
+        for field in ['a_start', 'a_end', 'b_start', 'b_end']:
+            self.assertEqual(compact['parameters']['properties'][field]['type'], 'string')
+            self.assertNotIn('description', compact['parameters']['properties'][field])
+            self.assertIn(field, compact['parameters']['required'])
+        self.assertEqual(tool['parameters']['required'], compact['parameters']['required'])

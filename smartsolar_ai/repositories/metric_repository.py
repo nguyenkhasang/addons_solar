@@ -605,6 +605,85 @@ class MetricRepository(BaseRepository):
         row = self.env.cr.fetchone() or (0.0, 0)
         return float(row[0] or 0.0), int(row[1] or 0)
 
+    def fetch_extrema(self, spec, time_range, device_id=None, system_id=None):
+        """Exact min/max observations from all retained raw samples, not a series.
+
+        Total load uses both branches on the same observation. Multiple devices
+        are summed only at timestamps with an observation from every device seen
+        in the selected scope; asynchronous maxima are never added together.
+        """
+        from ..domain.value_objects import UTC7
+        table = self.env[spec.raw_model]._table
+        where = ['record_date >= %s', 'record_date < %s']
+        params = [time_range.start_utc, time_range.end_utc]
+        if device_id and spec.has_device:
+            where.append('device_id = %s')
+            params.append(device_id)
+        if system_id:
+            where.append('system_id = %s')
+            params.append(system_id)
+        total_load = spec.key == 'total_load_power'
+        device_column = 'device_id' if spec.has_device else 'NULL::integer'
+        extra = ', output_power, limiter_power' if total_load else ''
+        if total_load:
+            observations = """
+                SELECT record_date, SUM(value) AS value,
+                       ARRAY_AGG(device_id ORDER BY device_id) AS device_ids,
+                       SUM(output_power) AS output_power,
+                       SUM(limiter_power) AS grid_import_power
+                  FROM points
+              GROUP BY record_date
+                HAVING COUNT(*) = (SELECT COUNT(DISTINCT device_id) FROM points)
+                   AND COUNT(value) = COUNT(*)
+            """
+        else:
+            observations = """
+                SELECT record_date, value, ARRAY[device_id] AS device_ids
+                  FROM points WHERE value IS NOT NULL
+            """
+        # DISTINCT ON picks the last received row for a duplicate timestamp.
+        sql = """
+            WITH points AS (
+                SELECT DISTINCT ON ({device}, record_date)
+                       {device} AS device_id, record_date, {field} AS value {extra}
+                  FROM {table} WHERE {where}
+              ORDER BY {device}, record_date, id DESC
+            ), observations AS ({observations})
+            SELECT (SELECT COUNT(*) FROM points),
+                   (SELECT COUNT(*) FROM observations),
+                   (SELECT COUNT(DISTINCT device_id) FROM points),
+                   (SELECT ROW_TO_JSON(peak) FROM (
+                        SELECT * FROM observations ORDER BY value DESC, record_date ASC LIMIT 1
+                    ) peak),
+                   (SELECT ROW_TO_JSON(low) FROM (
+                        SELECT * FROM observations ORDER BY value ASC, record_date ASC LIMIT 1
+                    ) low)
+        """.format(device=device_column, field=spec.raw_field, extra=extra,
+                   table=table, where=' AND '.join(where), observations=observations)
+        self.env.cr.execute(sql, params)
+        count, observations_count, devices, peak, low = self.env.cr.fetchone()
+        def observation(row):
+            if not row:
+                return None
+            observed = datetime.fromisoformat(row.pop('record_date'))
+            result = {'value': row['value'],
+                      'observed_at': observed.replace(tzinfo=timezone.utc).astimezone(UTC7).isoformat(),
+                      'device_ids': [value for value in row['device_ids'] if value is not None]}
+            if total_load:
+                result['components'] = {key: row[key] for key in ('output_power', 'grid_import_power')}
+            return result
+        return {
+            'available': bool(observations_count), 'source': 'raw',
+            'sample_count': count, 'evaluated_observations': observations_count,
+            'observed_device_count': devices, 'max': observation(peak), 'min': observation(low),
+            'scope': 'synchronized_device_sum' if total_load else 'individual_observations',
+            'reason': None if observations_count else (
+                'Không có mẫu raw hợp lệ hoặc không có mẫu đồng thời đủ các thiết bị trong phạm vi.'),
+            'note': 'Cực trị chính xác trên các mẫu raw còn lưu, không phải đỉnh liên tục giữa mẫu '
+                    'hay xác nhận dữ liệu phủ đủ khoảng/đủ mọi thiết bị cấu hình. '
+                    'Nếu nhiều mẫu bằng nhau, trả thời điểm sớm nhất.',
+        }
+
     def fetch_power_energy(self, metric, time_range, device_id=None, system_id=None):
         """Integrate raw power per device, without bridging telemetry outages.
 

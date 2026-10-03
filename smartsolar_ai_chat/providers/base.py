@@ -64,6 +64,9 @@ class AIProvider(ABC):
     việc gọi HTTP + convert định dạng.
     """
 
+    # All providers implement assistant/tool message conversion for prefetched evidence.
+    supports_data_prefetch = True
+
     def __init__(self, base_url=None, api_key=None, model=None, timeout=120):
         self.base_url = (base_url or '').rstrip('/')
         self.api_key = api_key or ''
