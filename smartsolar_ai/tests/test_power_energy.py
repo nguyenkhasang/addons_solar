@@ -153,3 +153,181 @@ class TestPowerEnergy(TransactionCase):
     def test_extrema_rejects_energy_counters(self):
         with self.assertRaises(ValueError):
             self.extrema('grid_import_energy_total')
+
+    def summarize(self, hours=1):
+        from unittest.mock import patch
+        from odoo import fields
+        with patch.object(fields.Datetime, 'now', return_value=self.start + timedelta(hours=hours)):
+            self.env['grid.tie.inverter.summary']._aggregate_hourly(hours)
+        self.env.flush_all()
+        return self.env['grid.tie.inverter.summary'].search([
+            ('device_id', '=', self.device.id), ('bucket_type', '=', 'hour'),
+            ('bucket_start', '>=', self.start)])
+
+    def test_durable_estimate_and_peak_survive_raw_purge(self):
+        self.samples([0, 60, 120])
+        records = self.summarize()
+        self.assertEqual(records.quality_version, 4)
+        self.env['grid.tie.inverter'].search([('device_id', '=', self.device.id)]).unlink()
+        self.env.flush_all()
+        scope = TimeRange(self.start, self.start + timedelta(hours=1))
+        energy = self.service._repo.fetch_power_energy('total_load_energy', scope, system_id=self.system.id)
+        self.assertAlmostEqual(energy['value'], 0.05)
+        self.assertAlmostEqual(energy['coverage_pct'], 3.33, places=2)
+        self.assertEqual(energy['source'], 'summary')
+        peak = self.service.get_extrema('total_load_power', scope, system_id=self.system.id)
+        self.assertEqual(peak['max']['value'], 1500)
+        self.assertEqual(peak['max']['observed_at'], '2026-07-02T07:00:00+07:00')
+        result = self.service._repo.fetch_energy_result(
+            MetricRegistry.get('grid_import_energy_total'), scope, system_id=self.system.id)
+        self.assertTrue(result['counter_quality'][0]['stalled_with_power'])
+        self.assertFalse(result['counter_quality'][0]['reliable'])
+
+    def test_raw_missing_complete_hour_is_filled_without_double_count(self):
+        self.samples([0, 60, 3600, 3660])
+        rows = self.env['grid.tie.inverter'].search([('device_id', '=', self.device.id)], order='record_date')
+        for row, value in zip(rows, [10, 11, 12, 13]):
+            row.energy_total = value
+        summary = self.summarize(2)
+        summary.filtered(lambda row: row.bucket_start == self.start + timedelta(hours=1)).unlink()
+        self.env.flush_all()
+        result = self.service._repo.fetch_energy_result(MetricRegistry.get('grid_import_energy_total'),
+            TimeRange(self.start, self.start + timedelta(hours=2)), system_id=self.system.id)
+        self.assertAlmostEqual(result['value'], 3)
+        self.assertEqual(result['source'], 'raw+summary')
+        self.assertEqual(len(result['counter_quality']), 1)
+        self.assertEqual(result['counter_quality'][0]['valid_samples'], 4)
+
+    def test_hour_series_fills_missing_device_bucket(self):
+        from odoo.addons.smartsolar_ai.domain.enums import Granularity, AggregationType
+        self.samples([0, 60, 3600, 3660])
+        records = self.summarize(2)
+        records.filtered(lambda row: row.bucket_start == self.start + timedelta(hours=1)).unlink()
+        second = self.env['smartsolar.device'].create({
+            'device_guid': 'summary_missing_second', 'system_id': self.system.id,
+            'device_type': 'grid_tie_inverter'})
+        self.samples([0, 60], second)
+        self.env['grid.tie.inverter'].search([('device_id', '=', second.id)]).write({'output_power': 2000})
+        self.env.flush_all()
+        points = self.service._repo.fetch_series(MetricRegistry.get('output_power'),
+            TimeRange(self.start, self.start + timedelta(hours=2)),
+            AggregationType.AVG, Granularity.HOUR, system_id=self.system.id)
+        self.assertEqual([point.value for point in points], [1500, 1000])
+
+    def test_partial_raw_does_not_overwrite_retained_full_summary(self):
+        self.samples([0, 60, 120])
+        record = self.summarize()
+        old_power = record.power_energy
+        self.env['grid.tie.inverter'].search([
+            ('device_id', '=', self.device.id), ('record_date', '=', self.start)]).unlink()
+        self.env.flush_all()
+        rebuilt = self.summarize()
+        self.assertEqual(rebuilt.sample_count, 3)
+        self.assertEqual(rebuilt.power_energy, old_power)
+
+    def test_explicit_zero_reset_and_missing_counter_use_same_policy(self):
+        self.samples([0, 60, 120, 180])
+        rows = self.env['grid.tie.inverter'].search([('device_id', '=', self.device.id)], order='record_date')
+        for row, value, valid in zip(rows, [10, 0, 0, 2], [True, False, True, True]):
+            row.write({'energy_total': value, 'counter_validity': {'energy_total': valid}})
+        self.env.flush_all()
+        result = self.service._repo.fetch_energy_result(MetricRegistry.get('grid_import_energy_total'),
+            TimeRange(self.start, self.start + timedelta(seconds=240)), system_id=self.system.id)
+        self.assertAlmostEqual(result['value'], 2)
+        self.assertEqual(result['counter_quality'][0]['invalid_samples'], 1)
+        self.assertEqual(result['counter_quality'][0]['reset_count'], 1)
+        record = self.summarize()
+        self.assertAlmostEqual(record.energy_kwh, 2)
+        self.assertEqual(record.counter_reset_count, 1)
+        self.assertEqual(record.counter_quality['energy_total']['invalid_samples'], 1)
+
+    def test_daily_only_metadata_preserves_estimate_and_observation_time(self):
+        from unittest.mock import patch
+        from odoo import fields
+        self.start = datetime(2026, 7, 1, 17)  # Vietnam local midnight.
+        self.samples([0, 60, 120])
+        self.summarize()
+        with patch.object(fields.Datetime, 'now', return_value=self.start + timedelta(days=1)):
+            self.env['grid.tie.inverter.summary']._aggregate_daily(2)
+        self.env['grid.tie.inverter'].search([('device_id', '=', self.device.id)]).unlink()
+        self.env['grid.tie.inverter.summary'].search([
+            ('device_id', '=', self.device.id), ('bucket_type', '=', 'hour')]).unlink()
+        self.env.flush_all()
+        scope = TimeRange(self.start, self.start + timedelta(days=1))
+        estimate = self.service._repo.fetch_power_energy('total_load_energy', scope, system_id=self.system.id)
+        self.assertAlmostEqual(estimate['value'], 0.05)
+        self.assertAlmostEqual(estimate['coverage_pct'], 0.14, places=2)
+        self.assertEqual(self.service.get_extrema('total_load_power', scope, system_id=self.system.id)
+                         ['max']['observed_at'], '2026-07-02T00:00:00+07:00')
+
+    def test_legacy_summary_does_not_invent_estimate_zero(self):
+        self.env['grid.tie.inverter.summary'].create({
+            'bucket_start': self.start, 'bucket_type': 'hour',
+            'device_id': self.device.id, 'system_id': self.system.id, 'sample_count': 60,
+            'output_power_avg': 1000, 'energy_kwh': 0})
+        self.env.flush_all()
+        result = self.service._repo.fetch_power_energy('total_load_energy',
+            TimeRange(self.start, self.start + timedelta(hours=1)), system_id=self.system.id)
+        self.assertFalse(result['available'])
+        self.assertIsNone(result['value'])
+
+    def test_historical_device_peaks_are_not_added_as_system_peak(self):
+        self.samples([0, 60])
+        self.summarize()
+        second = self.env['smartsolar.device'].create({
+            'device_guid': 'summary_async_second', 'system_id': self.system.id,
+            'device_type': 'grid_tie_inverter'})
+        self.env['grid.tie.inverter.summary'].create({
+            'bucket_start': self.start, 'bucket_type': 'hour', 'quality_version': 4,
+            'device_id': second.id, 'system_id': self.system.id, 'sample_count': 2,
+            'metric_extrema': {'total_load_power': {
+                'max': {'value': 2000, 'observed_at': self.start.isoformat()},
+                'min': {'value': 2000, 'observed_at': self.start.isoformat()}}}})
+        self.env['grid.tie.inverter'].search([('device_id', '=', self.device.id)]).unlink()
+        self.env.flush_all()
+        result = self.service.get_extrema('total_load_power',
+            TimeRange(self.start, self.start + timedelta(hours=1)), system_id=self.system.id)
+        self.assertFalse(result['available'])
+        self.assertIn('device_id', result['reason'])
+
+    def test_historical_scalar_uses_sample_extrema_and_weights_across_sources(self):
+        self.samples([0, 60, 3600, 3660])
+        rows = self.env['grid.tie.inverter'].search([('device_id', '=', self.device.id)], order='record_date')
+        for row, value in zip(rows, [100, 1900, 300, 3700]):
+            row.output_power = value
+        self.summarize(2)
+        self.env['grid.tie.inverter'].search([
+            ('device_id', '=', self.device.id), ('record_date', '<', self.start + timedelta(hours=1))]).unlink()
+        self.env['grid.tie.inverter.summary'].search([
+            ('device_id', '=', self.device.id), ('bucket_type', '=', 'hour'),
+            ('bucket_start', '=', self.start + timedelta(hours=1))]).unlink()
+        self.env.flush_all()
+        data = self.service.get_aggregate(['output_power'],
+            TimeRange(self.start, self.start + timedelta(hours=2)), system_id=self.system.id).metrics['output_power']
+        self.assertEqual(data['min'], 100)
+        self.assertEqual(data['max'], 3700)
+        self.assertEqual(data['avg'], 1500)
+        self.assertEqual(data['last'], 3700)
+        self.assertEqual(data['count'], 4)
+
+    def test_purged_preceding_seed_does_not_erase_hour_boundary_delta(self):
+        self.samples([-60, 0, 60])
+        rows = self.env['grid.tie.inverter'].search([('device_id', '=', self.device.id)], order='record_date')
+        for row, value in zip(rows, [9, 10, 11]):
+            row.energy_total = value
+        record = self.summarize()
+        self.assertEqual(record.energy_kwh, 2)
+        old_power = record.power_energy
+        rows[0].unlink()
+        record = self.summarize()
+        self.assertEqual(record.energy_kwh, 2)
+        self.assertEqual(record.power_energy, old_power)
+
+    def test_hour_series_for_raw_expression_never_opens_missing_summary_model(self):
+        from odoo.addons.smartsolar_ai.domain.enums import Granularity, AggregationType
+        self.samples([0, 60, 3600, 3660])
+        points = self.service._repo.fetch_series(MetricRegistry.get('total_load_power'),
+            TimeRange(self.start, self.start + timedelta(hours=2)),
+            AggregationType.MAX, Granularity.HOUR, system_id=self.system.id)
+        self.assertEqual([point.ts_utc for point in points], [self.start, self.start + timedelta(hours=1)])
+        self.assertEqual([point.value for point in points], [1500, 1500])

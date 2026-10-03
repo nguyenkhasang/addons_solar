@@ -354,7 +354,7 @@ class SmartSolarSystem(models.Model):
         daily_days = _to_int(ICP.get_param('smartsolar.daily_retention_days', '0'), 0)
 
         if raw_days > 0:
-            cutoff = now - timedelta(days=raw_days)
+            cutoff = (now - timedelta(days=raw_days)).replace(minute=0, second=0, microsecond=0)
             for table in ('charge_power', 'grid_tie_inverter'):
                 self.env.cr.execute(
                     f"DELETE FROM {table} WHERE record_date < %s", [cutoff]

@@ -18,7 +18,7 @@ User → AI Planner (Ollama/LM Studio/OpenAI) → Tool Layer
 Sai (không mở rộng được): `today_report()`, `compare_week()`, `get_battery()`...
 Mỗi câu hỏi mới lại phải viết hàm mới.
 
-Đúng (dùng cho vô số câu hỏi): 12 tool tổng quát, **metric là tham số**.
+Đúng (dùng cho vô số câu hỏi): 13 tool tổng quát, **metric là tham số**.
 
 | Tool | Trả lời lớp câu hỏi |
 |---|---|
@@ -87,7 +87,7 @@ services/       Business logic thuần — nhận tham số có kiểu, trả DT
 
 tools/          Lớp bọc MỎNG, ổn định — không có business logic
   base_tool.py    Tool ABC + phong bì {ok, data, meta, error}
-  solar_tools.py  12 tool
+  solar_tools.py  13 tool
   registry.py     ToolRegistry — điểm vào cho mọi adapter
 
 adapters/       Dịch giao thức (đọc chung từ ToolRegistry.specs())
@@ -172,21 +172,21 @@ POST /solar/ai/mcp {method, params}  → MCP
 ## 7. Metric chưa đủ cảm biến
 
 `grid_dependency_pct` hiện có `supported=false`: hai counter đã xác định được chiều nhưng
-`limiter_total` chưa có summary dài hạn. Tool trả `value=null`, `available=false` thay vì
-so sánh hai nguồn có cửa sổ dữ liệu không đồng nhất.
+công-tơ có thể đứng yên hoặc mất mẫu. Tool trả `value=null`, `available=false` cho KPI này
+cho tới khi có kiểm tra chất lượng đồng nhất giữa hai nguồn.
 
 Các metric và giới hạn liên quan:
 
 - `grid_import_energy_total` đọc `energy_total` và dùng được summary `energy_total_end`.
 - `energy_exported_total` giữ key cũ để tương thích nhưng đọc `limiter_total`; metric này
-  chỉ truy vấn được trong thời gian còn dữ liệu raw vì chưa có cột summary tương ứng.
+  dùng summary `limiter_energy_kwh` và `limiter_total_end` khi raw đã hết hạn.
 - `grid_export_energy` không có công-tơ thật; `self_consumption_pct` phụ thuộc biến này nên
   cũng trả `available=false`, không ánh xạ sang counter khác làm placeholder.
 - `MetricSpec.flow` phân biệt rõ điện inverter phát ra với điện lấy từ lưới;
   `MetricSpec.unreliable` công bố các giả định chưa được xác minh cho LLM.
 
-Chỉ chuyển `grid_dependency_pct` sang `supported=true` sau khi bổ sung summary cho
-`limiter_total`, để hai nhánh luôn được so sánh trên cùng khoảng dữ liệu.
+Chỉ chuyển `grid_dependency_pct` sang `supported=true` sau khi kiểm chứng chất lượng
+hai công-tơ và cùng phạm vi dữ liệu; chưa dùng kWh ước tính như số đo chắc chắn.
 
 ---
 
@@ -270,9 +270,9 @@ Dùng hình thang giữa hai mẫu cách nhau tối đa 300 giây, cắt đoạn
 khoảng yêu cầu; không ngoại suy hoặc nối qua khoảng mất dữ liệu. Không có
 đoạn hợp lệ thì `value=null`, `available=false`, không trả 0 giả.
 `coverage_pct` và `per_device` mô tả thời gian thực sự được tích phân trên
-thiết bị có dữ liệu; không xác nhận đủ mọi thiết bị cấu hình. Chỉ hỗ trợ raw
-với khoảng truy vấn tối đa 31 ngày; dữ liệu cũ đã dọn không được khôi phục từ
-công suất trung bình. Không lấy kWh chia cho độ phủ để tự đoán tổng toàn kỳ.
+thiết bị có dữ liệu; không xác nhận đủ mọi thiết bị cấu hình. Summary v4 giữ
+kWh ước tính và độ phủ sau khi raw hết hạn. Summary cũ thiếu metadata không được
+khôi phục bằng cách lấy trung bình nhân thời gian. Không lấy kWh chia cho độ phủ để tự đoán tổng toàn kỳ.
 
 ### Tìm cực trị và thời điểm bằng `get_extrema`
 
@@ -286,12 +286,44 @@ Nếu nhiều thiết bị, tổng chỉ tính tại thời điểm có mẫu đ
 bị xuất hiện trong phạm vi. Không có mẫu đồng thời thì unavailable; có thể chọn
 `device_id` để xem riêng. Kết quả không xác nhận đủ thiết bị cấu hình hoặc mọi
 khoảng thời gian giữa các mẫu. Mẫu đỉnh bằng nhau: chọn thời điểm sớm nhất.
-Raw đã dọn thì unavailable, không suy thời điểm từ summary theo giờ. COUNTER/DERIVED dùng aggregate,
+Raw đã dọn thì chỉ dùng thời điểm mẫu gốc được lưu trong metadata v4; summary cũ không có thời điểm thì unavailable. COUNTER/DERIVED dùng aggregate,
 không dùng extrema để suy điện năng. Chuỗi RAW hiện vẫn gom theo phút rồi rút
 điểm, nên không dùng chuỗi trả về để xác định chính xác thời điểm đỉnh raw.
 
 
+### Summary metadata v4
 
-### Ngữ cảnh báo cáo và kỳ so sánh
+Hourly and local-day device summaries preserve power-derived kWh with observed
+coverage (trapezoids, maximum 300-second gap), exact sample extrema/timestamps,
+weighted scalar statistics and explicit counter-quality metadata. Estimated kWh
+is separate from measured counter delta; missing time is never filled with zero.
+`get_extrema` can use these retained extrema after raw deletion. Per-device
+historical peaks cannot reconstruct a synchronized multi-device system peak.
 
-Context cung cấp đơn giá dashboard đã lưu qua allowlist; thiếu/không hợp lệ trả null, không đoán biểu giá. compare_periods trả period_alignment phân biệt thời lượng yêu cầu với độ phủ số đo.
+Readers prefer complete retained hours, durable days when hours have expired,
+and raw for missing buckets/partial edges, without overlap. Legacy metadata is
+unknown; it does not imply zero energy or a timestamp equal to bucket start.
+Counter validity flags distinguish a missing payload field from an explicit zero;
+legacy zero values remain ambiguous. A decrease is an assumed counter reset.
+Quality payloads are bounded to one object per device, rather than one per hour.
+
+After module upgrade, explicitly run
+`env['smartsolar.system']._backfill_summaries(days=30)` in an Odoo maintenance
+transaction to enrich retained raw. Do not rebuild a bucket from fewer samples
+than its retained summary. Existing v4 boundary estimates/deltas are preserved
+when preceding raw has expired. Metadata cannot be recovered from deleted raw.
+The daily cron is scheduled at 00:35 Vietnam (17:35 UTC), replays recent completed
+local days, and runs hourly aggregation first. Raw purge follows successful
+aggregation and retains the complete oldest UTC hour.
+
+
+`get_system_context` có `reporting_settings.electricity_price`: chỉ đọc allowlist
+đơn giá dashboard đã lưu và ký hiệu tiền. Giá thiếu/không hợp lệ là null,
+`available=false`; số 0 chỉ được dùng khi đã cấu hình rõ. Giá này là giả định
+ước tính, không phải biểu giá điện lực/bậc thang/thuế đã xác minh. Chi phí mua
+điện dùng điện lưới; tiết kiệm cần phần solar thực sự thay thế điện lưới.
+
+`compare_periods` trả `period_alignment` gồm độ dài A/B và `equal_duration`.
+Độ dài khoảng truy vấn khác với coverage số đo: mất mẫu không biến hai kỳ cùng
+độ dài thành hai kỳ lệch số ngày. Chuỗi xu hướng ngắn vẫn giữ thống kê toàn
+khoảng; `truncated` và số mẫu gốc cho biết việc rút gọn, cực trị dùng `get_extrema`.

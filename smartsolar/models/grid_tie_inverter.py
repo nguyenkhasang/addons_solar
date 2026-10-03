@@ -8,6 +8,8 @@ class GridTieInverter(models.Model):
     _description = 'Dữ liệu Grid Tie Inverter từ thiết bị'
     _order = 'server_time desc, create_date desc'
 
+    counter_validity = fields.Json(string='Tính hợp lệ công-tơ từ payload')
+
     # Thông tin thiết bị
     device_guid = fields.Char(string='Device GUID', required=True, index=True)
     device_type = fields.Integer(string='Loại thiết bị')
@@ -79,6 +81,14 @@ class GridTieInverter(models.Model):
 
         stream_dict = {item.get('name'): item.get('value') for item in data_streams}
 
+        from .summary_math import finite
+        declared = (last_message.get('counterValidity') or {})
+        validity = {}
+        raw_value = stream_dict.get('energy_total')
+        validity['energy_total'] = declared.get('energy_total', finite(raw_value) and float(raw_value) >= 0)
+        raw_value = stream_dict.get('limmiter_total', stream_dict.get('limiter_total'))
+        validity['limiter_total'] = declared.get('limiter_total', finite(raw_value) and float(raw_value) >= 0)
+
         server_time = api_data.get('serverTime', 0)
         try:
             record_date = datetime.utcfromtimestamp(server_time) if server_time else datetime.utcnow()
@@ -111,6 +121,7 @@ class GridTieInverter(models.Model):
             'status': str(stream_dict.get('status', '')) if stream_dict.get('status') is not None else '',
             'system_id': system_id,
             'device_id': device_id,
+            'counter_validity': validity,
         }
 
         return self.create(values)

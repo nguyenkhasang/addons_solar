@@ -191,6 +191,9 @@ class AnalyticsService:
                     'count': stats['count'] or energy['count'],
                     'available': available,
                     'source': energy['source'],
+                    'counter_quality': energy.get('counter_quality', []),
+                    'quality_known': energy.get('quality_known', False),
+                    'data_note': energy.get('note'),
                     'reason': None if available else 'Không có dữ liệu trong khoảng yêu cầu.',
                 }
             else:

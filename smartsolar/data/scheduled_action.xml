@@ -52,6 +52,7 @@
             <field name="interval_number">1</field>
             <field name="interval_type">days</field>
             <field name="active" eval="True"/>
+            <field name="nextcall" eval="(DateTime.now().replace(hour=17, minute=35, second=0, microsecond=0) + timedelta(days=int(DateTime.now().hour &gt; 17 or (DateTime.now().hour == 17 and DateTime.now().minute &gt;= 35)))).strftime('%Y-%m-%d %H:%M:%S')"/>
         </record>
 
         <record id="ir_cron_purge_old_data" model="ir.cron">

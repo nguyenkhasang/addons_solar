@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Smart Solar',
-    'version': '19.0.2.0.1',
+    'version': '19.0.3.0.0',
     'category': 'Custom',
     'summary': 'Quan ly he thong nang luong mat troi',
     'description': """

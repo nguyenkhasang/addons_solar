@@ -87,7 +87,8 @@ class TestDomain(TransactionCase):
         grid_import = MetricRegistry.get('grid_import_energy_total')
 
         self.assertEqual(inverter.raw_field, 'limiter_total')
-        self.assertIsNone(inverter.summary_model)
+        self.assertEqual(inverter.summary_model, 'grid.tie.inverter.summary')
+        self.assertEqual(inverter.summary_field, 'limiter_total_end')
         self.assertEqual(grid_import.raw_field, 'energy_total')
         self.assertEqual(grid_import.summary_model, 'grid.tie.inverter.summary')
         self.assertEqual(grid_import.summary_field, 'energy_total_end')
@@ -116,7 +117,7 @@ class TestDomain(TransactionCase):
         grid_dependency = metrics['grid_dependency_pct']
         self.assertFalse(grid_dependency['supported'])
         self.assertTrue(grid_dependency['unreliable'])
-        self.assertIn('Chưa có summary', grid_dependency['note'])
+        self.assertIn('kiểm chứng chất lượng', grid_dependency['note'])
         self.assertEqual(
             grid_dependency['depends_on'],
             ['grid_import_energy', 'inverter_energy'])
@@ -354,7 +355,7 @@ class TestToolLayer(TransactionCase):
         metric = env['data']['metrics']['grid_dependency_pct']
         self.assertFalse(metric['available'])
         self.assertIsNone(metric['value'])
-        self.assertIn('Chưa có summary', metric['reason'])
+        self.assertIn('kiểm chứng chất lượng', metric['reason'])
 
     def test_unsupported_derived_timeseries_has_no_fake_point(self):
         env = self.reg.execute(

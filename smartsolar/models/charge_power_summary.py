@@ -9,11 +9,12 @@ _logger = logging.getLogger(__name__)
 
 HOURLY_BUFFER_HOURS = 48
 DAILY_BUFFER_DAYS = 7
-AGGREGATION_VERSION = 3
+AGGREGATION_VERSION = 4
 
 
 class ChargePowerSummary(models.Model):
     _name = 'charge.power.summary'
+    _inherit = 'smartsolar.summary.quality'
     _description = 'Tổng hợp Charge Power (giờ/ngày)'
     _order = 'bucket_start desc'
 
@@ -73,6 +74,7 @@ class ChargePowerSummary(models.Model):
 
     @api.model
     def _aggregate_hourly(self, lookback_hours=None):
+        self.env.flush_all()
         now = fields.Datetime.now()
         end_bucket = now.replace(minute=0, second=0, microsecond=0)
         hours = max(1, int(lookback_hours or HOURLY_BUFFER_HOURS))
@@ -179,15 +181,24 @@ class ChargePowerSummary(models.Model):
                 counter_reset_count = EXCLUDED.counter_reset_count,
                 temperature_avg = EXCLUDED.temperature_avg,
                 temperature_max = EXCLUDED.temperature_max,
-                write_date = NOW() AT TIME ZONE 'UTC';
+                write_date = NOW() AT TIME ZONE 'UTC'
+            WHERE EXCLUDED.sample_count >= charge_power_summary.sample_count
+              AND (charge_power_summary.quality_version < 4
+                   OR EXCLUDED.sample_count > charge_power_summary.sample_count
+                   OR EXISTS (SELECT 1 FROM charge_power prior
+                               WHERE prior.device_id = EXCLUDED.device_id
+                                 AND prior.record_date < EXCLUDED.bucket_start));
         """, [
             start_bucket, end_bucket, start_bucket, end_bucket, start_bucket,
             sync_interval, AGGREGATION_VERSION, start_bucket, end_bucket,
         ])
+        self.invalidate_model()
+        self._enrich_hourly(start_bucket, end_bucket)
         _logger.info('[charge.power] Aggregated hourly: %s buckets', self.env.cr.rowcount)
 
     @api.model
     def _aggregate_daily(self, lookback_days=None):
+        self.env.flush_all()
         now = fields.Datetime.now()
         days = max(1, int(lookback_days or DAILY_BUFFER_DAYS))
         scan_start = now - timedelta(days=days + 2)
@@ -307,8 +318,11 @@ class ChargePowerSummary(models.Model):
                 counter_reset_count = EXCLUDED.counter_reset_count,
                 temperature_avg = EXCLUDED.temperature_avg,
                 temperature_max = EXCLUDED.temperature_max,
-                write_date = NOW() AT TIME ZONE 'UTC';
+                write_date = NOW() AT TIME ZONE 'UTC'
+            WHERE EXCLUDED.sample_count >= charge_power_summary.sample_count;
         """, [
             now, scan_start, now, days, AGGREGATION_VERSION,
         ])
+        self.invalidate_model()
+        self._enrich_daily(scan_start, now)
         _logger.info('[charge.power] Aggregated daily: %s buckets', self.env.cr.rowcount)

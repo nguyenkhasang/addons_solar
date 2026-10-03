@@ -8,6 +8,8 @@ class ChargePower(models.Model):
     _description = 'Dữ liệu công suất sạc từ thiết bị'
     _order = 'server_time desc, create_date desc'
 
+    counter_validity = fields.Json(string='Tính hợp lệ công-tơ từ payload')
+
     # Thông tin thiết bị
     device_guid = fields.Char(string='Device GUID', required=True, index=True)
     device_type = fields.Integer(string='Loại thiết bị')
@@ -75,6 +77,12 @@ class ChargePower(models.Model):
 
         stream_dict = {item.get('name'): item.get('value') for item in data_streams}
 
+        from .summary_math import finite
+        declared = (last_message.get('counterValidity') or {})
+        validity = {}
+        raw_value = stream_dict.get('total_kwh')
+        validity['total_kwh'] = declared.get('total_kwh', finite(raw_value) and float(raw_value) >= 0)
+
         server_time = api_data.get('serverTime', 0)
         try:
             record_date = datetime.utcfromtimestamp(server_time) if server_time else datetime.utcnow()
@@ -105,6 +113,7 @@ class ChargePower(models.Model):
             'status': str(stream_dict.get('status', '')) if stream_dict.get('status') is not None else '',
             'system_id': system_id,
             'device_id': device_id,
+            'counter_validity': validity,
         }
 
         return self.create(values)

@@ -1,3 +1,4 @@
+from . import summary_quality
 from . import smartsolar_system
 from . import smartsolar_device
 from . import charge_power

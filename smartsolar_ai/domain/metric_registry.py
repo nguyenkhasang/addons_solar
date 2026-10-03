@@ -178,8 +178,8 @@ _METRICS = {
         unit='kWh',
         kind=MetricKind.COUNTER, default_aggregation=AggregationType.LAST,
         raw_model='grid.tie.inverter', raw_field='limiter_total',
-        note=('Counter này hiện chỉ có dữ liệu raw, chưa có summary dài hạn; khoảng '
-              'xa có thể không còn dữ liệu.'),
+        summary_model='grid.tie.inverter.summary', summary_field='limiter_total_end',
+        note='Delta hòa lưới được giữ trong summary; kiểm tra counter_quality khi công-tơ đứng yên.',
         flow=('Điện từ PV và/hoặc pin qua Grid Tie Inverter, đổi thành 220 V AC cấp '
               'tải (tích lũy). Tên bắt buộc: ĐIỆN HÒA LƯỚI. Dù key có chữ '
               '"exported", đây KHÔNG phải điện bán lên lưới. Nguồn DB: limiter_total'),
@@ -345,16 +345,14 @@ _METRICS = {
         kind=MetricKind.DERIVED,
         depends_on=('grid_import_energy', 'inverter_energy'),
         supported=False,
-        note=('CẢNH BÁO: Chưa có summary cho counter inverter limiter_total trên '
-              'khoảng dài. Metric này hiện không khả dụng để tránh so sánh hai '
-              'nguồn có phạm vi dữ liệu không đồng nhất.'),
+        note=('KPI chưa khả dụng: cần kiểm chứng chất lượng và độ phủ của cả hai '
+              'công-tơ trước khi so sánh, nhất là khi counter không cập nhật.'),
         # Phụ thuộc lưới = điện lấy từ lưới / tổng tiêu thụ * 100,
         # với tổng tiêu thụ = điện lấy lưới + điện inverter tự cấp.
         formula=lambda c: _safe_div(
             c.get('grid_import_energy', 0.0),
             c.get('grid_import_energy', 0.0) + c.get('inverter_energy', 0.0)) * 100.0,
-        # Hai counter đã xác định được chiều, nhưng limiter_total chưa có summary.
-        # Giữ unavailable cho tới khi hai nguồn có cùng cửa sổ lưu trữ dài hạn.
+        # Hai counter đã có summary nhưng vẫn cần quality gate cho KPI chính xác.
         unreliable=True,
     ),
 }

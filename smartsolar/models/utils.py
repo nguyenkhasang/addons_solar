@@ -83,6 +83,12 @@ def mqsolar_message_to_legacy_api_data(raw_data):
         streams = []
         device_type_value = 0
 
+    from .summary_math import finite
+    sources = {'energy_total': payload.get('energy_total'), 'limiter_total': limiter_total if device_type == 'grid_tie_inverter' else None}
+    if device_type == 'charge_power':
+        sources = {'total_kwh': payload.get('total_kwh')}
+    counter_validity = {key: finite(value) and float(value) >= 0 for key, value in sources.items()}
+
     return {
         'deviceGuid': str(device_id),
         'deviceType': device_type_value,
@@ -97,5 +103,6 @@ def mqsolar_message_to_legacy_api_data(raw_data):
             'signalQuality': payload.get('signal_quality') or payload.get('signalQuality') or 0,
             'messagesCounter': payload.get('messages_counter') or payload.get('messagesCounter') or 0,
             'dataStreams': streams,
+            'counterValidity': counter_validity,
         },
     }

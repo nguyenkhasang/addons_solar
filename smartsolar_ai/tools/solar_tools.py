@@ -82,7 +82,7 @@ class GetSnapshotTool(Tool):
 
 class GetExtremaTool(Tool):
     name = 'get_extrema'
-    description = ('Tìm giá trị cao nhất/thấp nhất VÀ thời điểm chính xác trên mẫu gốc còn lưu '
+    description = ('Tìm giá trị cao nhất/thấp nhất VÀ thời điểm chính xác trên mẫu gốc và metadata summary còn lưu '
                    'trong khoảng, trả kết quả ngắn không tải chuỗi. Câu hỏi tổng tải cao nhất '
                    'lúc nào: metric=total_load_power. Không cộng cực đại riêng của hai nhánh '
                    'và không dùng chuỗi rút gọn để tìm đỉnh. Mẫu bằng nhau trả thời điểm sớm nhất.')

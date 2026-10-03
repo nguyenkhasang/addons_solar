@@ -232,3 +232,27 @@ class TestSummaryAggregation(TransactionCase):
                 with self.env.cr.savepoint():
                     self.env['smartsolar.system']._cron_purge_old_data()
         self.assertTrue(raw.exists())
+
+    def test_converter_marks_missing_counter_and_valid_zero_separately(self):
+        for topic, model, field in [('grid_tie_inverter/data', 'grid.tie.inverter', 'energy_total'),
+                                    ('mppt_charger/data', 'charge.power', 'total_kwh')]:
+            for payload, expected in [({'temperature': 10}, False),
+                                      ({'temperature': 10, field: 0}, True)]:
+                converted = mqsolar_message_to_legacy_api_data({
+                    'deviceId': self.device.device_guid, 'topic': topic, 'payload': payload})
+                record = self.env[model].create_from_api_data(converted, system_id=self.system.id,
+                                                            device_id=self.device.id)
+                self.assertIs(record.counter_validity[field], expected)
+
+    def test_charge_counter_missing_zero_is_not_a_false_reset(self):
+        hour = fields.Datetime.now().replace(minute=0, second=0, microsecond=0)-timedelta(hours=1)
+        for minute, value, validity in [(0, 10, True), (1, 0, False), (2, 11, True), (3, 0, True), (4, 2, True)]:
+            self.env['charge.power'].create({
+                'device_id': self.device.id, 'system_id': self.system.id, 'record_date': hour+timedelta(minutes=minute),
+                'device_guid': self.device.device_guid, 'total_kwh': value, 'counter_validity': {'total_kwh': validity}})
+        self.env['charge.power.summary']._aggregate_hourly(2)
+        record = self.env['charge.power.summary'].search([
+            ('device_id', '=', self.device.id), ('bucket_type', '=', 'hour'), ('bucket_start', '=', hour)])
+        self.assertAlmostEqual(record.energy_kwh, 3)
+        self.assertEqual(record.counter_reset_count, 1)
+        self.assertEqual(record.counter_quality['total_kwh']['invalid_samples'], 1)

@@ -107,9 +107,9 @@ class MetricRepository(BaseRepository):
         aggregation = self.resolve_aggregation(spec, aggregation)
         gran = self.resolve_granularity(spec, time_range, granularity)
 
-        if gran == Granularity.RAW:
+        if gran == Granularity.RAW or spec.summary_model is None:
             return self._fetch_series_raw(
-                spec, time_range, aggregation, device_id, system_id)
+                spec, time_range, aggregation, device_id, system_id, gran)
         if gran == Granularity.HOUR and spec.summary_bucket == 'hour':
             return self._fetch_series_hour_hybrid(
                 spec, time_range, aggregation, device_id, system_id)
@@ -118,31 +118,55 @@ class MetricRepository(BaseRepository):
 
     def _fetch_series_hour_hybrid(self, spec, time_range, aggregation,
                                   device_id, system_id):
-        """Use summary for complete hours and raw for the two partial edges."""
-        full_start = time_range.start_utc.replace(minute=0, second=0, microsecond=0)
-        if full_start < time_range.start_utc:
+        """Merge summary and raw per device/hour without gaps or double counting."""
+        raw_table = self.env[spec.raw_model]._table
+        summary_table = self.env[spec.summary_model]._table
+        start, end = time_range.start_utc, time_range.end_utc
+        full_start = start.replace(minute=0, second=0, microsecond=0)
+        if full_start < start:
             full_start += timedelta(hours=1)
-        full_end = time_range.end_utc.replace(minute=0, second=0, microsecond=0)
-        if full_start >= full_end:
-            return self._fetch_series_raw(
-                spec, time_range, aggregation, device_id, system_id,
-                Granularity.HOUR)
-        points = []
-        if time_range.start_utc < min(full_start, time_range.end_utc):
-            edge = TimeRange(time_range.start_utc, min(full_start, time_range.end_utc))
-            points.extend(self._fetch_series_raw(
-                spec, edge, aggregation, device_id, system_id, Granularity.HOUR))
-        if full_start < full_end:
-            middle = TimeRange(full_start, full_end)
-            points.extend(self._fetch_series_summary(
-                spec, middle, aggregation, Granularity.HOUR, device_id, system_id))
-        right_start = max(full_end, time_range.start_utc)
-        # If there is no complete hour, the left edge already covered everything.
-        if full_start < full_end and right_start < time_range.end_utc:
-            edge = TimeRange(right_start, time_range.end_utc)
-            points.extend(self._fetch_series_raw(
-                spec, edge, aggregation, device_id, system_id, Granularity.HOUR))
-        return sorted(points, key=lambda point: point.ts_utc)
+        full_end = end.replace(minute=0, second=0, microsecond=0)
+        filters, extra = [], []
+        for field, value in [('device_id', device_id), ('system_id', system_id)]:
+            if value:
+                filters.append(field + ' = %s')
+                extra.append(value)
+        scope = (' AND ' + ' AND '.join(filters)) if filters else ''
+        col = spec.summary_field
+        if aggregation == AggregationType.MAX:
+            col = spec.summary_max_field or col
+        # Metadata stores actual extrema, not extrema of hourly averages.
+        if aggregation in (AggregationType.MIN, AggregationType.MAX):
+            kind = 'min' if aggregation == AggregationType.MIN else 'max'
+            col = "COALESCE((metric_extrema->'{key}'->'{kind}'->>'value')::double precision, {col})".format(
+                key=spec.key, kind=kind, col=col)
+        if aggregation == AggregationType.FIRST and spec.kind == MetricKind.COUNTER:
+            col = spec.raw_field + '_start'
+        raw_expr = self._aggregation_expr(spec.raw_field, aggregation, 'record_date')
+        if aggregation == AggregationType.AVG:
+            merged = 'SUM(value * n) / NULLIF(SUM(n), 0)'
+        elif spec.kind == MetricKind.COUNTER and aggregation in (AggregationType.FIRST, AggregationType.LAST):
+            merged = 'SUM(value)'
+        else:
+            merged = self._aggregation_expr('value', aggregation, 'bucket')
+        sql = """
+            WITH selected AS (
+                SELECT bucket_start AS bucket, device_id, {col} AS value, sample_count AS n
+                  FROM {summary} WHERE bucket_type = 'hour'
+                   AND bucket_start >= %s AND bucket_start < %s {scope}
+            ), raw_missing AS (
+                SELECT date_trunc('hour', record_date) AS bucket, device_id,
+                       {raw_expr} AS value, COUNT(*) AS n
+                  FROM {raw} r WHERE record_date >= %s AND record_date < %s {scope}
+                   AND NOT EXISTS (SELECT 1 FROM selected s WHERE s.device_id = r.device_id
+                                    AND s.bucket = date_trunc('hour', r.record_date))
+              GROUP BY date_trunc('hour', record_date), device_id
+            ), merged AS (SELECT * FROM selected UNION ALL SELECT * FROM raw_missing)
+            SELECT bucket, {merged} FROM merged GROUP BY bucket ORDER BY bucket
+        """.format(col=col, summary=summary_table, scope=scope, raw=raw_table,
+                   raw_expr=raw_expr, merged=merged)
+        self.env.cr.execute(sql, [full_start, full_end] + extra + [start, end] + extra)
+        return [DataPoint(row[0], float(row[1])) for row in self.env.cr.fetchall() if row[1] is not None]
 
     def _bucket_expr(self, gran: Granularity, date_col: str) -> str:
         """Sinh biểu thức date_trunc tương ứng độ phân giải (phút/giờ/ngày)."""
@@ -326,6 +350,19 @@ class MetricRepository(BaseRepository):
         Nếu raw trả count=0 và metric có bảng summary -> tự fallback sang
         summary (bảng đã tổng hợp sẵn cho khoảng dài, tránh trả 0 giả).
         """
+        if spec.kind == MetricKind.INSTANTANEOUS:
+            segments = self._quality_segments(spec, time_range, device_id, system_id)
+            if segments is not None:
+                stats = [item['data']['metric_statistics'][spec.key] for item in segments
+                         if spec.key in item['data']['metric_statistics']]
+                if stats:
+                    count = sum(item['count'] for item in stats)
+                    total = sum(item['sum'] for item in stats)
+                    return {'avg': total / count, 'sum': total,
+                            'min': min(item['min'] for item in stats),
+                            'max': max(item['max'] for item in stats),
+                            'first': min(stats, key=lambda item: item['first_at'])['first'],
+                            'last': max(stats, key=lambda item: item['last_at'])['last'], 'count': count}
         raw = self._fetch_scalar_raw(spec, time_range, device_id, system_id)
         if raw['count'] > 0 or spec.kind == MetricKind.COUNTER:
             return raw
@@ -349,6 +386,9 @@ class MetricRepository(BaseRepository):
         if system_id:
             where.append("system_id = %s")
             params.append(system_id)
+        if spec.kind == MetricKind.COUNTER and spec.has_device:
+            where.append("{field} >= 0 AND (counter_validity->>'{field}') IS DISTINCT FROM 'false' "
+                         "AND ({field} <> 0 OR counter_validity->>'{field}' = 'true')".format(field=f))
         whr = ' AND '.join(where)
 
         # Counter của toàn hệ thống phải lấy first/last RIÊNG từng thiết bị rồi
@@ -453,6 +493,108 @@ class MetricRepository(BaseRepository):
             'count': int(row[6]),
         }
 
+    def _quality_segments(self, spec, time_range, device_id=None, system_id=None,
+                          include_legacy=False):
+        """Non-overlapping complete summaries plus raw gaps/partial edges.
+
+        Daily summaries survive hourly retention. Prefer contained days, then
+        contained hours; never count their raw again. Unknown legacy metadata is
+        excluded unless reading its measured counter delta explicitly.
+        """
+        from collections import defaultdict
+        from bisect import bisect_left
+        from odoo.addons.smartsolar.models.summary_math import calculate, counter_is_valid, COUNTERS
+        self.env.flush_all()
+        table = self.env[spec.raw_model]._table
+        if table not in COUNTERS:
+            return None
+        summary = self.env[spec.raw_model + '.summary']
+        start, end = time_range.start_utc, time_range.end_utc
+        domain = [('bucket_start', '>=', start), ('bucket_start', '<', end)]
+        if device_id:
+            domain.append(('device_id', '=', device_id))
+        if system_id:
+            domain.append(('system_id', '=', system_id))
+        if not include_legacy:
+            domain.append(('quality_version', '=', 4))
+        from zoneinfo import ZoneInfo
+        candidates = defaultdict(list)
+        for record in summary.search(domain, order='bucket_type, bucket_start'):
+            left = record.bucket_start
+            if record.bucket_type == 'day':
+                tz = ZoneInfo(record.system_id.timezone or 'Asia/Ho_Chi_Minh')
+                local = left.replace(tzinfo=timezone.utc).astimezone(tz)
+                right = (local + timedelta(days=1)).astimezone(timezone.utc).replace(tzinfo=None)
+            else:
+                right = left + timedelta(hours=1)
+            if right <= end:
+                candidates[record.device_id.id].append((left, right, record))
+        # Read retained raw once. Last valid seeds are fetched per counter by the
+        # summary model; scope is applied before calculations.
+        raw = summary._quality_rows(table, start, end, device_id, system_id)
+        raw = {dev: rows for dev, rows in raw.items()
+               if (not device_id or dev == device_id) and
+               (not system_id or any(row['system_id'] == system_id for row in rows))}
+        devices = set(candidates) | set(raw)
+        result = []
+        for dev in sorted(devices):
+            intervals = []
+            # Prefer fresher hours when the retained hours still contain all
+            # samples represented by a day. Otherwise retain the durable day.
+            available_hours = [item for item in candidates[dev] if item[2].bucket_type == 'hour']
+            day_fallbacks = []
+            for item in candidates[dev]:
+                left, right, record = item
+                if record.bucket_type == 'day' and sum(hour[2].sample_count for hour in available_hours
+                        if left <= hour[0] and hour[1] <= right) >= record.sample_count:
+                    continue
+                day_fallbacks.append(item)
+            # Longest remaining buckets first; reject overlapping shorter buckets.
+            for left, right, record in sorted(day_fallbacks, key=lambda item: (-(item[1]-item[0]).total_seconds(), item[0])):
+                if any(left < old_end and right > old_start for old_start, old_end, _ in intervals):
+                    continue
+                intervals.append((left, right, record))
+            intervals.sort(key=lambda item: item[0])
+            rows = sorted(raw.get(dev, []), key=lambda row: (row['record_date'], row['id']))
+            dates, seed_indices, seeds = [], [], {}
+            for index, row in enumerate(rows):
+                dates.append(row['record_date'])
+                seed_indices.append(dict(seeds))
+                for field in COUNTERS[table]:
+                    if counter_is_valid(row, field):
+                        seeds[field] = index
+            def raw_segment(left, right):
+                if left >= right or not rows:
+                    return
+                lo, hi = bisect_left(dates, left), bisect_left(dates, right)
+                indexes = set(range(max(0, lo-1), min(len(rows), hi+1)))
+                if lo < len(rows):
+                    indexes.update(seed_indices[lo].values())
+                selected = [rows[index] for index in sorted(indexes)]
+                data = calculate(selected, table, left, right)
+                count = hi-lo
+                if count or any(item['covered_seconds'] for item in data['power_energy'].values()):
+                    result.append({'start': left, 'end': right, 'device_id': dev,
+                                   'source': 'raw', 'count': count, 'data': data})
+            cursor = start
+            for left, right, record in intervals:
+                raw_segment(cursor, left)
+                field_map = {'energy_total': ('energy_kwh','energy_total_start','energy_total_end','counter_reset_count'),
+                             'limiter_total': ('limiter_energy_kwh','limiter_total_start','limiter_total_end','limiter_reset_count'),
+                             'total_kwh': ('energy_kwh','total_kwh_start','total_kwh_end','counter_reset_count')}
+                counters = {field: dict(zip(('energy','first','last','resets'),
+                                           [record[name] for name in field_map[field]]))
+                            for field in COUNTERS[table]}
+                result.append({'start': left, 'end': right, 'device_id': dev,
+                               'source': 'summary', 'count': record.sample_count,
+                               'data': {'power_energy': record.power_energy or {},
+                                        'metric_extrema': record.metric_extrema or {},
+                                        'metric_statistics': record.metric_statistics or {},
+                                        'counter_quality': record.counter_quality or {}, 'counters': counters}})
+                cursor = right
+            raw_segment(cursor, end)
+        return result
+
     def fetch_energy_result(self, spec: MetricSpec, time_range: TimeRange,
                             device_id=None, system_id=None) -> dict:
         """Trả năng lượng và trạng thái, phân biệt số 0 thật với thiếu dữ liệu.
@@ -461,80 +603,37 @@ class MetricRepository(BaseRepository):
         summary nằm trọn trong khoảng được dùng; hai mép thời gian đọc raw và
         cộng delta có xử lý counter reset.
         """
-        if spec.summary_model and spec.summary_bucket == 'hour':
-            energy_col = 'energy_kwh'
-            table = self.env[spec.summary_model]._table
-            full_start = time_range.start_utc.replace(minute=0, second=0, microsecond=0)
-            if full_start < time_range.start_utc:
-                full_start += timedelta(hours=1)
-            full_end = time_range.end_utc.replace(minute=0, second=0, microsecond=0)
-            params = [full_start, full_end, spec.summary_bucket]
-            where = ["bucket_start >= %s", "bucket_start < %s", "bucket_type = %s"]
-            if device_id and spec.has_device:
-                where.append("device_id = %s")
-                params.append(device_id)
-            if system_id:
-                where.append("system_id = %s")
-                params.append(system_id)
-            sql = "SELECT SUM({col}), COUNT({col}) FROM {table} WHERE {whr}".format(
-                col=energy_col, table=table, whr=' AND '.join(where))
-            summary_value = 0.0
-            summary_count = 0
-            if full_start < full_end:
-                self.env.cr.execute(sql, params)
-                row = self.env.cr.fetchone() or (None, 0)
-                summary_value = float(row[0] or 0.0)
-                summary_count = int(row[1] or 0)
-
-            if full_start >= full_end:
-                value, count = self._fetch_raw_counter_delta(
-                    spec, time_range.start_utc, time_range.end_utc,
-                    device_id, system_id)
-                if count:
-                    return {
-                        'available': True,
-                        'value': value,
-                        'count': count,
-                        'source': 'raw',
-                    }
-                return {'available': False, 'value': None, 'count': 0, 'source': None}
-
-            raw_value = 0.0
-            raw_count = 0
-            left_end = min(full_start, time_range.end_utc)
-            if time_range.start_utc < left_end:
-                value, count = self._fetch_raw_counter_delta(
-                    spec, time_range.start_utc, left_end, device_id, system_id)
-                raw_value += value
-                raw_count += count
-            right_start = max(full_end, time_range.start_utc)
-            if right_start < time_range.end_utc:
-                value, count = self._fetch_raw_counter_delta(
-                    spec, right_start, time_range.end_utc, device_id, system_id)
-                raw_value += value
-                raw_count += count
-
-            if summary_count or raw_count:
-                return {
-                    'available': True,
-                    'value': summary_value + raw_value,
-                    'count': summary_count + raw_count,
-                    'source': 'summary+raw' if summary_count and raw_count
-                              else ('summary' if summary_count else 'raw'),
-                }
-
-        if spec.kind == MetricKind.COUNTER and spec.has_device:
-            value, count = self._fetch_raw_counter_delta(
-                spec, time_range.start_utc, time_range.end_utc,
-                device_id, system_id)
-            if count:
-                return {
-                    'available': True,
-                    'value': value,
-                    'count': count,
-                    'source': 'raw',
-                }
-
+        segments = self._quality_segments(spec, time_range, device_id, system_id, include_legacy=True)
+        if segments is not None:
+            usable = []
+            qualities = {}
+            for segment in segments:
+                quality = segment['data']['counter_quality'].get(spec.raw_field)
+                if quality:
+                    dest = qualities.setdefault(segment['device_id'], {'device_id': segment['device_id'],
+                        'valid_samples': 0, 'invalid_samples': 0, 'ambiguous_zero_samples': 0,
+                        'reset_count': 0, 'min': None, 'max': None, 'stalled_with_power': False, 'reliable': True})
+                    for field in ('valid_samples', 'invalid_samples', 'ambiguous_zero_samples', 'reset_count'):
+                        dest[field] += quality.get(field, 0)
+                    for field in ('min', 'max'):
+                        values = [v for v in (dest[field], quality.get(field)) if v is not None]
+                        dest[field] = (min(values) if field == 'min' else max(values)) if values else None
+                    dest['stalled_with_power'] |= quality.get('stalled_with_power', False)
+                    dest['reliable'] &= quality.get('reliable', False)
+                    valid = quality['valid_samples']
+                else:
+                    valid = segment['count']
+                if valid:
+                    usable.append(segment)
+            sources = {segment['source'] for segment in usable}
+            return {'available': bool(usable),
+                    'value': sum(segment['data']['counters'][spec.raw_field]['energy'] for segment in usable) if usable else None,
+                    'count': sum(segment['count'] for segment in usable),
+                    'source': '+'.join(sorted(sources)) if sources else None,
+                    'counter_quality': list(qualities.values()),
+                    'quality_known': bool(segments) and all(spec.raw_field in item['data']['counter_quality'] for item in segments),
+                    'note': 'Delta công-tơ trên phần có dữ liệu; giảm chỉ số được giả định là reset. '
+                            'Không xác nhận đủ khoảng nếu có mất mẫu hoặc metadata cũ.'}
         stats = self.fetch_scalar(spec, time_range, device_id, system_id)
         if not stats['count']:
             return {'available': False, 'value': None, 'count': 0, 'source': None}
@@ -554,6 +653,8 @@ class MetricRepository(BaseRepository):
         """
         table = self.env[spec.raw_model]._table
         field = spec.raw_field
+        valid = (" AND {field} >= 0 AND (counter_validity->>'{field}') IS DISTINCT FROM 'false'"
+                 " AND ({field} <> 0 OR counter_validity->>'{field}' = 'true')").format(field=field)
         filters = []
         extra = []
         if device_id and spec.has_device:
@@ -562,7 +663,7 @@ class MetricRepository(BaseRepository):
         if system_id:
             filters.append('system_id = %s')
             extra.append(system_id)
-        suffix = (' AND ' + ' AND '.join(filters)) if filters else ''
+        suffix = ((' AND ' + ' AND '.join(filters)) if filters else '') + valid
         sql = """
             WITH active_devices AS (
                 SELECT DISTINCT device_id
@@ -578,7 +679,7 @@ class MetricRepository(BaseRepository):
                   JOIN LATERAL (
                         SELECT id, device_id, record_date, {field}
                           FROM {table}
-                         WHERE device_id = d.device_id AND record_date < %s
+                         WHERE device_id = d.device_id AND record_date < %s {valid}
                       ORDER BY record_date DESC, id DESC LIMIT 1
                   ) p ON TRUE
             ), ordered AS (
@@ -595,7 +696,7 @@ class MetricRepository(BaseRepository):
                    COUNT(*)
               FROM ordered
              WHERE record_date >= %s AND record_date < %s
-        """.format(table=table, field=field, suffix=suffix)
+        """.format(table=table, field=field, suffix=suffix, valid=valid)
         params = (
             [start_utc, end_utc] + extra
             + [start_utc, end_utc] + extra
@@ -612,6 +713,36 @@ class MetricRepository(BaseRepository):
         are summed only at timestamps with an observation from every device seen
         in the selected scope; asynchronous maxima are never added together.
         """
+        segments = self._quality_segments(spec, time_range, device_id, system_id)
+        if segments is not None and any(item['source'] == 'summary' for item in segments):
+            devices = {item['device_id'] for item in segments}
+            if spec.key == 'total_load_power' and len(devices) > 1:
+                return {'available': False, 'source': 'summary', 'max': None, 'min': None,
+                        'sample_count': sum(item['count'] for item in segments),
+                        'evaluated_observations': 0, 'observed_device_count': len(devices),
+                        'scope': 'synchronized_device_sum',
+                        'reason': 'Summary từng thiết bị không giữ chuỗi đồng thời để xác định đỉnh tổng hệ thống. '
+                                  'Hãy chọn device_id; không cộng các cực trị riêng.'}
+            from ..domain.value_objects import UTC7
+            extrema = {'min': [], 'max': []}
+            for segment in segments:
+                item = segment['data']['metric_extrema'].get(spec.key)
+                if not item:
+                    continue
+                for kind in extrema:
+                    observation = dict(item[kind], device_ids=[segment['device_id']])
+                    at = datetime.fromisoformat(observation['observed_at'])
+                    observation['observed_at'] = at.replace(tzinfo=timezone.utc).astimezone(UTC7).isoformat()
+                    extrema[kind].append(observation)
+            high = min(extrema['max'], key=lambda item: (-item['value'], item['observed_at'])) if extrema['max'] else None
+            low = min(extrema['min'], key=lambda item: (item['value'], item['observed_at'])) if extrema['min'] else None
+            return {'available': bool(high), 'source': '+'.join(sorted({item['source'] for item in segments})),
+                    'max': high, 'min': low, 'sample_count': sum(item['count'] for item in segments),
+                    'evaluated_observations': sum(item['count'] for item in segments),
+                    'observed_device_count': len(devices),
+                    'scope': 'synchronized_device_sum' if spec.key == 'total_load_power' else 'individual_observations',
+                    'reason': None if high else 'Không có metadata cực trị hợp lệ.',
+                    'note': 'Thời điểm là mẫu quan sát gốc, kể cả khi raw đã xóa; không khẳng định phủ đủ khoảng.'}
         from ..domain.value_objects import UTC7
         table = self.env[spec.raw_model]._table
         where = ['record_date >= %s', 'record_date < %s']
@@ -691,64 +822,35 @@ class MetricRepository(BaseRepository):
         five minutes apart. Boundary segments are clipped to the requested range.
         Missing time is excluded, never filled with zero or extrapolated.
         """
-        expressions = {
-            'output_power': 'output_power',
-            'grid_import_power': 'limiter_power',
-            'pv_input': 'charge_power',
-            'total_load_energy': '(output_power + limiter_power)',
-        }
-        if metric not in expressions or time_range.days > 31:
-            return {'value': None, 'available': False, 'reason':
-                    'Ước tính từ công suất chỉ hỗ trợ dữ liệu raw trong khoảng tối đa 31 ngày.'}
-        spec = MetricRegistry.get('output_power' if metric == 'total_load_energy' else metric)
-        table = self.env[spec.raw_model]._table
-        filters = ['record_date >= %s', 'record_date <= %s']
-        params = [time_range.start_utc - timedelta(minutes=5),
-                  time_range.end_utc + timedelta(minutes=5)]
-        for column, value in [('device_id', device_id), ('system_id', system_id)]:
-            if value:
-                filters.append(column + ' = %s')
-                params.append(value)
-        self.env.cr.execute(
-            'SELECT device_id, record_date, ' + expressions[metric] +
-            ' FROM ' + table + ' WHERE ' + ' AND '.join(filters) +
-            ' ORDER BY device_id, record_date, id', params)
-        previous, devices = {}, {}
-        for device, observed, power in self.env.cr.fetchall():
-            old = previous.get(device)
-            previous[device] = (observed, power)
-            if time_range.start_utc <= observed < time_range.end_utc:
-                devices.setdefault(device, {'kwh': 0.0, 'seconds': 0.0})
-            if old is None or old[1] is None or power is None:
-                continue
-            span = (observed - old[0]).total_seconds()
-            if not 0 < span <= 300:
-                continue
-            start = max(old[0], time_range.start_utc)
-            end = min(observed, time_range.end_utc)
-            seconds = (end - start).total_seconds()
-            if seconds <= 0:
-                continue
-            p0 = float(old[1]) + (float(power) - float(old[1])) * (start - old[0]).total_seconds() / span
-            p1 = float(old[1]) + (float(power) - float(old[1])) * (end - old[0]).total_seconds() / span
-            item = devices.setdefault(device, {'kwh': 0.0, 'seconds': 0.0})
-            item['kwh'] += (p0 + p1) / 2 * seconds / 3600000
-            item['seconds'] += seconds
-        duration = (time_range.end_utc - time_range.start_utc).total_seconds()
-        covered = sum(item['seconds'] for item in devices.values())
-        return {
-            'value': round(sum(item['kwh'] for item in devices.values()), 4) if covered else None,
-            'available': bool(covered), 'unit': 'kWh', 'estimated': True,
-            'method': 'trapezoidal_raw_power', 'source': 'raw', 'max_gap_seconds': 300,
-            'coverage_pct': round(covered / (duration * len(devices)) * 100, 2) if devices else 0,
-            'per_device': [{'device_id': device, 'value': round(item['kwh'], 4),
-                            'covered_seconds': item['seconds'],
-                            'coverage_pct': round(item['seconds'] / duration * 100, 2)}
-                           for device, item in devices.items()],
-            'reason': None if covered else 'Không có cặp mẫu công suất liên tiếp đủ gần để tích phân.',
-            'note': 'Chỉ tính phần thời gian có mẫu liên tiếp; không ngoại suy qua khoảng mất dữ liệu. '
-                    'Độ phủ tính trên thiết bị có dữ liệu, không xác nhận đủ mọi thiết bị cấu hình.',
-        }
+        key = 'total_load_power' if metric == 'total_load_energy' else metric
+        if key in ('total_load_power', 'output_power', 'grid_import_power', 'pv_input'):
+            spec = MetricRegistry.get(key)
+            segments = self._quality_segments(spec, time_range, device_id, system_id)
+            devices, sources = {}, set()
+            for segment in segments or []:
+                item = segment['data']['power_energy'].get(key)
+                if not item:
+                    continue
+                dest = devices.setdefault(segment['device_id'], {'kwh': 0.0, 'seconds': 0.0})
+                dest['kwh'] += item.get('value') or 0
+                dest['seconds'] += item.get('covered_seconds') or 0
+                if item.get('covered_seconds'):
+                    sources.add(segment['source'])
+            duration = (time_range.end_utc - time_range.start_utc).total_seconds()
+            covered = sum(item['seconds'] for item in devices.values())
+            return {'value': round(sum(item['kwh'] for item in devices.values()), 4) if covered else None,
+                    'available': bool(covered), 'unit': 'kWh', 'estimated': True,
+                    'method': 'trapezoidal_power', 'source': '+'.join(sorted(sources)) if sources else None,
+                    'max_gap_seconds': 300,
+                    'coverage_pct': round(covered / (duration * len(devices)) * 100, 2) if devices else 0,
+                    'per_device': [{'device_id': dev, 'value': round(item['kwh'], 4),
+                                    'covered_seconds': item['seconds'],
+                                    'coverage_pct': round(item['seconds'] / duration * 100, 2)}
+                                   for dev, item in devices.items()],
+                    'reason': None if covered else 'Không có cặp mẫu gần nhau hoặc metadata summary hợp lệ.',
+                    'note': 'Ước tính trên phần có mẫu liên tiếp cách nhau tối đa 5 phút; không ngoại suy. '
+                            'Độ phủ trên thiết bị có dữ liệu; summary cũ không có metadata không được coi là 0.'}
+        return {'value': None, 'available': False, 'reason': 'Metric không hỗ trợ tích phân công suất.'}
 
     def fetch_energy_detail(self, spec: MetricSpec, time_range: TimeRange,
                             device_id=None, system_id=None) -> dict:
