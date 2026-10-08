@@ -87,3 +87,8 @@
     @keyframes ss_ov_flow_horizontal_reverse { from { transform: translate(0, -50%); } to { transform: translate(-50px, -50%); } }
     @keyframes ss_ov_inverter_breathe { 0%, 100% { transform: scale(1); box-shadow: 0 0 14px var(--ov-inverter-flow); } 50% { transform: scale(1.012); box-shadow: 0 0 22px var(--ov-inverter-flow); } }
 }
+
+.ss_overview_wrap {
+    .ss_ov_estimate { font-size: 11px; color: var(--ov-title); margin-top: 4px; }
+    .ss_ov_balance_note { font-size: 11px; color: var(--ov-title); text-align: center; margin-top: 12px; line-height: 1.5; }
+}

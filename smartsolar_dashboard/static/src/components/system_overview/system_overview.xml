@@ -34,9 +34,19 @@
                 <div class="ss_ov_node ss_ov_battery" t-att-class="{ active: batActive }">
                     <div class="ss_ov_icon_wrap battery" t-att-class="{ active: batActive }"><i class="fa fa-battery-three-quarters ss_ov_fallback_icon"/></div>
                     <div class="ss_ov_label">BATTERY</div>
-                    <div class="ss_ov_value_box"><span class="ss_ov_big"><t t-esc="fmtW(state.bat_w)"/></span><span class="ss_ov_unit">W</span></div>
+                    <div class="ss_ov_estimate" t-att-title="batteryNote"><t t-esc="batteryLabel"/></div>
+                    <div class="ss_ov_value_box" t-att-title="batteryNote"><span class="ss_ov_big"><t t-esc="fmtW(state.bat_flow_w)"/></span><span class="ss_ov_unit">W</span></div>
                     <div class="ss_ov_sub_box"><span><t t-esc="fmtV(state.bat_v)"/>V</span><span class="ss_ov_divider">|</span><span><t t-esc="fmtA(state.bat_a)"/>A</span></div>
+                    <div class="ss_ov_estimate" t-if="state.charger_a !== null" t-att-title="batteryNote">Dòng MPPT: <t t-esc="fmtA(state.charger_a)"/> A</div>
                 </div>
+            </div>
+            <div class="ss_ov_balance_note" t-if="sampleTimesNote">
+                <t t-esc="sampleTimesNote"/>
+                <span t-if="samplesMisaligned"> · Mẫu chưa đồng thời; chờ cập nhật để đối chiếu BMS.</span>
+            </div>
+            <div class="ss_ov_balance_note" t-if="state.inverter_seen and state.charger_seen">
+                <span t-if="controllerDifferenceW !== null">Chênh lệch số liệu PV / MPPT: <t t-esc="fmtW(controllerDifferenceW)"/> W. </span>
+                Chênh lệch này chưa phải tổn hao đã đo. Sạc/xả pin là ước tính, chưa đối chiếu BMS.
             </div>
         </div>
     </t>

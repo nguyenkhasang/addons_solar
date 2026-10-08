@@ -85,13 +85,13 @@ export class SmartSolarDashboard extends Component {
         this._realtimeChannel = null;
         this._realtimeCallback = null;
         this._overviewComponent = null;
-        this._rt = {};
+        this._rt = useState({});
         // Buffer realtime chạy nền — luôn tích lũy dù không ở chế độ Live
         this._rtBuffer = {
             labels: [],
-            gt_output: [], gt_limiter: [], gt_pv: [], gt_charge: [],
+            gt_output: [], gt_limiter: [], gt_pv: [], gt_charge: [], gt_observed_at: [],
             cp_charge: [], cp_pv_v: [], cp_bat_v: [], cp_pv_input: [],
-            bat_v: [], bat_v_min: [], bat_a: [],
+            bat_v: [], bat_v_min: [], bat_a: [], bat_net_a: [], bat_net_w: [],
             eff_pv_in: [], eff_charge: [], eff_pct: [],
             temp_map: {}, // { device_guid: { label, data[] } }
         };
@@ -139,7 +139,7 @@ export class SmartSolarDashboard extends Component {
         this.state.loading = true;
         try {
             const data = await rpc("/smartsolar/dashboard/data", {
-                time_range: this.state.timeRange,
+                time_range: this.state.timeRange === "realtime" ? "2min" : this.state.timeRange,
                 system_id: this.state.systemId,
             });
             if (data && data.error) {
@@ -237,7 +237,20 @@ export class SmartSolarDashboard extends Component {
     async onSystemChange(ev) {
         const val = ev.target.value;
         this.state.systemId = val ? parseInt(val, 10) : null;
+        this._stopRealtime();
+        for (const key of Object.keys(this._rt)) delete this._rt[key];
+        for (const value of Object.values(this._rtBuffer)) {
+            if (Array.isArray(value)) value.length = 0;
+        }
+        this._rtBuffer.temp_map = {};
+        if (this._overviewComponent) {
+            for (const [key, value] of Object.entries(this._overviewComponent.state)) {
+                this._overviewComponent.state[key] = typeof value === 'boolean' ? false : (typeof value === 'string' ? '' : null);
+            }
+            this._overviewComponent._updateBatteryFlow();
+        }
         await this._refresh();
+        await this._startRealtime();
     }
 
     onManualRefresh() {
@@ -302,13 +315,9 @@ export class SmartSolarDashboard extends Component {
 
         this._realtimeChannel = channel;
         this._realtimeCallback = (payload) => {
-            if (this._overviewComponent) {
-                this._overviewComponent.updateFromRealtime(payload);
-            }
-            if (this.state.timeRange === "realtime") {
-                this._appendRealtimePoint(payload);
-                this.state.lastRefresh = new Date();
-            }
+            if (this.state.systemId && payload.system_id !== this.state.systemId) return;
+            this._appendRealtimePoint(payload);
+            this.state.lastRefresh = new Date();
         };
         await this.busService.addChannel(channel);
         this.busService.subscribe("smartsolar_data", this._realtimeCallback);
@@ -333,45 +342,47 @@ export class SmartSolarDashboard extends Component {
 
         const _push = (arr, val) => { arr.push(val); if (arr.length > MAX) arr.shift(); };
 
-        // Cập nhật realtime cache cho Live Status
         if (msg.device_type === "grid_tie_inverter") {
-            this._rt.grid_out_w = msg.output_power || 0;
-            this._rt.grid_in_w = msg.limiter_power || 0;
+            this._rt.grid_out_w = msg.output_power ?? 0;
+            this._rt.grid_in_w = msg.limiter_power ?? 0;
+            this._rt.inverter_seen = true;
+            this._rt.inverter_at = msg.label || "";
+            this._rt.inverter_system = msg.system_id;
         }
         if (msg.device_type === "charge_power") {
-            this._rt.pv_w = msg.pv_input_power || 0;
-            this._rt.charge_w = msg.charge_power || 0;
-            this._rt.bat_v = msg.bat_voltage || 0;
-            this._rt.bat_a = msg.bat_current || 0;
+            this._rt.pv_w = msg.pv_input_power ?? msg.charge_power ?? 0;
+            this._rt.bat_v = msg.bat_voltage ?? null;
+            this._rt.bat_a = msg.bat_current ?? null;
+            this._rt.pv_v = msg.pv_voltage ?? null;
+            this._rt.charger_seen = true;
+            this._rt.charger_at = msg.label || "";
+            this._rt.charger_system = msg.system_id;
         }
-
-        // Tích lũy vào buffer nền — luôn chạy bất kể time range
+        const flow = this.realtimeBatteryFlow;
+        this._rt.charge_w = flow.net;
+        this._rt.mppt_w = flow.gross;
+        this._rt.net_a = flow.current;
+        const ratio = this._rt.pv_w > 0 && flow.gross !== null
+            ? flow.gross / this._rt.pv_w * 100 : null;
+        // Every buffer series shares one label per bus event. Missing values
+        // stay null so a chart never converts missing data into charge or zero.
         _push(buf.labels, label);
-
-        if (msg.device_type === "grid_tie_inverter") {
-            _push(buf.gt_output, msg.output_power || 0);
-            _push(buf.gt_limiter, msg.limiter_power || 0);
-            _push(buf.gt_pv, this._rt.pv_w || 0);
-            _push(buf.gt_charge, this._rt.charge_w || 0);
-        }
-        if (msg.device_type === "charge_power") {
-            _push(buf.cp_charge, msg.charge_power || 0);
-            _push(buf.cp_pv_v, msg.pv_voltage || 0);
-            _push(buf.cp_bat_v, msg.bat_voltage || 0);
-            _push(buf.cp_pv_input, msg.pv_input_power || 0);
-            _push(buf.bat_v, msg.bat_voltage || 0);
-            _push(buf.bat_v_min, msg.bat_voltage || 0);
-            _push(buf.bat_a, msg.bat_current || 0);
-            const eff = (msg.pv_input_power || 0) > 0
-                ? Math.min((msg.charge_power || 0) / msg.pv_input_power * 100, 100) : 0;
-            _push(buf.eff_pv_in, msg.pv_input_power || 0);
-            _push(buf.eff_charge, msg.charge_power || 0);
-            _push(buf.eff_pct, Math.round(eff * 10) / 10);
-        }
+        for (const [key, value] of Object.entries({
+            gt_output: this._rt.grid_out_w ?? null, gt_limiter: this._rt.grid_in_w ?? null,
+            gt_observed_at: this._rt.inverter_at || null,
+            gt_pv: this._rt.pv_w ?? null, gt_charge: flow.net,
+            cp_charge: this._rt.pv_w ?? null, cp_pv_v: this._rt.pv_v ?? null,
+            cp_bat_v: this._rt.bat_v ?? null, cp_pv_input: this._rt.pv_w ?? null,
+            bat_v: this._rt.bat_v ?? null, bat_v_min: this._rt.bat_v ?? null,
+            bat_a: this._rt.bat_a ?? null, bat_net_a: flow.current, bat_net_w: flow.net,
+            eff_pv_in: this._rt.pv_w ?? null, eff_charge: flow.gross, eff_pct: ratio,
+        })) _push(buf[key], value);
         // Temperature buffer theo device
         const guid = msg.device_guid || "unknown";
-        if (!buf.temp_map[guid]) buf.temp_map[guid] = { label: guid, data: [] };
-        _push(buf.temp_map[guid].data, msg.temperature || 0);
+        if (!buf.temp_map[guid]) buf.temp_map[guid] = {label: guid, data: Array(Math.max(0, buf.labels.length-1)).fill(null)};
+        for (const [device, series] of Object.entries(buf.temp_map)) {
+            _push(series.data, device === guid ? (msg.temperature ?? null) : null);
+        }
 
         // Nếu đang ở chế độ Live → cập nhật chart trực tiếp
         if (this.state.timeRange === "realtime") {
@@ -398,47 +409,32 @@ export class SmartSolarDashboard extends Component {
             if (chart.data.datasets[idx].data.length > MAX) chart.data.datasets[idx].data.shift();
         };
 
-        if (msg.device_type === "grid_tie_inverter") {
-            _addLabel(this.charts.gridTie);
-            _addDataset(this.charts.gridTie, 0, msg.output_power);
-            _addDataset(this.charts.gridTie, 1, msg.limiter_power);
-            _addDataset(this.charts.gridTie, 2, this._rt.pv_w || 0);
-            _addDataset(this.charts.gridTie, 3, this._rt.charge_w || 0);
-            this.charts.gridTie?.update("quiet");
-        }
-        if (msg.device_type === "charge_power") {
-            this._rt.pv_w = msg.pv_input_power || 0;
-            this._rt.charge_w = msg.charge_power || 0;
-            _addDataset(this.charts.gridTie, 2, this._rt.pv_w);
-            _addDataset(this.charts.gridTie, 3, this._rt.charge_w);
-            this.charts.gridTie?.update("quiet");
-
-            _addLabel(this.charts.chargePower);
-            _addDataset(this.charts.chargePower, 0, msg.charge_power);
-            _addDataset(this.charts.chargePower, 1, msg.pv_voltage);
-            _addDataset(this.charts.chargePower, 2, msg.bat_voltage);
-            this.charts.chargePower?.update("quiet");
-
-            _addLabel(this.charts.battery);
-            _addDataset(this.charts.battery, 0, msg.bat_voltage);
-            _addDataset(this.charts.battery, 1, msg.bat_voltage);
-            _addDataset(this.charts.battery, 2, msg.bat_current);
-            this.charts.battery?.update("quiet");
-
-            const eff = (msg.pv_input_power || 0) > 0
-                ? Math.min(msg.charge_power / msg.pv_input_power * 100, 100) : 0;
-            _addLabel(this.charts.pvEfficiency);
-            _addDataset(this.charts.pvEfficiency, 0, msg.pv_input_power);
-            _addDataset(this.charts.pvEfficiency, 1, msg.charge_power);
-            _addDataset(this.charts.pvEfficiency, 2, Math.round(eff * 10) / 10);
-            this.charts.pvEfficiency?.update("quiet");
+        if (msg.device_type === "grid_tie_inverter" || msg.device_type === "charge_power") {
+            const flow = this.realtimeBatteryFlow;
+            const values = {
+                gridTie: [this._rt.grid_out_w ?? null, this._rt.grid_in_w ?? null, this._rt.pv_w ?? null, flow.net],
+                chargePower: [this._rt.pv_w ?? null, this._rt.pv_v ?? null, this._rt.bat_v ?? null],
+                battery: [this._rt.bat_v ?? null, this._rt.bat_v ?? null, this._rt.bat_a ?? null, flow.current],
+                pvEfficiency: [this._rt.pv_w ?? null, flow.gross,
+                    this._rt.pv_w > 0 && flow.gross !== null ? flow.gross / this._rt.pv_w * 100 : null],
+            };
+            for (const [name, points] of Object.entries(values)) {
+                const chart = this.charts[name];
+                _addLabel(chart);
+                points.forEach((value, index) => _addDataset(chart, index, value));
+                chart?.update("quiet");
+            }
+            this._renderDistributionChart();
         }
         if (this.charts.temperature) {
             const tChart = this.charts.temperature;
             tChart.data.labels.push(this._fmtLabel(label));
             if (tChart.data.labels.length > MAX) tChart.data.labels.shift();
-            const ds = tChart.data.datasets.find((d) => d.label === (msg.device_guid || ""));
-            if (ds) { ds.data.push(msg.temperature); if (ds.data.length > MAX) ds.data.shift(); }
+            const device = this.state.data?.devices?.find(d => d.guid === msg.device_guid);
+            for (const ds of tChart.data.datasets) {
+                ds.data.push(ds.label === msg.device_guid || ds.label === device?.name ? (msg.temperature ?? null) : null);
+                if (ds.data.length > MAX) ds.data.shift();
+            }
             tChart.update("quiet");
         }
     }
@@ -498,6 +494,7 @@ export class SmartSolarDashboard extends Component {
                 bat_voltage_min: buf.bat_v_min,
                 bat_current: buf.bat_a,
             },
+            battery_flow: {labels: buf.labels, net_power: buf.bat_net_w, net_current: buf.bat_net_a},
             pv_efficiency: {
                 ...saved.pv_efficiency,
                 labels: buf.labels,
@@ -574,7 +571,7 @@ export class SmartSolarDashboard extends Component {
             data: {
                 labels: cp.labels.map(this._fmtLabel.bind(this)),
                 datasets: [
-                    { label: "Công suất sạc (W)", data: cp.avg_power, borderColor: COLORS.primary, backgroundColor: gradient, borderWidth: 2, fill: true, tension: 0.35, pointRadius: 0, pointHoverRadius: 4, yAxisID: "y" },
+                    { label: "Công suất PV vào (W)", data: cp.avg_power, borderColor: COLORS.primary, backgroundColor: gradient, borderWidth: 2, fill: true, tension: 0.35, pointRadius: 0, pointHoverRadius: 4, yAxisID: "y" },
                     { label: "Điện áp PV (V)", data: cp.pv_voltage, borderColor: COLORS.accent, borderWidth: 1.6, borderDash: [4, 4], fill: false, tension: 0.3, pointRadius: 0, yAxisID: "y1" },
                     { label: "Điện áp Pin (V)", data: cp.bat_voltage, borderColor: COLORS.success, borderWidth: 1.6, borderDash: [2, 4], fill: false, tension: 0.3, pointRadius: 0, yAxisID: "y1" },
                 ],
@@ -606,8 +603,8 @@ export class SmartSolarDashboard extends Component {
                 datasets: [
                     { label: "Công suất hòa lưới (W)", data: gt.output_power, borderColor: COLORS.accent, backgroundColor: gradient, borderWidth: 2, fill: true, tension: 0.35, pointRadius: 0, pointHoverRadius: 4, yAxisID: "y" },
                     { label: "Công suất lấy lưới (W)", data: gt.limiter_power, borderColor: COLORS.purple, borderWidth: 1.6, borderDash: [4, 4], fill: false, pointRadius: 0, pointHoverRadius: 4, yAxisID: "y" },
-                    { label: "Công suất dàn PV (W)", data: cp?.pv_input_power || (cp?.pv_voltage || []).map((v, i) => Math.round((v || 0) * (cp?.pv_current?.[i] || 0) * 10) / 10), borderColor: COLORS.primary, borderWidth: 1.6, borderDash: [4, 2], fill: false, pointRadius: 0, pointHoverRadius: 4, yAxisID: "y" },
-                    { label: "Công suất sạc pin (W)", data: cp?.avg_power || [], borderColor: COLORS.success, borderWidth: 1.6, borderDash: [2, 4], fill: false, pointRadius: 0, pointHoverRadius: 4, yAxisID: "y" },
+                    { label: "Công suất dàn PV (W)", data: gt.labels.map(label => {const i = cp?.labels?.indexOf(label) ?? -1; return i >= 0 ? (cp.pv_input_power?.[i] ?? null) : null;}), borderColor: COLORS.primary, borderWidth: 1.6, borderDash: [4, 2], fill: false, pointRadius: 0, pointHoverRadius: 4, yAxisID: "y" },
+                    { label: "Sạc/xả ròng ước tính (W)", data: this._alignBatteryFlow(gt.labels, "net_power"), borderColor: COLORS.success, borderWidth: 1.6, borderDash: [2, 4], fill: false, pointRadius: 2, pointHoverRadius: 4, yAxisID: "y" },
                 ],
             },
             options: this._commonChartOptions({
@@ -651,13 +648,30 @@ export class SmartSolarDashboard extends Component {
             label: s.label, data: s.data,
             borderColor: palette[i % palette.length],
             backgroundColor: palette[i % palette.length] + "33",
-            borderWidth: 1.8, fill: false, tension: 0.35, pointRadius: 0, pointHoverRadius: 4,
+            borderWidth: 1.8, fill: false, tension: 0.35, pointRadius: 1.5, pointHoverRadius: 4,
         }));
         const ctx = canvas.getContext("2d");
         this.charts.temperature = new Chart(ctx, {
             type: "line",
             data: { labels: t.labels.map(this._fmtLabel.bind(this)), datasets },
             options: this._commonChartOptions(),
+        });
+    }
+
+    _alignBatteryFlow(labels, field) {
+        const series = this.state.data.battery_flow || {labels: []};
+        const values = new Map(series.labels.map((label, index) => [label, series[field]?.[index] ?? null]));
+        return labels.map(label => {
+            if (values.has(label)) return values.get(label);
+            // Initial Live history has second buckets: MPPT and AC observations
+            // can have different second labels even though backend paired them.
+            if (series.bucket !== "second") return null;
+            const at = Date.parse(label.replace(" ", "T") + "+07:00");
+            const nearest = series.labels.map((source, index) => ({index,
+                gap: Math.abs(Date.parse(source.replace(" ", "T") + "+07:00") - at)}))
+                .filter(point => Number.isFinite(point.gap) && point.gap <= 10000)
+                .sort((a,b) => a.gap - b.gap)[0];
+            return nearest ? (series[field]?.[nearest.index] ?? null) : null;
         });
     }
 
@@ -677,9 +691,10 @@ export class SmartSolarDashboard extends Component {
             data: {
                 labels: b.labels.map(this._fmtLabel.bind(this)),
                 datasets: [
-                    { label: "Điện áp pin TB (V)", data: b.bat_voltage, borderColor: COLORS.success, backgroundColor: gradientV, borderWidth: 2, fill: true, tension: 0.35, pointRadius: 0, pointHoverRadius: 4, yAxisID: "y" },
-                    { label: "Điện áp pin Min (V)", data: b.bat_voltage_min, borderColor: COLORS.danger, borderWidth: 1.4, borderDash: [3, 4], fill: false, tension: 0.35, pointRadius: 0, pointHoverRadius: 4, yAxisID: "y" },
-                    { label: "Dòng sạc TB (A)", data: b.bat_current, borderColor: COLORS.warning, borderWidth: 1.6, borderDash: [4, 4], fill: false, tension: 0.35, pointRadius: 0, pointHoverRadius: 4, yAxisID: "y1" },
+                    { label: "Điện áp bus pin TB (MPPT, V)", data: b.bat_voltage, borderColor: COLORS.success, backgroundColor: gradientV, borderWidth: 2, fill: true, tension: 0.35, pointRadius: 0, pointHoverRadius: 4, yAxisID: "y" },
+                    { label: "Điện áp bus pin Min (MPPT, V)", data: b.bat_voltage_min, borderColor: COLORS.danger, borderWidth: 1.4, borderDash: [3, 4], fill: false, tension: 0.35, pointRadius: 0, pointHoverRadius: 4, yAxisID: "y" },
+                    { label: "Dòng đầu ra MPPT TB (A)", data: b.bat_current, borderColor: COLORS.warning, borderWidth: 1.6, borderDash: [4, 4], fill: false, tension: 0.35, pointRadius: 0, pointHoverRadius: 4, yAxisID: "y1" },
+                    { label: "Dòng sạc/xả ròng ước tính (A)", data: this._alignBatteryFlow(b.labels, "net_current"), borderColor: COLORS.accent, borderWidth: 2, fill: false, tension: 0.35, pointRadius: 2, pointHoverRadius: 4, yAxisID: "y1" },
                 ],
             },
             options: this._commonChartOptions({
@@ -712,32 +727,91 @@ export class SmartSolarDashboard extends Component {
                 labels: pv.labels.map(this._fmtLabel.bind(this)),
                 datasets: [
                     { label: "Công suất PV vào (W)", data: pv.pv_input_power, borderColor: COLORS.primary, backgroundColor: gradientIn, borderWidth: 2, fill: true, tension: 0.35, pointRadius: 0, pointHoverRadius: 4, yAxisID: "y" },
-                    { label: "Công suất sạc ra (W)", data: pv.charge_power, borderColor: COLORS.accent, backgroundColor: gradientOut, borderWidth: 2, fill: true, tension: 0.35, pointRadius: 0, pointHoverRadius: 4, yAxisID: "y" },
-                    { label: "Hiệu suất (%)", data: pv.efficiency, borderColor: COLORS.success, borderWidth: 1.6, borderDash: [4, 4], fill: false, tension: 0.3, pointRadius: 0, pointHoverRadius: 4, yAxisID: "y1" },
+                    { label: "Đầu ra MPPT (V×I, W)", data: pv.charge_power, borderColor: COLORS.accent, backgroundColor: gradientOut, borderWidth: 2, fill: true, tension: 0.35, pointRadius: 0, pointHoverRadius: 4, yAxisID: "y" },
+                    { label: "Tỷ lệ MPPT/PV (%)", data: pv.efficiency, borderColor: COLORS.success, borderWidth: 1.6, borderDash: [4, 4], fill: false, tension: 0.3, pointRadius: 0, pointHoverRadius: 4, yAxisID: "y1" },
                 ],
             },
             options: this._commonChartOptions({
                 scales: {
                     x: this._commonChartOptions().scales.x,
                     y: { ...this._commonChartOptions().scales.y, position: "left", title: { display: true, text: "Công suất (W)", color: tickColor } },
-                    y1: { position: "right", min: 0, max: 100, ticks: { color: tickColor, callback: (v) => v + "%" }, grid: { drawOnChartArea: false }, title: { display: true, text: "Hiệu suất (%)", color: tickColor } },
+                    y1: { position: "right", min: 0, ticks: { color: tickColor, callback: (v) => v + "%" }, grid: { drawOnChartArea: false }, title: { display: true, text: "Tỷ lệ số liệu MPPT/PV (%)", color: tickColor } },
                 },
             }),
         });
     }
 
+    _liveDistributionFromBuffer() {
+        const devices = (this.state.data?.devices || []).filter(device => device.type === "grid_tie_inverter");
+        const base = {labels:["Điện inverter cấp tải","Điện lấy lưới"],unit:"kWh",estimated:true,
+            source:"realtime_power",time_range:"realtime",data:[null,null],percentages:[0,0],available:false,
+            note:"Ước tính từ công suất trong cửa sổ Live; chờ đủ cặp mẫu inverter."};
+        if (devices.length > 1) return {...base,note:"Chọn phạm vi một inverter để xem phân bổ Live."};
+        const buf = this._rtBuffer, observations = new Map();
+        for (let index=0;index<buf.labels.length;index++) {
+            const label = buf.gt_observed_at[index];
+            const at = label ? Date.parse(label.replace(" ","T")+"+07:00") : NaN;
+            const output = buf.gt_output[index], grid = buf.gt_limiter[index];
+            if (Number.isFinite(at) && output !== null && grid !== null && Number.isFinite(output) && Number.isFinite(grid))
+                observations.set(at,{at,output,grid});
+        }
+        const points = [...observations.values()].sort((a,b)=>a.at-b.at);
+        let output=0,grid=0,covered=0;
+        for (let index=1;index<points.length;index++) {
+            const before=points[index-1], after=points[index], seconds=(after.at-before.at)/1000;
+            if (!(seconds>0 && seconds<=300)) continue;
+            output+=Math.max(0,(before.output+after.output)/2)*seconds/3600000;
+            grid+=Math.max(0,(before.grid+after.grid)/2)*seconds/3600000;
+            covered+=seconds;
+        }
+        const total=output+grid, duration=points.length>1 ? (points.at(-1).at-points[0].at)/1000 : 0;
+        return {...base,data:covered?[output,grid]:[null,null],available:covered>0,
+            percentages:total>0?[output/total*100,grid/total*100]:[0,0],
+            coverage_pct:duration?covered/duration*100:0,
+            note:covered ? `Ước tính từ công suất · cửa sổ Live ${Math.round(duration/60)} phút · độ phủ ${Math.round(covered/duration*100)}%`
+                : base.note};
+    }
+
+    get distributionInfo() {
+        return this.state.timeRange === "realtime" ? this._liveDistributionFromBuffer() : this.state.data?.distribution;
+    }
+    get distributionSubtitle() {
+        const d=this.distributionInfo;
+        if (!d) return "Chưa có dữ liệu phân bổ.";
+        return (d.note || "Điện năng trong khoảng đã chọn.") +
+            (d.estimated && d.coverage_pct !== undefined && d.time_range !== 'realtime'
+                ? ` Độ phủ ${Math.round(d.coverage_pct)}%.` : "");
+    }
+
     _renderDistributionChart() {
         const canvas = this.refs.distribution.el;
         if (!canvas) return;
-        const d = this.state.data.distribution;
-        if (!d || !d.data.length || d.data.every((v) => !v)) { this._showEmpty(canvas); return; }
+        const d = this.distributionInfo;
+        if (!d || d.available === false || !d.data.length || d.data.every((v) => !v)) {
+            this.charts.distribution?.destroy();
+            delete this.charts.distribution;
+            this._showEmpty(canvas);
+            return;
+        }
+        const existing = this.charts.distribution;
+        if (existing) {
+            const unchanged = d.data.length === existing.data.datasets[0].data.length
+                && d.data.every((value,index) => value === existing.data.datasets[0].data[index])
+                && d.labels.every((label,index) => label === existing.data.labels[index]);
+            if (unchanged) return;
+            existing.data.labels = [...d.labels];
+            existing.data.datasets[0].data = [...d.data];
+            if (this.state.timeRange === "realtime") existing.options.animation = false;
+            existing.update("none");
+            return;
+        }
         const ctx = canvas.getContext("2d");
         this.charts.distribution = new Chart(ctx, {
             type: "doughnut",
             data: {
-                labels: d.labels,
+                labels: [...d.labels],
                 datasets: [{
-                    data: d.data,
+                    data: [...d.data],
                     backgroundColor: [COLORS.accent, COLORS.danger],
                     borderWidth: 0,
                     hoverOffset: 8,
@@ -747,6 +821,7 @@ export class SmartSolarDashboard extends Component {
                 responsive: true,
                 maintainAspectRatio: false,
                 cutout: "65%",
+                animation: this.state.timeRange === "realtime" ? false : {duration:300},
                 plugins: {
                     legend: { position: "bottom", labels: { color: this.state.theme === "dark" ? "#cbd5e1" : "#475569", usePointStyle: true, padding: 14, font: { size: 11 } } },
                     tooltip: {
@@ -755,11 +830,10 @@ export class SmartSolarDashboard extends Component {
                                 const value = Number(c.parsed || 0);
                                 const total = c.dataset.data.reduce(
                                     (sum, item) => sum + Number(item || 0), 0);
-                                const percent = d.percentages?.[c.dataIndex]
-                                    ?? (total > 0 ? value / total * 100 : 0);
+                                const percent = total > 0 ? value / total * 100 : 0;
                                 const kwh = value.toLocaleString("vi-VN", {
-                                    minimumFractionDigits: 1,
-                                    maximumFractionDigits: 3,
+                                    minimumFractionDigits: 0,
+                                    maximumFractionDigits: 6,
                                 });
                                 return ` ${c.label}: ${kwh} kWh (${Number(percent).toFixed(1)}%)`;
                             },
@@ -981,7 +1055,7 @@ export class SmartSolarDashboard extends Component {
     }
 
     get selfConsumptionPct() { return this.state.data?.kpi?.self_consumption_pct || 0; }
-    get gridDependencyPct() { return this.state.data?.kpi?.grid_dependency_pct || 0; }
+    get gridDependencyPct() { return this.state.data?.kpi?.grid_dependency_pct ?? null; }
     get yieldKwhPerKwp() { return this.state.data?.kpi?.yield_kwh_per_kwp || 0; }
     get co2Trees() { return this.state.data?.kpi?.co2_trees || 0; }
 
@@ -1068,18 +1142,33 @@ export class SmartSolarDashboard extends Component {
     }
 
     // Realtime energy values (cập nhật từ bus)
-    get realtimeGridOutW() { return this._rt?.grid_out_w || 0; }
-    get realtimeGridInW() { return this._rt?.grid_in_w || 0; }
-    get realtimePvW() { return this._rt?.pv_w || 0; }
-    get realtimeChargeW() { return this._rt?.charge_w || 0; }
-    get realtimeBatV() { return this._rt?.bat_v || 0; }
-    get realtimeBatA() { return this._rt?.bat_a || 0; }
-    get realtimeBatStatus() {
-        const a = this._rt?.bat_a || 0;
-        if (a > 0.5) return "⬆ Đang sạc";
-        if (a < -0.5) return "⬇ Đang xả";
-        return "— Chờ";
+    get realtimeGridOutW() { return this._rt?.grid_out_w ?? null; }
+    get realtimeGridInW() { return this._rt?.grid_in_w ?? null; }
+    get realtimePvW() { return this._rt?.pv_w ?? null; }
+    get realtimeBatteryFlow() {
+        const counts = type => (this.state.data?.devices || []).filter(device => device.type === type).length;
+        const sameSystem = !this._rt.inverter_system || !this._rt.charger_system
+            || this._rt.inverter_system === this._rt.charger_system;
+        return SystemOverview.estimateBatteryFlow({
+            bat_v: this._rt.bat_v, charger_a: this._rt.bat_a, solar_w: this._rt.pv_w,
+            acout_w: this._rt.grid_out_w, charger_seen: this._rt.charger_seen,
+            inverter_seen: this._rt.inverter_seen, charger_at: this._rt.charger_at,
+            inverter_at: this._rt.inverter_at,
+            scope_supported: sameSystem && counts('charge_power') <= 1 && counts('grid_tie_inverter') <= 1,
+        });
     }
+    get realtimeChargeW() { return this.realtimeBatteryFlow.net; }
+    get realtimeBatV() { return this._rt?.bat_v ?? null; }
+    get realtimeBatA() { return this.realtimeBatteryFlow.current; }
+    get realtimeMpptA() { return this._rt?.bat_a ?? null; }
+    get realtimeBatStatus() {
+        const watts = this.realtimeBatteryFlow.net;
+        if (watts === null) return "— Thiếu mẫu đồng thời";
+        if (watts > 5) return "⬆ Sạc · ước tính";
+        if (watts < -5) return "⬇ Xả · ước tính";
+        return "— Cân bằng · ước tính";
+    }
+
 }
 
 registry.category("actions").add("smartsolar_dashboard", SmartSolarDashboard);
