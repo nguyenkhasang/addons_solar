@@ -7,8 +7,41 @@
         <field name="arch" type="xml">
             <xpath expr="//form" position="inside">
                 <app string="Smart Solar" name="smartsolar_dashboard">
+                    <block title="Biểu giá điện">
+                        <setting string="Cách tính tiền điện" help="Áp dụng cho hai widget tiền điện. Kỳ tính là tháng lịch; định mức 50/50/100/100/100 kWh và bậc cuối không giới hạn.">
+                            <field name="smartsolar_tariff_mode"/>
+                        </setting>
+                        <setting string="Công-tơ khi xem tất cả hệ thống" help="Tính riêng: áp bậc thang cho từng hệ thống đang hoạt động rồi cộng tiền. Gộp chung: áp bậc thang một lần cho tổng điện năng. Khi chọn một hệ thống, chỉ tính điện năng của hệ thống đó.">
+                            <field name="smartsolar_billing_scope"/>
+                        </setting>
+                        <setting string="Thuế GTGT (%)" help="Đơn giá bên dưới chưa gồm thuế. Mặc định 8%; có thể chỉnh khi thuế suất thay đổi.">
+                            <field name="smartsolar_electricity_vat"/>
+                        </setting>
+                        <setting string="Giá điện một mức (đồng/kWh)" help="Dùng khi chọn một đơn giá; đồng thời giữ đơn giá quy đổi sản lượng/doanh thu ở các báo cáo hiện có.">
+                            <field name="smartsolar_electricity_price"/>
+                        </setting>
+                        <setting string="Bậc 1: 0–50 kWh" help="Đơn giá chưa VAT (đồng/kWh)." invisible="smartsolar_tariff_mode != 'tiered'">
+                            <field name="smartsolar_tier_1_price"/>
+                        </setting>
+                        <setting string="Bậc 2: Trên 50–100 kWh" help="Đơn giá chưa VAT (đồng/kWh)." invisible="smartsolar_tariff_mode != 'tiered'">
+                            <field name="smartsolar_tier_2_price"/>
+                        </setting>
+                        <setting string="Bậc 3: Trên 100–200 kWh" help="Đơn giá chưa VAT (đồng/kWh)." invisible="smartsolar_tariff_mode != 'tiered'">
+                            <field name="smartsolar_tier_3_price"/>
+                        </setting>
+                        <setting string="Bậc 4: Trên 200–300 kWh" help="Đơn giá chưa VAT (đồng/kWh)." invisible="smartsolar_tariff_mode != 'tiered'">
+                            <field name="smartsolar_tier_4_price"/>
+                        </setting>
+                        <setting string="Bậc 5: Trên 300–400 kWh" help="Đơn giá chưa VAT (đồng/kWh)." invisible="smartsolar_tariff_mode != 'tiered'">
+                            <field name="smartsolar_tier_5_price"/>
+                        </setting>
+                        <setting string="Bậc 6: Trên 400 kWh" help="Đơn giá chưa VAT (đồng/kWh)." invisible="smartsolar_tariff_mode != 'tiered'">
+                            <field name="smartsolar_tier_6_price"/>
+                        </setting>
+                        <div class="text-muted px-3 pb-3">Biểu giá mặc định theo Quyết định 1279/QĐ-BCT (10/05/2025). Tiền ước tính từ đầu tháng đến hiện tại; chưa hỗ trợ chu kỳ chốt công-tơ khác tháng lịch.</div>
+                    </block>
                     <block title="Dashboard">
-                        <setting string="Electricity Price"><field name="smartsolar_electricity_price"/></setting>
+
                         <setting string="CO2 Factor"><field name="smartsolar_co2_factor"/></setting>
                         <setting string="Temperature Alert"><field name="smartsolar_temperature_alert"/></setting>
                         <setting string="Refresh Interval"><field name="smartsolar_dashboard_refresh"/></setting>

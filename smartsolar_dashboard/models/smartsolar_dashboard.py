@@ -5,6 +5,7 @@ from collections import OrderedDict, defaultdict
 from zoneinfo import ZoneInfo
 
 from odoo import models, fields, api, _
+from .electricity_tariff import DEFAULT_RATES, electricity_bill
 
 _UTC7 = timezone(timedelta(hours=7))
 
@@ -99,6 +100,14 @@ class SmartSolarDashboard(models.AbstractModel):
         Param = self.env['ir.config_parameter'].sudo()
         return {
             'electricity_price': float(Param.get_param('smartsolar.electricity_price', 2500.0) or 0),
+            'tariff': {
+                'mode': Param.get_param('smartsolar.tariff_mode', 'tiered'),
+                'flat_price': float(Param.get_param('smartsolar.electricity_price', 2500.0) or 0),
+                'vat_pct': float(Param.get_param('smartsolar.electricity_vat', 8.0) or 0),
+                'rates': [float(Param.get_param(f'smartsolar.tier_{i}_price', rate) or 0)
+                          for i, rate in enumerate(DEFAULT_RATES, 1)],
+            },
+            'billing_scope': Param.get_param('smartsolar.billing_scope', 'per_system'),
             'co2_factor': float(Param.get_param('smartsolar.co2_factor', 0.5) or 0),
             'currency_symbol': Param.get_param('smartsolar.currency_symbol', '₫'),
             'refresh_interval': int(Param.get_param('smartsolar.dashboard_refresh', 60) or 0),
@@ -271,7 +280,7 @@ class SmartSolarDashboard(models.AbstractModel):
         }
 
     @staticmethod
-    def _build_energy_widgets(daily, pv_daily, price, today_date=None):
+    def _build_energy_widgets(daily, pv_daily, price, today_date=None, tariff=None):
         """Aggregate daily branches without counting PV charging twice as load."""
         metrics = []
         for key, label, color in (
@@ -291,12 +300,24 @@ class SmartSolarDashboard(models.AbstractModel):
                 'peak_date': peak[0], 'peak_kwh': peak[1],
                 'days_available': len(known),
             })
-        inverter, grid = metrics[1]['month'], metrics[0]['month']
+        tariff = tariff or {'mode': 'flat', 'flat_price': price, 'vat_pct': 0, 'rates': DEFAULT_RATES}
+        # The two scenarios use the SAME observed days; missing branches cannot
+        # produce a saving by comparing unmatched periods.
+        pairs = [(a, b) for a, b in zip(daily['inverter_kwh'], daily['grid_kwh'])
+                 if a is not None and b is not None]
+        actual = electricity_bill(sum(b for a, b in pairs) if pairs else None, tariff)
+        baseline = electricity_bill(sum(a + b for a, b in pairs) if pairs else None, tariff)
         return {
             'metrics': metrics, 'days_in_period': len(daily['labels']),
             'estimated': any(daily['estimated']),
-            'saved': round(inverter * price) if inverter is not None else None,
-            'payable': round(grid * price) if grid is not None else None,
+            'saved': baseline['total'] - actual['total'] if baseline and actual else None,
+            'payable': actual['total'] if actual else None,
+            'without_solar': baseline['total'] if baseline else None,
+            'bill_subtotal': actual['subtotal'] if actual else None,
+            'bill_tax': actual['tax'] if actual else None,
+            'billing_days': len(pairs),
+            'tariff_mode': tariff['mode'],
+            'vat_pct': tariff['vat_pct'],
             'price': price,
             'today_note': daily['notes'][-1] if daily['notes'] else None,
             'today_coverage_pct': daily['coverage_pct'][-1] if daily['coverage_pct'] else None,
@@ -340,9 +361,33 @@ class SmartSolarDashboard(models.AbstractModel):
             + [start, end] + ([int(system_id)] if system_id else []))
         pv = {day.isoformat(): float(value) if value is not None else None
               for day, value in self.env.cr.fetchall()}
-        return self._build_energy_widgets(
+        result = self._build_energy_widgets(
             daily, [pv.get(day) for day in daily['labels']], settings['electricity_price'],
-            _to_local(end, self._get_system_timezone(system_id)).date().isoformat())
+            _to_local(end, self._get_system_timezone(system_id)).date().isoformat(),
+            tariff=settings['tariff'])
+        result['billing_scope'] = 'single' if system_id else settings['billing_scope']
+        if not system_id and settings['billing_scope'] == 'per_system':
+            # The tier allowance belongs to a meter, never to a sum of meters.
+            systems = self.env['smartsolar.system'].search([])
+            bills = []
+            for system in systems:
+                readings = self.get_energy_comparison('this_month', system.id)
+                bills.append(self._build_energy_widgets(
+                    readings, [None] * len(readings['labels']), settings['electricity_price'],
+                    tariff=settings['tariff']))
+            result.update(self._sum_meter_bills(bills))
+        return result
+
+    @staticmethod
+    def _sum_meter_bills(bills):
+        """Do not present missing meter readings as a fully known zero bill."""
+        totals = {}
+        for key in ('saved', 'payable', 'without_solar', 'bill_subtotal', 'bill_tax'):
+            values = [bill[key] for bill in bills]
+            totals[key] = sum(values) if values and all(v is not None for v in values) else None
+        totals['billing_days'] = min((bill['billing_days'] for bill in bills), default=0)
+        totals['meter_count'] = len(bills)
+        return totals
 
     @api.model
     def _get_total_limiter_energy(self, system_id=None):

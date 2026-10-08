@@ -67,7 +67,14 @@
                     </div>
                 </div>
                 <div class="ss_energy_note" t-if="energy.today_note">Hôm nay: <t t-esc="energy.today_note"/><t t-if="energy.today_coverage_pct !== null and energy.today_coverage_pct !== undefined"> Độ phủ <t t-esc="fmtNumber(energy.today_coverage_pct, 0)"/>%.</t></div>
-                <div class="ss_energy_note">Đơn giá <t t-esc="fmtMoney(energy.price)"/> <t t-esc="state.data.kpi.currency_symbol"/>/kWh · chưa tính bậc thang và thuế. Hòa lưới là điện inverter cấp tải.<t t-if="energy.estimated"> Điện cấp tải và chi phí có phần ước tính từ công suất, chỉ cộng phần thời gian có dữ liệu.</t></div>
+                <div class="ss_energy_note">
+                    <t t-if="energy.tariff_mode === 'tiered'">Biểu giá sinh hoạt 6 bậc</t><t t-else="">Đơn giá <t t-esc="fmtMoney(energy.price)"/> <t t-esc="state.data.kpi.currency_symbol"/>/kWh</t> · đã gồm VAT <t t-esc="fmtNumber(energy.vat_pct, 2)"/>%.
+                    <t t-if="energy.billing_scope === 'per_system'"> Cộng tiền của <t t-esc="energy.meter_count"/> hệ thống đang hoạt động; bậc thang tính riêng từng công-tơ.</t>
+                    <t t-if="energy.billing_scope === 'shared'"> Tính chung một công-tơ cho tất cả hệ thống.</t>
+                    Tiết kiệm = tiền điện nếu toàn bộ tải dùng lưới − tiền điện lấy lưới. Tính từ đầu tháng đến hiện tại.
+                    <t t-if="energy.billing_days &lt; energy.days_in_period"> Chỉ tính <t t-esc="energy.billing_days"/>/<t t-esc="energy.days_in_period"/> ngày có đủ dữ liệu.</t>
+                    <t t-if="energy.estimated"> Có phần điện năng ước tính từ công suất; chỉ cộng thời gian có dữ liệu.</t>
+                </div>
             </div>
             <div class="ss_ops_grid" t-if="hasData">
                 <div class="ss_overview_container"><SystemOverview kpi="state.data.kpi" devices="state.data.devices" theme="state.theme" onUpdate.bind="_onOverviewUpdate"/></div>
