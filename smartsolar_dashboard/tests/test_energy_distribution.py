@@ -126,3 +126,53 @@ class TestEnergyDistribution(TransactionCase):
         self.assertTrue(result['grid_dependency_estimated'])
         self.assertEqual(result['grid_dependency_pct'],1.6)
         self.assertGreater(result['grid_dependency_coverage_pct'],0)
+
+    def test_daily_consumption_reuses_branch_validation_and_keeps_missing_days(self):
+        from datetime import datetime
+        from unittest.mock import patch
+        from ..models.smartsolar_dashboard import TIME_RANGE_CONFIG
+        dashboard = self.env['smartsolar.dashboard']
+        start, end = datetime(2026, 10, 6, 17), datetime(2026, 10, 8, 17)
+        flows = [dict(data=[1.8, 0.03], available=True, estimated=True, coverage_pct=75),
+                 dict(data=[None, None], available=False)]
+        with patch.object(type(dashboard), '_resolve_time_range', return_value=(TIME_RANGE_CONFIG['1week'], start, end)), \
+                patch.object(type(dashboard), '_energy_distribution_for_range', side_effect=flows) as calculate:
+            result = dashboard.get_energy_comparison('1week', 123)
+        self.assertEqual(result['labels'], ['2026-10-07', '2026-10-08'])
+        self.assertEqual(result['inverter_kwh'], [1.8, None])
+        self.assertEqual(result['grid_kwh'], [0.03, None])
+        self.assertEqual(result['total_kwh'], [1.83, None])
+        self.assertEqual(result['estimated'], [True, False])
+        self.assertEqual(calculate.call_args_list[0].args[1:4], (start, datetime(2026, 10, 7, 17), 123))
+        self.assertEqual(calculate.call_args_list[1].args[1:4], (datetime(2026, 10, 7, 17), end, 123))
+
+    def test_daily_consumption_matches_distribution_on_real_power_samples(self):
+        from unittest.mock import patch
+        from ..models.smartsolar_dashboard import TIME_RANGE_CONFIG
+        system, now = self._distribution_fixture([-120, -60], output=600, grid=60)
+        dashboard = self.env['smartsolar.dashboard']
+        start, end = now-timedelta(seconds=120), now-timedelta(seconds=60)
+        with patch.object(type(dashboard), '_resolve_time_range', return_value=(TIME_RANGE_CONFIG['1h'], start, end)):
+            result = dashboard.get_energy_comparison('1h', system.id)
+            flow = dashboard.get_energy_distribution('1h', system.id)
+        self.assertEqual(result['inverter_kwh'], [round(flow['data'][0], 3)])
+        self.assertEqual(result['grid_kwh'], [round(flow['data'][1], 3)])
+        self.assertEqual(result['total_kwh'], [0.011])
+        self.assertEqual(result['estimated'], [True])
+
+    def test_daily_retained_energy_validates_both_branches(self):
+        from types import SimpleNamespace
+        dashboard = self.env['smartsolar.dashboard']
+        row = SimpleNamespace(quality_version=4, limiter_energy_kwh=2, energy_kwh=1,
+            counter_quality={'limiter_total': {'reliable': True}, 'energy_total': {'reliable': True}})
+        result = dashboard._daily_summary_distribution([row], 86400)
+        self.assertEqual(result['data'], [2, 1])
+        self.assertFalse(result['estimated'])
+        row.counter_quality = {}
+        row.power_energy = {'output_power': {'value': 1.8, 'covered_seconds': 36000},
+                            'grid_import_power': {'value': 0.03, 'covered_seconds': 36000}}
+        result = dashboard._daily_summary_distribution([row], 86400)
+        self.assertEqual(result['data'], [1.8, 0.03])
+        self.assertTrue(result['estimated'])
+        row.power_energy['grid_import_power']['covered_seconds'] = 100
+        self.assertFalse(dashboard._daily_summary_distribution([row], 86400)['available'])

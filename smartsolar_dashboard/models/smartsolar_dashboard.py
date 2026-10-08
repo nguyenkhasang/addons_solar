@@ -1117,66 +1117,89 @@ class SmartSolarDashboard(models.AbstractModel):
     # ------------------------------------------------------------------
     @api.model
     def get_energy_comparison(self, time_range='1week', system_id=None):
-        cfg, date_from, date_to = self._resolve_time_range(time_range, system_id)
-        if cfg['source'] == 'raw':
-            return self._energy_comparison_from_raw(cfg, date_from, date_to, system_id)
-        result = self._energy_comparison_from_summary(
-            cfg, date_from, date_to, system_id)
-        if result['labels']:
-            return result
-        return self._energy_comparison_from_raw(
-            cfg, date_from, date_to, system_id)
+        """Daily consumption with the same branch validation as the flow chart."""
+        cfg, start, end = self._resolve_time_range(time_range, system_id)
+        self.env.flush_all()
+        tz = ZoneInfo(self._get_system_timezone(system_id))
+        local = start.replace(tzinfo=timezone.utc).astimezone(tz).replace(
+            hour=0, minute=0, second=0, microsecond=0)
+        summary_days = defaultdict(list)
+        raw_start = start
+        if cfg['delta'] > TIME_RANGE_CONFIG['1month']['delta']:
+            scope = ' AND system_id = %s' if system_id else ''
+            self.env.cr.execute(f"""
+                SELECT MIN(record_date) FROM grid_tie_inverter
+                WHERE record_date >= %s AND record_date < %s {scope}
+            """, [start, end] + ([int(system_id)] if system_id else []))
+            raw_start = self.env.cr.fetchone()[0] or end
+            domain = [('bucket_type', '=', 'day'), ('bucket_start', '>=', start),
+                      ('bucket_start', '<', end)]
+            if system_id:
+                domain.append(('system_id', '=', int(system_id)))
+            for row in self.env['grid.tie.inverter.summary'].search(domain):
+                summary_days[_to_local(row.bucket_start, str(tz)).date()].append(row)
+        result = {key: [] for key in ('labels', 'inverter_kwh', 'grid_kwh',
+                                      'total_kwh', 'estimated', 'notes', 'coverage_pct')}
+        while True:
+            left = local.astimezone(timezone.utc).replace(tzinfo=None)
+            right = (local + timedelta(days=1)).astimezone(timezone.utc).replace(tzinfo=None)
+            if left >= end:
+                break
+            day_start, day_end = max(start, left), min(end, right)
+            if day_end > raw_start:
+                day_cfg = dict(TIME_RANGE_CONFIG['24h'], delta=(day_end-day_start).total_seconds())
+                flow = self._energy_distribution_for_range(
+                    day_cfg, day_start, day_end, system_id, time_range)
+            else:
+                # Retained full-day summaries cannot describe a partial day.
+                rows = summary_days[local.date()] if day_start == left and day_end == right else []
+                flow = self._daily_summary_distribution(rows, (right-left).total_seconds())
+            values = flow['data'] if flow['available'] else [None, None]
+            inverter, grid = [round(float(v), 3) if v is not None else None for v in values]
+            result['labels'].append(local.strftime('%Y-%m-%d'))
+            result['inverter_kwh'].append(inverter)
+            result['grid_kwh'].append(grid)
+            result['total_kwh'].append(round(inverter+grid, 3) if inverter is not None and grid is not None else None)
+            result['estimated'].append(flow.get('estimated', False))
+            result['notes'].append(flow.get('note'))
+            result['coverage_pct'].append(flow.get('coverage_pct'))
+            local += timedelta(days=1)
+        # Preserve the API key used by older dashboard clients.
+        result['energy_kwh'] = result['inverter_kwh']
+        result['source'] = 'daily_distribution'
+        return result
 
-    def _energy_comparison_from_raw(self, cfg, date_from, date_to, system_id):
-        """Sản lượng inverter theo ngày từ bộ đếm energy_today."""
-        params = [date_from, date_to]
-        sys_filter = ''
-        if system_id:
-            sys_filter = 'AND system_id = %s'
-            params.append(int(system_id))
-        tz = self._get_safe_timezone(system_id)
-        sql = f"""
-            SELECT local_day AS d, SUM(max_e) AS total
-            FROM (
-                SELECT timezone('{tz}', record_date AT TIME ZONE 'UTC')::date AS local_day,
-                       MAX(energy_today) AS max_e
-                FROM grid_tie_inverter
-                WHERE record_date >= %s AND record_date < %s {sys_filter}
-                GROUP BY local_day, device_id
-            ) t
-            GROUP BY d ORDER BY d
-        """
-        self.env.cr.execute(sql, params)
-        rows = self.env.cr.fetchall()
-        return {
-            'labels': [r[0].strftime('%Y-%m-%d') if r[0] else '' for r in rows],
-            'energy_kwh': [round(float(r[1] or 0), 3) for r in rows],
-            'source': 'raw',
-        }
-
-    def _energy_comparison_from_summary(self, cfg, date_from, date_to, system_id):
-        """Sản lượng inverter theo ngày từ bảng tổng hợp."""
-        bucket_type = 'hour' if cfg['source'] == 'hourly' else 'day'
-        params = [bucket_type, date_from, date_to]
-        sys_filter = ''
-        if system_id:
-            sys_filter = 'AND system_id = %s'
-            params.append(int(system_id))
-        tz = self._get_safe_timezone(system_id)
-        sql = f"""
-            SELECT timezone('{tz}', bucket_start AT TIME ZONE 'UTC')::date AS d,
-                   COALESCE(SUM(energy_kwh), 0)
-            FROM grid_tie_inverter_summary
-            WHERE bucket_type = %s AND bucket_start >= %s AND bucket_start < %s {sys_filter}
-            GROUP BY d ORDER BY d
-        """
-        self.env.cr.execute(sql, params)
-        rows = self.env.cr.fetchall()
-        return {
-            'labels': [r[0].strftime('%Y-%m-%d') if r[0] else '' for r in rows],
-            'energy_kwh': [round(float(r[1] or 0), 3) for r in rows],
-            'source': 'summary',
-        }
+    def _daily_summary_distribution(self, rows, seconds):
+        """Use validated counters, otherwise paired retained power integrals."""
+        totals = [0.0, 0.0]
+        estimated = False
+        covered = 0.0
+        for row in rows:
+            if row.quality_version != 4:
+                return {'data': [None, None], 'available': False,
+                        'note': 'Chưa có dữ liệu điện năng được xác nhận.'}
+            quality = row.counter_quality or {}
+            if all(quality.get(field, {}).get('reliable') for field in ('limiter_total', 'energy_total')):
+                values = [row.limiter_energy_kwh, row.energy_kwh]
+                covered += seconds
+            else:
+                power = row.power_energy or {}
+                a, b = power.get('output_power', {}), power.get('grid_import_power', {})
+                if (a.get('value') is None or b.get('value') is None
+                        or not a.get('covered_seconds')
+                        or abs(a.get('covered_seconds', 0)-b.get('covered_seconds', 0)) > 0.001):
+                    return {'data': [None, None], 'available': False,
+                            'note': 'Thiếu dữ liệu đồng thời của hai nhánh điện.'}
+                values = [a['value'], b['value']]
+                covered += a['covered_seconds']
+                estimated = True
+            for index, value in enumerate(values):
+                totals[index] += max(0.0, value)
+        return {'data': totals if rows else [None, None], 'available': bool(rows),
+                'estimated': estimated,
+                'coverage_pct': round(covered/(seconds*len(rows))*100, 2) if rows else 0,
+                'note': 'Ước tính từ công suất trên phần thời gian có dữ liệu.' if estimated
+                        else 'Điện năng theo công-tơ trong ngày.'}
 
     # ------------------------------------------------------------------
     # Temperature series
@@ -1272,7 +1295,9 @@ class SmartSolarDashboard(models.AbstractModel):
     def get_energy_distribution(self, time_range='24h', system_id=None):
         """Energy supplied by inverter vs grid within the selected time range."""
         cfg, date_from, date_to = self._resolve_time_range(time_range, system_id)
+        return self._energy_distribution_for_range(cfg, date_from, date_to, system_id, time_range)
 
+    def _energy_distribution_for_range(self, cfg, date_from, date_to, system_id, time_range):
         self.env.flush_all()
         # Raw is exact and still retained for all standard ranges through 1 month.
         if cfg['delta'] <= TIME_RANGE_CONFIG['1month']['delta']:

@@ -621,20 +621,39 @@ export class SmartSolarDashboard extends Component {
         if (!canvas) return;
         const e = this.state.data.energy_comparison;
         if (!e || !e.labels.length) { this._showEmpty(canvas); return; }
-        const ctx = canvas.getContext("2d");
-        this.charts.energy = new Chart(ctx, {
+        const options = this._commonChartOptions();
+        options.scales.x.stacked = true;
+        options.scales.y.stacked = true;
+        options.scales.y.beginAtZero = true;
+        options.scales.y.title = {display: true, text: "Điện năng (kWh)", color: options.scales.y.ticks.color};
+        options.plugins.tooltip.callbacks = {
+            footer: items => {
+                const index = items[0]?.dataIndex;
+                if (index === undefined) return "";
+                const total = e.total_kwh?.[index];
+                const lines = [total === null || total === undefined
+                    ? "Tổng tiêu thụ: chưa có dữ liệu"
+                    : `Tổng tiêu thụ: ${this.fmtNumber(total, 3)} kWh`];
+                if (e.estimated?.[index]) {
+                    lines.push("Ước tính từ công suất");
+                    const coverage = e.coverage_pct?.[index];
+                    if (coverage !== null && coverage !== undefined) lines.push(`Độ phủ dữ liệu: ${this.fmtNumber(coverage, 1)}%`);
+                }
+                return lines;
+            },
+        };
+        this.charts.energy = new Chart(canvas.getContext("2d"), {
             type: "bar",
             data: {
                 labels: e.labels,
-                datasets: [{
-                    label: "Sản lượng inverter (kWh)",
-                    data: e.energy_kwh,
-                    backgroundColor: e.energy_kwh.map((_, i) => i === e.energy_kwh.length - 1 ? COLORS.primary : "rgba(255, 184, 0, 0.55)"),
-                    borderRadius: 6,
-                    borderSkipped: false,
-                }],
+                datasets: [
+                    {label: "Điện inverter cấp tải (kWh)", data: e.inverter_kwh,
+                     backgroundColor: COLORS.primary, stack: "consumption", borderSkipped: false},
+                    {label: "Điện lấy lưới (kWh)", data: e.grid_kwh,
+                     backgroundColor: COLORS.purple, stack: "consumption", borderRadius: 6, borderSkipped: false},
+                ],
             },
-            options: this._commonChartOptions(),
+            options,
         });
     }
 

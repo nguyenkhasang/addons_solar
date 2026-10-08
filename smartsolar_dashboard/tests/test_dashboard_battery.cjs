@@ -132,3 +132,23 @@ test('daily peaks show precise times, separate metrics, zero and missing data',(
     c.state.data.kpi={};
     assert.equal(c.pvPeakPowerLabel,'—');
 });
+
+test('daily consumption stacks exactly two branches and exposes total in tooltip',()=>{
+    const c=dashboard();
+    c.refs.energy={el:{getContext:()=>({})}};
+    c.state.data.energy_comparison={labels:['2026-10-07','2026-10-08'],
+        inverter_kwh:[1.8,0],grid_kwh:[0.03,0],total_kwh:[1.83,0],estimated:[true,false],coverage_pct:[75,100]};
+    let config;
+    context.Chart=class {constructor(ctx,options){config=options;}};
+    c._renderEnergyChart();
+    assert.equal(config.type,'bar');
+    assert.equal(config.data.datasets.length,2);
+    assert.equal(config.data.datasets[0].stack,config.data.datasets[1].stack);
+    assert.deepEqual(config.data.datasets[0].data,[1.8,0]);
+    assert.deepEqual(config.data.datasets[1].data,[0.03,0]);
+    assert(config.options.scales.x.stacked && config.options.scales.y.stacked);
+    const tooltip=config.options.plugins.tooltip.callbacks.footer;
+    assert(tooltip([{dataIndex:0}])[0].includes(c.fmtNumber(1.83,3)));
+    assert(tooltip([{dataIndex:0}]).includes('Ước tính từ công suất'));
+    assert(tooltip([{dataIndex:1}])[0].includes(c.fmtNumber(0,3)));
+});
