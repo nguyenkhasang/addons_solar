@@ -26,33 +26,45 @@
             <div class="ss_energy_summary" t-if="hasData and state.data.kpi.energy_widgets">
                 <t t-set="energy" t-value="state.data.kpi.energy_widgets"/>
                 <div class="ss_energy_period">
-                    <div class="ss_energy_heading">Hôm nay</div>
+                    <div class="ss_energy_heading"><span class="ss_energy_period_title"><i class="fa fa-clock-o" aria-hidden="true"/> Hôm nay</span><span class="ss_energy_period_sub">Điện năng trong ngày</span></div>
                     <div class="ss_energy_grid">
                         <t t-foreach="energy.metrics" t-as="metric" t-key="metric.key">
                             <div t-att-class="'ss_energy_card ss_energy_' + metric.color">
-                                <div class="ss_energy_label"><t t-esc="metric.label"/></div>
+                                <div class="ss_energy_card_head">
+                                    <div class="ss_energy_label"><t t-esc="metric.label"/></div>
+                                    <span class="ss_energy_icon"><i aria-hidden="true" t-att-class="'fa ' + ({grid_kwh: 'fa-plug', inverter_kwh: 'fa-exchange', total_kwh: 'fa-home', pv_kwh: 'fa-sun-o'}[metric.key])"/></span>
+                                </div>
                                 <div class="ss_energy_value"><t t-esc="fmtNumber(metric.today, 2)"/><small>kWh</small></div>
-
+                                <div class="ss_energy_caption"><t t-esc="{grid_kwh: 'Điện lấy từ lưới', inverter_kwh: 'Điện inverter cấp tải', total_kwh: 'Tổng điện cấp tải', pv_kwh: 'Năng lượng thu từ PV'}[metric.key]"/></div>
                             </div>
                         </t>
                     </div>
                 </div>
                 <div class="ss_energy_period">
-                    <div class="ss_energy_heading">Trong tháng này</div>
+                    <div class="ss_energy_heading"><span class="ss_energy_period_title"><i class="fa fa-calendar" aria-hidden="true"/> Trong tháng này</span><span class="ss_energy_period_sub">Tổng tích lũy và ngày cao nhất</span></div>
                     <div class="ss_energy_grid">
                         <t t-foreach="energy.metrics" t-as="metric" t-key="metric.key">
                             <div t-att-class="'ss_energy_card ss_energy_' + metric.color">
-                                <div class="ss_energy_label"><t t-esc="metric.label"/></div>
+                                <div class="ss_energy_card_head">
+                                    <div class="ss_energy_label"><t t-esc="metric.label"/></div>
+                                    <span class="ss_energy_icon"><i aria-hidden="true" t-att-class="'fa ' + ({grid_kwh: 'fa-plug', inverter_kwh: 'fa-exchange', total_kwh: 'fa-home', pv_kwh: 'fa-sun-o'}[metric.key])"/></span>
+                                </div>
                                 <div class="ss_energy_value"><t t-esc="fmtNumber(metric.month, 2)"/><small>kWh</small></div>
-                                <div class="ss_energy_peak"><span><t t-if="metric.peak_date">Ngày <t t-esc="metric.peak_date.slice(8, 10)"/> · cao nhất</t><t t-else="">Chưa có dữ liệu</t></span><strong><t t-esc="fmtNumber(metric.peak_kwh, 2)"/><small>kWh</small></strong></div>
+                                <div class="ss_energy_peak"><span><i class="fa fa-line-chart" aria-hidden="true"/> <t t-if="metric.peak_date">Ngày <t t-esc="metric.peak_date.slice(8, 10)"/> · cao nhất</t><t t-else="">Chưa có dữ liệu</t></span><strong><t t-esc="fmtNumber(metric.peak_kwh, 2)"/><small>kWh</small></strong></div>
                                 <div class="ss_energy_note" t-if="metric.days_available &lt; energy.days_in_period">Có dữ liệu <t t-esc="metric.days_available"/>/<t t-esc="energy.days_in_period"/> ngày</div>
                             </div>
                         </t>
                     </div>
                 </div>
                 <div class="ss_energy_finance">
-                    <div class="ss_energy_saved"><span>Đã tiết kiệm · tháng này (ước tính)</span><strong><t t-esc="fmtMoney(energy.saved)"/> <t t-esc="state.data.kpi.currency_symbol"/></strong></div>
-                    <div class="ss_energy_payable"><span>Còn phải trả · tháng này (ước tính)</span><strong><t t-esc="fmtMoney(energy.payable)"/> <t t-esc="state.data.kpi.currency_symbol"/></strong></div>
+                    <div class="ss_energy_saved">
+                        <span class="ss_energy_finance_icon"><i class="fa fa-leaf" aria-hidden="true"/></span>
+                        <div class="ss_energy_finance_body"><span class="ss_energy_finance_label">Đã tiết kiệm</span><strong><t t-esc="fmtMoney(energy.saved)"/> <small><t t-esc="state.data.kpi.currency_symbol"/></small></strong><span class="ss_energy_caption">Tháng này · ước tính</span></div>
+                    </div>
+                    <div class="ss_energy_payable">
+                        <span class="ss_energy_finance_icon"><i class="fa fa-money" aria-hidden="true"/></span>
+                        <div class="ss_energy_finance_body"><span class="ss_energy_finance_label">Còn phải trả</span><strong><t t-esc="fmtMoney(energy.payable)"/> <small><t t-esc="state.data.kpi.currency_symbol"/></small></strong><span class="ss_energy_caption">Tháng này · ước tính</span></div>
+                    </div>
                 </div>
                 <div class="ss_energy_note" t-if="energy.today_note">Hôm nay: <t t-esc="energy.today_note"/><t t-if="energy.today_coverage_pct !== null and energy.today_coverage_pct !== undefined"> Độ phủ <t t-esc="fmtNumber(energy.today_coverage_pct, 0)"/>%.</t></div>
                 <div class="ss_energy_note">Đơn giá <t t-esc="fmtMoney(energy.price)"/> <t t-esc="state.data.kpi.currency_symbol"/>/kWh · chưa tính bậc thang và thuế. Hòa lưới là điện inverter cấp tải.<t t-if="energy.estimated"> Điện cấp tải và chi phí có phần ước tính từ công suất, chỉ cộng phần thời gian có dữ liệu.</t></div>
