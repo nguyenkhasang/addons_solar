@@ -2,3 +2,4 @@
 from . import test_energy_distribution
 
 from . import test_battery_flow
+from . import test_energy_widgets

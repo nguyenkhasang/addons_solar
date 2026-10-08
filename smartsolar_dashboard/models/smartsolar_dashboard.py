@@ -107,11 +107,13 @@ class SmartSolarDashboard(models.AbstractModel):
 
     @api.model
     def _resolve_time_range(self, time_range, system_id=None):
-        if time_range == 'today':
+        if time_range in ('today', 'this_month'):
             cfg = dict(TIME_RANGE_CONFIG['24h'])
             date_to = fields.Datetime.now()
             tz = ZoneInfo(self._get_system_timezone(system_id))
             midnight = date_to.replace(tzinfo=timezone.utc).astimezone(tz).replace(hour=0, minute=0, second=0, microsecond=0)
+            if time_range == 'this_month':
+                midnight = midnight.replace(day=1)
             date_from = midnight.astimezone(timezone.utc).replace(tzinfo=None)
             cfg['delta'] = (date_to-date_from).total_seconds()
             return cfg, date_from, date_to
@@ -265,7 +267,82 @@ class SmartSolarDashboard(models.AbstractModel):
             'load_peak': load_peak,
             'perf_alert': perf_alert.get('alert', False),
             'perf_deviation_pct': perf_alert.get('deviation_pct', 0),
+            'energy_widgets': self.get_energy_widgets(system_id, settings),
         }
+
+    @staticmethod
+    def _build_energy_widgets(daily, pv_daily, price, today_date=None):
+        """Aggregate daily branches without counting PV charging twice as load."""
+        metrics = []
+        for key, label, color in (
+                ('grid_kwh', 'Bù lưới', 'import'),
+                ('inverter_kwh', 'Hòa lưới', 'inverter'),
+                ('total_kwh', 'Tiêu thụ', 'load'),
+                ('pv_kwh', 'Thu PV', 'pv')):
+            values = pv_daily if key == 'pv_kwh' else daily[key]
+            known = [(day, value) for day, value in zip(daily['labels'], values)
+                     if value is not None]
+            peak = max(known, key=lambda item: item[1]) if known else (None, None)
+            metrics.append({
+                'key': key, 'label': label, 'color': color,
+                'today': (values[-1] if values and (
+                    today_date is None or daily['labels'][-1] == today_date) else None),
+                'month': round(sum(value for day, value in known), 3) if known else None,
+                'peak_date': peak[0], 'peak_kwh': peak[1],
+                'days_available': len(known),
+            })
+        inverter, grid = metrics[1]['month'], metrics[0]['month']
+        return {
+            'metrics': metrics, 'days_in_period': len(daily['labels']),
+            'estimated': any(daily['estimated']),
+            'saved': round(inverter * price) if inverter is not None else None,
+            'payable': round(grid * price) if grid is not None else None,
+            'price': price,
+            'today_note': daily['notes'][-1] if daily['notes'] else None,
+            'today_coverage_pct': daily['coverage_pct'][-1] if daily['coverage_pct'] else None,
+        }
+
+    @api.model
+    def get_energy_widgets(self, system_id=None, settings=None):
+        settings = settings or self._get_settings()
+        daily = self.get_energy_comparison('this_month', system_id)
+        _, start, end = self._resolve_time_range('this_month', system_id)
+        tz = self._get_safe_timezone(system_id)
+        scope = ' AND system_id = %s' if system_id else ''
+        # Prefer confirmed completed-day summaries, which survive raw retention.
+        # For other days, the daily PV register resets at midnight: sum per-device
+        # daily maxima, never a MAX across the whole month.
+        self.env.cr.execute(f"""
+            WITH retained AS (
+                SELECT timezone('{tz}', bucket_start AT TIME ZONE 'UTC')::date AS day,
+                       device_id, energy_kwh AS kwh
+                FROM charge_power_summary
+                WHERE bucket_type = 'day' AND bucket_start >= %s
+                  AND bucket_start < %s AND quality_version = 4
+                  AND counter_quality->'total_kwh'->>'reliable' = 'true' {scope}
+            ), raw_days AS (
+                SELECT timezone('{tz}', record_date AT TIME ZONE 'UTC')::date AS day,
+                       device_id, MAX(today_kwh) AS kwh
+                FROM charge_power
+                WHERE record_date >= %s AND record_date < %s {scope}
+                GROUP BY day, device_id
+            )
+            SELECT day, SUM(kwh) FROM (
+                SELECT * FROM retained
+                UNION ALL
+                SELECT raw_days.* FROM raw_days WHERE NOT EXISTS (
+                    SELECT 1 FROM retained WHERE retained.day = raw_days.day
+                      AND retained.device_id = raw_days.device_id)
+            ) per_device GROUP BY day ORDER BY day
+        """, [start, _to_local(end, self._get_system_timezone(system_id)).replace(
+            hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc).replace(tzinfo=None)]
+            + ([int(system_id)] if system_id else [])
+            + [start, end] + ([int(system_id)] if system_id else []))
+        pv = {day.isoformat(): float(value) if value is not None else None
+              for day, value in self.env.cr.fetchall()}
+        return self._build_energy_widgets(
+            daily, [pv.get(day) for day in daily['labels']], settings['electricity_price'],
+            _to_local(end, self._get_system_timezone(system_id)).date().isoformat())
 
     @api.model
     def _get_total_limiter_energy(self, system_id=None):

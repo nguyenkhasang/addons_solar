@@ -59,6 +59,32 @@
     .ss_live_dot { animation: ss_pulse 1s ease-in-out infinite; }
     @keyframes ss_pulse { 0%, 100% { box-shadow: 0 0 0 0 currentColor; opacity: 1; } 50% { box-shadow: 0 0 0 5px transparent; opacity: .65; } }
     .ss_kpi_grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 14px; }
+    .ss_energy_summary { background: var(--ss-surface); border: 1px solid var(--ss-border); border-radius: var(--ss-radius); padding: 16px; margin-bottom: 14px; }
+    .ss_energy_period + .ss_energy_period { margin-top: 16px; }
+    .ss_energy_heading { color: var(--ss-text-muted); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 10px; }
+    .ss_energy_grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+    .ss_energy_card { --energy-color: var(--ss-primary); border: 1px solid var(--ss-border); border-top: 3px solid var(--energy-color); border-radius: 12px; background: var(--ss-surface-2); padding: 12px 14px; min-width: 0; }
+    .ss_energy_import { --energy-color: var(--ss-danger); }
+    .ss_energy_inverter { --energy-color: var(--ss-success); }
+    .ss_energy_load { --energy-color: var(--ss-purple); }
+    .ss_energy_label { color: var(--energy-color); font-size: 13px; font-weight: 700; margin-bottom: 6px; }
+    .ss_energy_value { color: var(--ss-text); font-size: 23px; font-weight: 700; display: flex; flex-wrap: wrap; gap: 5px; align-items: baseline; }
+    .ss_energy_summary small { color: var(--ss-text-muted); font-size: 12px; font-weight: 400; }
+    .ss_energy_peak { border-top: 1px solid var(--ss-border); margin-top: 10px; padding-top: 8px; }
+    .ss_energy_peak span { display: block; font-size: 11px; color: var(--ss-text-muted); margin-bottom: 5px; }
+    .ss_energy_peak strong { color: var(--energy-color); font-size: 17px; display: flex; gap: 5px; align-items: baseline; flex-wrap: wrap; }
+    .ss_energy_finance { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 16px; padding: 14px; background: var(--ss-surface-2); border: 1px solid var(--ss-border); border-radius: 12px; text-align: center; }
+    .ss_energy_finance > div { padding: 0 10px; }
+    .ss_energy_finance > div + div { border-left: 1px solid var(--ss-border); }
+    .ss_energy_finance span { display: block; color: var(--ss-text-muted); text-transform: uppercase; font-size: 11px; font-weight: 700; }
+    .ss_energy_finance strong { display: block; margin-top: 6px; font-size: 22px; }
+    .ss_energy_saved strong { color: var(--ss-success); }
+    .ss_energy_payable strong { color: var(--ss-danger); }
+    .ss_energy_note { font-size: 11px; line-height: 1.5; color: var(--ss-text-muted); margin-top: 8px; }
+    @media (max-width: 540px) {
+        .ss_energy_grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .ss_energy_finance strong { font-size: 18px; }
+    }
     .ss_kpi_card, .ss_chart_card, .ss_status_panel, .ss_lifetime_grid { background: var(--ss-surface); border: 1px solid var(--ss-border); border-radius: var(--ss-radius); box-shadow: var(--ss-shadow-sm); }
     .ss_kpi_card { padding: 16px; display: flex; align-items: flex-start; gap: 14px; position: relative; overflow: hidden; }
     .ss_kpi_card::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: var(--ss-primary); opacity: .85; }

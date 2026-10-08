@@ -23,15 +23,39 @@
                 </div>
             </div>
             <div class="ss_loading_bar" t-if="state.loading"/>
-            <div class="ss_kpi_grid" t-if="hasData">
-                <div class="ss_kpi_card kpi_power"><div class="ss_kpi_icon"><i class="fa fa-bolt"/></div><div class="ss_kpi_body"><div class="ss_kpi_label">Cong suat hien tai</div><div class="ss_kpi_value"><t t-esc="fmtNumber(state.data.kpi.current_power_kw, 2)"/><span class="ss_kpi_unit">kW</span></div><div class="ss_kpi_sub"><t t-esc="fmtNumber(state.data.kpi.capacity_kw, 1)"/> kW danh dinh</div></div></div>
-                <div class="ss_kpi_card kpi_efficiency"><div class="ss_kpi_icon"><i class="fa fa-tachometer"/></div><div class="ss_kpi_body"><div class="ss_kpi_label">Mức phát / định mức</div><div class="ss_kpi_value"><t t-esc="fmtNumber(state.data.kpi.efficiency, 1)"/><span class="ss_kpi_unit">%</span></div><div class="ss_kpi_progress"><div class="ss_kpi_progress_bar" t-att-style="'width:' + Math.min(100, state.data.kpi.efficiency) + '%'"/></div></div></div>
-                <div class="ss_kpi_card kpi_today"><div class="ss_kpi_icon"><i class="fa fa-line-chart"/></div><div class="ss_kpi_body"><div class="ss_kpi_label">San luong hom nay</div><div class="ss_kpi_value"><t t-esc="fmtNumber(state.data.kpi.today_kwh, 2)"/><span class="ss_kpi_unit">kWh</span></div><div class="ss_kpi_sub">Cap nhat <t t-esc="refreshLabel"/></div></div></div>
-                <div class="ss_kpi_card kpi_revenue"><div class="ss_kpi_icon"><i class="fa fa-money"/></div><div class="ss_kpi_body"><div class="ss_kpi_label">Doanh thu hom nay</div><div class="ss_kpi_value"><t t-esc="fmtMoney(state.data.kpi.revenue_today)"/><span class="ss_kpi_unit"><t t-esc="state.data.kpi.currency_symbol"/></span></div><div class="ss_kpi_sub">Cap nhat <t t-esc="refreshLabel"/></div></div></div>
-                <div class="ss_kpi_card kpi_self_consumption"><div class="ss_kpi_icon"><i class="fa fa-home"/></div><div class="ss_kpi_body"><div class="ss_kpi_label">Ty le tu dung PV</div><div class="ss_kpi_value"><t t-esc="fmtNumber(selfConsumptionPct, 1)"/><span class="ss_kpi_unit">%</span></div><div class="ss_kpi_sub">PV khong xuat luoi</div></div></div>
-                <div class="ss_kpi_card kpi_grid_dependency"><div class="ss_kpi_icon"><i class="fa fa-plug"/></div><div class="ss_kpi_body"><div class="ss_kpi_label">Lưới cấp tải · hôm nay</div><div class="ss_kpi_value"><t t-esc="fmtNumber(gridDependencyPct, 1)"/><span class="ss_kpi_unit">%</span></div><div class="ss_kpi_sub" t-att-title="state.data.kpi.grid_dependency_note"><t t-if="state.data.kpi.grid_dependency_estimated">Ước tính · độ phủ <t t-esc="fmtNumber(state.data.kpi.grid_dependency_coverage_pct, 0)"/>%</t><t t-else="">Theo công-tơ hôm nay</t></div></div></div>
-                <div class="ss_kpi_card kpi_yield"><div class="ss_kpi_icon"><i class="fa fa-star-o"/></div><div class="ss_kpi_body"><div class="ss_kpi_label">Sản lượng riêng</div><div class="ss_kpi_value"><t t-esc="fmtNumber(yieldKwhPerKwp, 2)"/><span class="ss_kpi_unit">kWh/kWp</span></div><div class="ss_kpi_sub">San luong / cong suat danh dinh</div></div></div>
-                <div class="ss_kpi_card kpi_trees" t-att-class="{ alert: performanceAlertLevel !== 'none' }"><div class="ss_kpi_icon"><i class="fa fa-tree"/></div><div class="ss_kpi_body"><div class="ss_kpi_label">So cay xanh tuong duong</div><div class="ss_kpi_value"><t t-esc="fmtNumber(co2Trees, 0)"/><span class="ss_kpi_unit">cay</span></div><div class="ss_kpi_sub" t-att-class="{ 'ss_alert_text': performanceAlertLevel !== 'none' }"><t t-if="performanceAlertLevel === 'none'">Tong CO2 tiet kiem</t><t t-else="">⚠ Hieu suat bat thuong <t t-esc="fmtNumber(state.data.kpi.perf_deviation_pct, 0)"/>%</t></div></div></div>
+            <div class="ss_energy_summary" t-if="hasData and state.data.kpi.energy_widgets">
+                <t t-set="energy" t-value="state.data.kpi.energy_widgets"/>
+                <div class="ss_energy_period">
+                    <div class="ss_energy_heading">Hôm nay</div>
+                    <div class="ss_energy_grid">
+                        <t t-foreach="energy.metrics" t-as="metric" t-key="metric.key">
+                            <div t-att-class="'ss_energy_card ss_energy_' + metric.color">
+                                <div class="ss_energy_label"><t t-esc="metric.label"/></div>
+                                <div class="ss_energy_value"><t t-esc="fmtNumber(metric.today, 2)"/><small>kWh</small></div>
+
+                            </div>
+                        </t>
+                    </div>
+                </div>
+                <div class="ss_energy_period">
+                    <div class="ss_energy_heading">Trong tháng này</div>
+                    <div class="ss_energy_grid">
+                        <t t-foreach="energy.metrics" t-as="metric" t-key="metric.key">
+                            <div t-att-class="'ss_energy_card ss_energy_' + metric.color">
+                                <div class="ss_energy_label"><t t-esc="metric.label"/></div>
+                                <div class="ss_energy_value"><t t-esc="fmtNumber(metric.month, 2)"/><small>kWh</small></div>
+                                <div class="ss_energy_peak"><span><t t-if="metric.peak_date">Ngày <t t-esc="metric.peak_date.slice(8, 10)"/> · cao nhất</t><t t-else="">Chưa có dữ liệu</t></span><strong><t t-esc="fmtNumber(metric.peak_kwh, 2)"/><small>kWh</small></strong></div>
+                                <div class="ss_energy_note" t-if="metric.days_available &lt; energy.days_in_period">Có dữ liệu <t t-esc="metric.days_available"/>/<t t-esc="energy.days_in_period"/> ngày</div>
+                            </div>
+                        </t>
+                    </div>
+                </div>
+                <div class="ss_energy_finance">
+                    <div class="ss_energy_saved"><span>Đã tiết kiệm · tháng này (ước tính)</span><strong><t t-esc="fmtMoney(energy.saved)"/> <t t-esc="state.data.kpi.currency_symbol"/></strong></div>
+                    <div class="ss_energy_payable"><span>Còn phải trả · tháng này (ước tính)</span><strong><t t-esc="fmtMoney(energy.payable)"/> <t t-esc="state.data.kpi.currency_symbol"/></strong></div>
+                </div>
+                <div class="ss_energy_note" t-if="energy.today_note">Hôm nay: <t t-esc="energy.today_note"/><t t-if="energy.today_coverage_pct !== null and energy.today_coverage_pct !== undefined"> Độ phủ <t t-esc="fmtNumber(energy.today_coverage_pct, 0)"/>%.</t></div>
+                <div class="ss_energy_note">Đơn giá <t t-esc="fmtMoney(energy.price)"/> <t t-esc="state.data.kpi.currency_symbol"/>/kWh · chưa tính bậc thang và thuế. Hòa lưới là điện inverter cấp tải.<t t-if="energy.estimated"> Điện cấp tải và chi phí có phần ước tính từ công suất, chỉ cộng phần thời gian có dữ liệu.</t></div>
             </div>
             <div class="ss_ops_grid" t-if="hasData">
                 <div class="ss_overview_container"><SystemOverview kpi="state.data.kpi" devices="state.data.devices" theme="state.theme" onUpdate.bind="_onOverviewUpdate"/></div>
