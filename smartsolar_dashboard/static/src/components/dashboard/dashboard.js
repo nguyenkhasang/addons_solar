@@ -1087,11 +1087,17 @@ export class SmartSolarDashboard extends Component {
         return "none";
     }
 
-    get peakPowerLabel() {
-        const h = this.state.data?.kpi?.peak_hour;
-        const w = this.state.data?.kpi?.peak_power_w || 0;
-        if (h === null || h === undefined) return "—";
-        return `${String(h).padStart(2, '0')}:00 (${Math.round(w)}W)`;
+    formatTodayPeak(peak) {
+        if (!peak?.time || peak.power_w === null || peak.power_w === undefined) return "—";
+        return `${peak.time} (${Math.round(peak.power_w)} W)`;
+    }
+
+    get pvPeakPowerLabel() {
+        return this.formatTodayPeak(this.state.data?.kpi?.pv_peak);
+    }
+
+    get loadPeakPowerLabel() {
+        return this.formatTodayPeak(this.state.data?.kpi?.load_peak);
     }
 
     get hotDeviceCount() {

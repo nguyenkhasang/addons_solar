@@ -71,8 +71,8 @@
                     <!-- Thông tin hệ thống -->
                     <div class="ss_status_list">
                         <div class="ss_status_item"><span>Hệ thống đang xem</span><strong><t t-esc="selectedSystemName"/></strong></div>
-                        <div class="ss_status_item"><span>Khoảng dữ liệu</span><strong><t t-esc="currentRangeLabel"/></strong></div>
-                        <div class="ss_status_item"><span>Đỉnh công suất hôm nay</span><strong><t t-esc="peakPowerLabel"/></strong></div>
+                        <div class="ss_status_item"><span>Đỉnh công suất tiêu thụ hôm nay</span><strong title="Ước tính từ công suất đầu ra inverter + công suất lấy lưới; các mẫu đo cách nhau tối đa 10 giây."><t t-esc="loadPeakPowerLabel"/></strong></div>
+                        <div class="ss_status_item"><span>Đỉnh công suất PV hôm nay</span><strong title="Tổng điện áp PV × dòng PV của các MPPT; các mẫu đo cách nhau tối đa 10 giây."><t t-esc="pvPeakPowerLabel"/></strong></div>
                         <div class="ss_status_item" t-att-class="{ 'ss_alert_item': performanceAlertLevel !== 'none' }"><span>Hiệu suất vs 7 ngày</span><strong t-att-class="{ 'ss_alert_text': performanceAlertLevel !== 'none' }"><t t-esc="fmtNumber(state.data.kpi.perf_deviation_pct, 1)"/>%</strong></div>
                         <div class="ss_status_item"><span>Ngưỡng nhiệt</span><strong><t t-esc="fmtNumber(state.data.kpi.temperature_alert, 0)"/>°C</strong></div>
                         <div class="ss_status_item"><span>Chu kỳ refresh</span><strong><t t-esc="state.data.kpi.refresh_interval || 60"/>s</strong></div>

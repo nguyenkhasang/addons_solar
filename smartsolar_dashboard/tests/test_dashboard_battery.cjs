@@ -119,3 +119,16 @@ test('Live pie reuses its chart, disables animation and skips unchanged readings
     process.stdout.write('PASS changing system while Live requests two-minute history\n');
     process.stdout.write(`${count} dashboard battery cases passed\n`);
 })().catch(error=>{console.error(error);process.exitCode=1;});
+
+test('daily peaks show precise times, separate metrics, zero and missing data',()=>{
+    const c=dashboard();
+    c.state.data.kpi={pv_peak:{time:'12:47:23',power_w:1500.4},load_peak:{time:'18:02:09',power_w:1650}};
+    assert.equal(c.pvPeakPowerLabel,'12:47:23 (1500 W)');
+    assert.equal(c.loadPeakPowerLabel,'18:02:09 (1650 W)');
+    c.state.data.kpi.pv_peak={time:'00:00:00',power_w:0};
+    assert.equal(c.pvPeakPowerLabel,'00:00:00 (0 W)');
+    c.state.data.kpi.load_peak={time:null,power_w:null};
+    assert.equal(c.loadPeakPowerLabel,'—');
+    c.state.data.kpi={};
+    assert.equal(c.pvPeakPowerLabel,'—');
+});

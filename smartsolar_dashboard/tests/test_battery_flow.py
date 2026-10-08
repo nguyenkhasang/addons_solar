@@ -104,3 +104,47 @@ class TestBatteryFlow(TransactionCase):
         self.env.flush_all()
         self.env.cr.execute("SET LOCAL TIME ZONE 'Asia/Ho_Chi_Minh'")
         self.assertEqual(self.dashboard._get_current_total_power(self.system.id), 183)
+
+    def test_today_pv_peak_sums_nearby_devices_not_independent_maxima(self):
+        second = self.device('charge_power', 'PEAK-MPPT-SECOND')
+        self.charger().write({'pv_voltage': 100, 'pv_current': 8})
+        self.charger(self.at+timedelta(seconds=1), device=second).write({'pv_current': 7})
+        self.charger(self.at+timedelta(seconds=30)).write({'pv_current': 10})
+        self.charger(self.at+timedelta(seconds=31), device=second).write({'pv_current': 2})
+        result = self.dashboard._get_today_power_peak('pv', self.system.id)
+        self.assertEqual(result['power_w'], 1500)
+        from ..models.smartsolar_dashboard import _to_local
+        self.assertEqual(result['time'], _to_local(self.at+timedelta(seconds=1)).strftime('%H:%M:%S'))
+
+    def test_today_load_peak_uses_ac_plus_import_not_reported_total(self):
+        second = self.device('grid_tie_inverter', 'PEAK-GTI-SECOND')
+        self.inverter(watts=800).write({'limiter_power': 100, 'total_power': 9999})
+        self.inverter(self.at+timedelta(seconds=1), watts=700, device=second).write({'limiter_power': 50})
+        result = self.dashboard._get_today_power_peak('load', self.system.id)
+        self.assertEqual(result['power_w'], 1650)
+
+    def test_today_peak_missing_device_or_stale_sample_is_unknown(self):
+        second = self.device('charge_power', 'PEAK-MISSING-MPPT')
+        self.charger()
+        self.assertIsNone(self.dashboard._get_today_power_peak('pv', self.system.id)['power_w'])
+        self.charger(self.at+timedelta(seconds=11), device=second)
+        self.assertIsNone(self.dashboard._get_today_power_peak('pv', self.system.id)['power_w'])
+
+    def test_today_peak_preserves_zero_and_ignores_other_days_and_future(self):
+        self.charger(self.at-timedelta(days=1)).write({'pv_current': 1000})
+        self.charger(fields.Datetime.now()+timedelta(days=1)).write({'pv_current': 1000})
+        self.charger().write({'pv_current': 0})
+        self.assertEqual(self.dashboard._get_today_power_peak('pv', self.system.id)['power_w'], 0)
+
+    def test_today_peak_respects_system_timezone_and_filter(self):
+        from ..models.smartsolar_dashboard import _to_local
+        self.system.timezone = 'Pacific/Honolulu'
+        at = fields.Datetime.now()-timedelta(seconds=1)
+        self.charger(at)
+        other = self.env['smartsolar.system'].create({'name': 'Peak other', 'code': 'PEAK-OTHER'})
+        device = self.env['smartsolar.device'].create({'name': 'Other MPPT', 'device_guid': 'PEAK-OTHER-MPPT',
+            'system_id': other.id, 'device_type': 'charge_power'})
+        self.charger(at, device=device).write({'system_id': other.id, 'pv_current': 100})
+        result = self.dashboard._get_today_power_peak('pv', self.system.id)
+        self.assertEqual(result['power_w'], 600)
+        self.assertEqual(result['time'], _to_local(at, 'Pacific/Honolulu').strftime('%H:%M:%S'))

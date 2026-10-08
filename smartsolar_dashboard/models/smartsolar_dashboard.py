@@ -227,6 +227,8 @@ class SmartSolarDashboard(models.AbstractModel):
         co2_trees = round(co2_total_kg / 21.77, 1)
         # Peak power time
         peak = self._get_peak_power_time(system_id)
+        pv_peak = self._get_today_power_peak('pv', system_id)
+        load_peak = self._get_today_power_peak('load', system_id)
         # Performance alert
         perf_alert = self.get_performance_alert(system_id)
 
@@ -259,6 +261,8 @@ class SmartSolarDashboard(models.AbstractModel):
             'co2_trees': co2_trees,
             'peak_hour': peak.get('hour'),
             'peak_power_w': peak.get('power_w', 0),
+            'pv_peak': pv_peak,
+            'load_peak': load_peak,
             'perf_alert': perf_alert.get('alert', False),
             'perf_deviation_pct': perf_alert.get('deviation_pct', 0),
         }
@@ -389,6 +393,62 @@ class SmartSolarDashboard(models.AbstractModel):
         if row:
             return {'hour': int(row[0]), 'power_w': round(float(row[1] or 0), 0)}
         return {'hour': None, 'power_w': 0}
+
+    @api.model
+    def _get_today_power_peak(self, metric, system_id=None):
+        """Peak of complete device totals, using samples within ten seconds.
+
+        PV is V*I on the same MPPT row. Load is inverter AC + grid import,
+        an estimate with the same meaning as the dashboard's load flow.
+        Keep raw observation times rather than hourly averages or device maxima.
+        """
+        table, kind, expression = {
+            'pv': ('charge_power', 'charge_power', 'pv_voltage * pv_current'),
+            'load': ('grid_tie_inverter', 'grid_tie_inverter', 'output_power + limiter_power'),
+        }[metric]
+        self.env.flush_all()
+        tz = self._get_safe_timezone(system_id)
+        scope = ' AND d.system_id = %s' if system_id else ''
+        params = [kind] + ([int(system_id)] if system_id else [])
+        sql = f"""
+            WITH bounds AS (
+                SELECT timezone('UTC', timezone('{tz}',
+                           date_trunc('day', timezone('{tz}', NOW())))) AS start_at,
+                       NOW() AT TIME ZONE 'UTC' AS end_at
+            ), devices AS (
+                SELECT d.id FROM smartsolar_device d
+                JOIN smartsolar_system s ON s.id = d.system_id
+                WHERE d.active AND s.active AND d.device_type = %s {scope}
+            ), observations AS NOT MATERIALIZED (
+                SELECT r.id, r.device_id, r.record_date, {expression} AS watts
+                FROM {table} r JOIN devices d ON d.id = r.device_id
+                CROSS JOIN bounds b
+                WHERE r.record_date >= b.start_at AND r.record_date <= b.end_at
+            ), anchors AS (
+                SELECT DISTINCT record_date FROM observations
+            )
+            SELECT a.record_date, p.watts
+            FROM anchors a
+            CROSS JOIN LATERAL (
+                SELECT SUM(watts) AS watts, COUNT(watts) AS n FROM (
+                    SELECT DISTINCT ON (device_id) device_id, watts
+                    FROM observations o
+                    WHERE o.record_date BETWEEN a.record_date - INTERVAL '10 seconds'
+                                            AND a.record_date
+                    ORDER BY device_id, record_date DESC, id DESC
+                ) latest
+            ) p
+            WHERE p.n = (SELECT COUNT(*) FROM devices)
+            ORDER BY p.watts DESC, a.record_date ASC LIMIT 1
+        """
+        self.env.cr.execute(sql, params)
+        row = self.env.cr.fetchone()
+        if not row:
+            return {'time': None, 'power_w': None}
+        return {
+            'time': _to_local(row[0], self._get_system_timezone(system_id)).strftime('%H:%M:%S'),
+            'power_w': round(float(row[1]), 0),
+        }
 
     @api.model
     def get_performance_alert(self, system_id=None):
