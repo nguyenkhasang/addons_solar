@@ -413,7 +413,7 @@ export class SmartSolarDashboard extends Component {
             const flow = this.realtimeBatteryFlow;
             const values = {
                 gridTie: [this._rt.grid_out_w ?? null, this._rt.grid_in_w ?? null, this._rt.pv_w ?? null, flow.net],
-                chargePower: [this._rt.pv_w ?? null, this._rt.pv_v ?? null, this._rt.bat_v ?? null],
+                chargePower: [this._rt.pv_w ?? null, this._rt.pv_v ?? null],
                 battery: [this._rt.bat_v ?? null, flow.current],
                 pvEfficiency: [this._rt.pv_w ?? null, flow.gross,
                     this._rt.pv_w > 0 && flow.gross !== null ? flow.gross / this._rt.pv_w * 100 : null],
@@ -573,7 +573,6 @@ export class SmartSolarDashboard extends Component {
                 datasets: [
                     { label: "Công suất PV vào (W)", data: cp.avg_power, borderColor: COLORS.primary, backgroundColor: gradient, borderWidth: 2, fill: true, tension: 0.35, pointRadius: 0, pointHoverRadius: 4, yAxisID: "y" },
                     { label: "Điện áp PV (V)", data: cp.pv_voltage, borderColor: COLORS.accent, borderWidth: 1.6, borderDash: [4, 4], fill: false, tension: 0.3, pointRadius: 0, yAxisID: "y1" },
-                    { label: "Điện áp Pin (V)", data: cp.bat_voltage, borderColor: COLORS.success, borderWidth: 1.6, borderDash: [2, 4], fill: false, tension: 0.3, pointRadius: 0, yAxisID: "y1" },
                 ],
             },
             options: this._commonChartOptions({

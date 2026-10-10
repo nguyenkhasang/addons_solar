@@ -56,7 +56,7 @@ test('historical alignment preserves missing and signed values',()=>{
 });
 test('append updates exactly one label and point per dataset',()=>{
     const c=dashboard();c.state.timeRange='realtime';c._fmtLabel=x=>x;
-    for(const [name,n] of Object.entries({gridTie:4,chargePower:3,battery:2,pvEfficiency:3})) c.charts[name]={data:{labels:[],datasets:Array.from({length:n},()=>({data:[]}))},update(){}};
+    for(const [name,n] of Object.entries({gridTie:4,chargePower:2,battery:2,pvEfficiency:3})) c.charts[name]={data:{labels:[],datasets:Array.from({length:n},()=>({data:[]}))},update(){}};
     c._appendRealtimePoint(charger);c._appendRealtimePoint(inverter);
     for(const chart of Object.values(c.charts)){assert.equal(chart.data.labels.length,2);for(const ds of chart.data.datasets)assert.equal(ds.data.length,2);}
     assert.equal(c.charts.battery.data.datasets[0].data.at(-1),50);assert.equal(c.charts.battery.data.datasets[1].data.at(-1),6);
@@ -169,4 +169,20 @@ test('daily consumption stacks two branches and overlays PV independently',()=>{
     delete c.state.data.energy_comparison.pv_kwh;
     c._renderEnergyChart();
     assert.deepEqual(Array.from(config.data.datasets[2].data),[null,null]);
+});
+
+test('PV and MPPT chart shows only PV power and PV voltage',()=>{
+    const c=dashboard();
+    c.state.data.charge_power={labels:['a','b'],avg_power:[600,0],pv_voltage:[100,0],bat_voltage:[50,51]};
+    c.refs.chargePower={el:{getContext:()=>({createLinearGradient:()=>({addColorStop(){}})})}};
+    let config;
+    context.Chart=class {constructor(ctx,opts){config=opts;}};
+    c._fmtLabel=x=>x;c._renderChargePowerChart();
+    assert.equal(config.data.datasets.length,2);
+    assert.equal(config.data.datasets[0].label,'Công suất PV vào (W)');
+    assert.equal(config.data.datasets[1].label,'Điện áp PV (V)');
+    assert.deepEqual(Array.from(config.data.datasets[0].data),[600,0]);
+    assert.deepEqual(Array.from(config.data.datasets[1].data),[100,0]);
+    assert.equal(config.data.datasets[0].yAxisID,'y');
+    assert.equal(config.data.datasets[1].yAxisID,'y1');
 });
