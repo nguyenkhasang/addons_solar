@@ -634,6 +634,10 @@ export class SmartSolarDashboard extends Component {
                 const lines = [total === null || total === undefined
                     ? "Tổng tiêu thụ: chưa có dữ liệu"
                     : `Tổng tiêu thụ: ${this.fmtNumber(total, 3)} kWh`];
+                const pv = e.pv_kwh?.[index];
+                lines.push(pv === null || pv === undefined
+                    ? "PV thu được: chưa có dữ liệu"
+                    : `PV thu được: ${this.fmtNumber(pv, 3)} kWh`);
                 if (e.estimated?.[index]) {
                     lines.push("Ước tính từ công suất");
                     const coverage = e.coverage_pct?.[index];
@@ -651,6 +655,12 @@ export class SmartSolarDashboard extends Component {
                      backgroundColor: COLORS.primary, stack: "consumption", borderSkipped: false},
                     {label: "Điện lấy lưới (kWh)", data: e.grid_kwh,
                      backgroundColor: COLORS.purple, stack: "consumption", borderRadius: 6, borderSkipped: false},
+                    {type: "line", label: "Điện PV thu được (kWh)",
+                     data: e.pv_kwh || e.labels.map(() => null),
+                     borderColor: COLORS.success, backgroundColor: COLORS.success,
+                     stack: "pv", order: -1, borderWidth: 2.5,
+                     pointRadius: 3, pointHoverRadius: 5, tension: 0.2,
+                     fill: false, spanGaps: false},
                 ],
             },
             options,

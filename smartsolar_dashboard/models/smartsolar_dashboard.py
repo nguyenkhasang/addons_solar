@@ -327,9 +327,39 @@ class SmartSolarDashboard(models.AbstractModel):
     def get_energy_widgets(self, system_id=None, settings=None):
         settings = settings or self._get_settings()
         daily = self.get_energy_comparison('this_month', system_id)
-        _, start, end = self._resolve_time_range('this_month', system_id)
+        end = fields.Datetime.now()
+        result = self._build_energy_widgets(
+            daily, daily['pv_kwh'], settings['electricity_price'],
+            _to_local(end, self._get_system_timezone(system_id)).date().isoformat(),
+            tariff=settings['tariff'])
+        result['billing_scope'] = 'single' if system_id else settings['billing_scope']
+        if not system_id and settings['billing_scope'] == 'per_system':
+            # The tier allowance belongs to a meter, never to a sum of meters.
+            systems = self.env['smartsolar.system'].search([])
+            bills = []
+            for system in systems:
+                readings = self.get_energy_comparison('this_month', system.id)
+                bills.append(self._build_energy_widgets(
+                    readings, [None] * len(readings['labels']), settings['electricity_price'],
+                    tariff=settings['tariff']))
+            result.update(self._sum_meter_bills(bills))
+        return result
+
+    @api.model
+    def _get_daily_pv_energy(self, start, end, system_id=None):
+        """PV by local day, using confirmed summaries or the daily MPPT register."""
+        self.env.flush_all()
         tz = self._get_safe_timezone(system_id)
         scope = ' AND system_id = %s' if system_id else ''
+        local_start = _to_local(start, self._get_system_timezone(system_id))
+        first_midnight = local_start.replace(hour=0, minute=0, second=0, microsecond=0)
+        start_floor = first_midnight.astimezone(timezone.utc).replace(tzinfo=None)
+        end_floor = _to_local(end, self._get_system_timezone(system_id)).replace(
+            hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc).replace(tzinfo=None)
+        params = ([start, end_floor] + ([int(system_id)] if system_id else [])
+                  + [start, end] + ([int(system_id)] if system_id else [])
+                  + [start_floor, start] + ([int(system_id)] if system_id else [])
+                  + [start != start_floor, local_start.date()])
         # Prefer confirmed completed-day summaries, which survive raw retention.
         # For other days, the daily PV register resets at midnight: sum per-device
         # daily maxima, never a MAX across the whole month.
@@ -347,36 +377,28 @@ class SmartSolarDashboard(models.AbstractModel):
                 FROM charge_power
                 WHERE record_date >= %s AND record_date < %s {scope}
                 GROUP BY day, device_id
+            ), seeds AS (
+                SELECT device_id, MAX(today_kwh) AS kwh FROM charge_power
+                WHERE record_date >= %s AND record_date < %s {scope}
+                GROUP BY device_id
+            ), raw_window AS (
+                SELECT raw_days.day, raw_days.device_id,
+                       CASE WHEN %s AND raw_days.day = %s THEN
+                            CASE WHEN seeds.kwh IS NULL THEN NULL
+                                 ELSE GREATEST(raw_days.kwh - seeds.kwh, 0) END
+                            ELSE raw_days.kwh END AS kwh
+                FROM raw_days LEFT JOIN seeds USING (device_id)
             )
-            SELECT day, SUM(kwh) FROM (
+            SELECT day, CASE WHEN COUNT(kwh) = COUNT(*) THEN SUM(kwh) END FROM (
                 SELECT * FROM retained
                 UNION ALL
-                SELECT raw_days.* FROM raw_days WHERE NOT EXISTS (
-                    SELECT 1 FROM retained WHERE retained.day = raw_days.day
-                      AND retained.device_id = raw_days.device_id)
+                SELECT raw_window.* FROM raw_window WHERE NOT EXISTS (
+                    SELECT 1 FROM retained WHERE retained.day = raw_window.day
+                      AND retained.device_id = raw_window.device_id)
             ) per_device GROUP BY day ORDER BY day
-        """, [start, _to_local(end, self._get_system_timezone(system_id)).replace(
-            hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc).replace(tzinfo=None)]
-            + ([int(system_id)] if system_id else [])
-            + [start, end] + ([int(system_id)] if system_id else []))
-        pv = {day.isoformat(): float(value) if value is not None else None
-              for day, value in self.env.cr.fetchall()}
-        result = self._build_energy_widgets(
-            daily, [pv.get(day) for day in daily['labels']], settings['electricity_price'],
-            _to_local(end, self._get_system_timezone(system_id)).date().isoformat(),
-            tariff=settings['tariff'])
-        result['billing_scope'] = 'single' if system_id else settings['billing_scope']
-        if not system_id and settings['billing_scope'] == 'per_system':
-            # The tier allowance belongs to a meter, never to a sum of meters.
-            systems = self.env['smartsolar.system'].search([])
-            bills = []
-            for system in systems:
-                readings = self.get_energy_comparison('this_month', system.id)
-                bills.append(self._build_energy_widgets(
-                    readings, [None] * len(readings['labels']), settings['electricity_price'],
-                    tariff=settings['tariff']))
-            result.update(self._sum_meter_bills(bills))
-        return result
+        """, params)
+        return {day.isoformat(): float(value) if value is not None else None
+                for day, value in self.env.cr.fetchall()}
 
     @staticmethod
     def _sum_meter_bills(bills):
@@ -1289,6 +1311,8 @@ class SmartSolarDashboard(models.AbstractModel):
         # Preserve the API key used by older dashboard clients.
         result['energy_kwh'] = result['inverter_kwh']
         result['source'] = 'daily_distribution'
+        pv = self._get_daily_pv_energy(start, end, system_id)
+        result['pv_kwh'] = [pv.get(day) for day in result['labels']]
         return result
 
     def _daily_summary_distribution(self, rows, seconds):

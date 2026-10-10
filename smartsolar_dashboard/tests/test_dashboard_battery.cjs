@@ -133,22 +133,34 @@ test('daily peaks show precise times, separate metrics, zero and missing data',(
     assert.equal(c.pvPeakPowerLabel,'—');
 });
 
-test('daily consumption stacks exactly two branches and exposes total in tooltip',()=>{
+test('daily consumption stacks two branches and overlays PV independently',()=>{
     const c=dashboard();
     c.refs.energy={el:{getContext:()=>({})}};
     c.state.data.energy_comparison={labels:['2026-10-07','2026-10-08'],
-        inverter_kwh:[1.8,0],grid_kwh:[0.03,0],total_kwh:[1.83,0],estimated:[true,false],coverage_pct:[75,100]};
+        inverter_kwh:[1.8,0],grid_kwh:[0.03,0],total_kwh:[1.83,0],pv_kwh:[2.5,null],estimated:[true,false],coverage_pct:[75,100]};
     let config;
     context.Chart=class {constructor(ctx,options){config=options;}};
     c._renderEnergyChart();
     assert.equal(config.type,'bar');
-    assert.equal(config.data.datasets.length,2);
+    assert.equal(config.data.datasets.length,3);
     assert.equal(config.data.datasets[0].stack,config.data.datasets[1].stack);
     assert.deepEqual(config.data.datasets[0].data,[1.8,0]);
     assert.deepEqual(config.data.datasets[1].data,[0.03,0]);
+    assert.equal(config.data.datasets[2].type,'line');
+    assert.equal(config.data.datasets[2].stack,'pv');
+    assert.notEqual(config.data.datasets[2].stack,config.data.datasets[0].stack);
+    assert.deepEqual(config.data.datasets[2].data,[2.5,null]);
+    assert.equal(config.data.datasets[2].spanGaps,false);
+    assert.equal(config.data.datasets[2].fill,false);
+
     assert(config.options.scales.x.stacked && config.options.scales.y.stacked);
     const tooltip=config.options.plugins.tooltip.callbacks.footer;
     assert(tooltip([{dataIndex:0}])[0].includes(c.fmtNumber(1.83,3)));
     assert(tooltip([{dataIndex:0}]).includes('Ước tính từ công suất'));
     assert(tooltip([{dataIndex:1}])[0].includes(c.fmtNumber(0,3)));
+    assert(tooltip([{dataIndex:0}]).some(line=>line.includes('PV thu được: '+c.fmtNumber(2.5,3))));
+    assert(tooltip([{dataIndex:1}]).includes('PV thu được: chưa có dữ liệu'));
+    delete c.state.data.energy_comparison.pv_kwh;
+    c._renderEnergyChart();
+    assert.deepEqual(Array.from(config.data.datasets[2].data),[null,null]);
 });

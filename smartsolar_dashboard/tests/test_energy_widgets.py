@@ -57,3 +57,18 @@ class TestEnergyWidgets(TestCase):
             self.assertEqual(start, expected)
             self.assertEqual(end, datetime(2026, 10, 8, 8))
             self.assertEqual(cfg['delta'], (end-start).total_seconds())
+
+    def test_comparison_aligns_pv_days_without_adding_pv_to_consumption(self):
+        start, end = datetime(2026, 10, 6, 17), datetime(2026, 10, 8, 17)
+        fake = SimpleNamespace(
+            env=SimpleNamespace(flush_all=lambda: None),
+            _resolve_time_range=lambda *args: ({'delta': 172800}, start, end),
+            _get_system_timezone=lambda *args: 'Asia/Ho_Chi_Minh',
+            _energy_distribution_for_range=lambda *args: {
+                'data': [2, 1], 'available': True, 'estimated': False},
+            _get_daily_pv_energy=lambda *args: {'2026-10-07': 4.5})
+        result = SmartSolarDashboard.get_energy_comparison(fake, '1week', 12)
+        self.assertEqual(result['labels'], ['2026-10-07', '2026-10-08'])
+        self.assertEqual(result['pv_kwh'], [4.5, None])
+        self.assertEqual(result['total_kwh'], [3, 3])
+        self.assertEqual(result['energy_kwh'], result['inverter_kwh'])
