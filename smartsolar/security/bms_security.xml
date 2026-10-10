@@ -1,0 +1,11 @@
+<odoo>
+    <record id="group_bms_collector" model="res.groups"><field name="name">SmartSolar BMS collector</field></record>
+    <record id="battery_company_rule" model="ir.rule">
+        <field name="name">BMS company</field><field name="model_id" ref="model_smartsolar_battery"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="battery_history_company_rule" model="ir.rule">
+        <field name="name">BMS history company</field><field name="model_id" ref="model_smartsolar_battery_telemetry"/>
+        <field name="domain_force">[('battery_id.company_id', 'in', company_ids)]</field>
+    </record>
+</odoo>

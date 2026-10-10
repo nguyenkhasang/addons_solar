@@ -77,7 +77,7 @@
                 </div>
             </div>
             <div class="ss_ops_grid" t-if="hasData">
-                <div class="ss_overview_container"><SystemOverview kpi="state.data.kpi" devices="state.data.devices" theme="state.theme" onUpdate.bind="_onOverviewUpdate"/></div>
+                <div class="ss_overview_container"><SystemOverview kpi="state.data.kpi" batteries="state.data.bms || []" devices="state.data.devices" theme="state.theme" onUpdate.bind="_onOverviewUpdate"/></div>
                 <div class="ss_status_panel">
                     <div class="ss_panel_header"><div><div class="ss_panel_title"><i class="fa fa-heartbeat"/> Live Status</div><div class="ss_panel_sub">Trang thai van hanh hien tai</div></div><span t-att-class="'ss_live_badge ' + (state.realtimeActive ? 'online' : 'offline')"><span class="ss_live_dot"/><t t-esc="connectionLabel"/></span></div>
 

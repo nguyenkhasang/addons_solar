@@ -103,3 +103,5 @@ odoo-bin -d <test_database> --test-enable --stop-after-init \
 ## License
 
 Các module Smart Solar trong repo dùng giấy phép LGPL-3 theo manifest tương ứng.
+
+- [JK BMS BLE read-only](JK_BMS.md)

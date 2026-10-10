@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Smart Solar',
-    'version': '19.0.3.0.1',
+    'version': '19.0.3.1.1',
     'category': 'Custom',
     'summary': 'Quan ly he thong nang luong mat troi',
     'description': """
@@ -19,8 +19,10 @@
     'website': 'https://www.sangnk.vn',
     'depends': ['base', 'mail', 'bus'],
     'data': [
+        'security/bms_security.xml',
         'security/ir.model.access.csv',
         'views/smartsolar_system_views.xml',
+        'views/smartsolar_battery_views.xml',
         'views/smartsolar_device_views.xml',
         'views/charge_power_views.xml',
         'views/grid_tie_inverter_views.xml',

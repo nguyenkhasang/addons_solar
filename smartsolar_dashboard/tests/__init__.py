@@ -5,3 +5,4 @@ from . import test_battery_flow
 from . import test_energy_widgets
 from . import test_electricity_tariff
 from . import test_daily_pv_energy
+from . import test_bms_dashboard

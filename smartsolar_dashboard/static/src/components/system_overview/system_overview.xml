@@ -40,14 +40,17 @@
                     <div class="ss_ov_estimate" t-if="state.charger_a !== null" t-att-title="batteryNote">Dòng MPPT: <t t-esc="fmtA(state.charger_a)"/> A</div>
                 </div>
             </div>
-            <div class="ss_ov_balance_note" t-if="sampleTimesNote">
-                <t t-esc="sampleTimesNote"/>
-                <span t-if="samplesMisaligned"> · Mẫu chưa đồng thời; chờ cập nhật để đối chiếu BMS.</span>
+            <div class="ss_ov_bms" t-if="bmsCards.length">
+                <t t-foreach="bmsCards" t-as="b" t-key="b.id">
+                    <div class="ss_ov_bms_header"><strong>JK BMS · <t t-esc="b.name"/></strong><span t-att-class="'ss_ov_bms_status ' + b.status.toLowerCase()"><t t-esc="b.status"/></span></div>
+                    <div class="ss_ov_bms_summary"><span>SOC <strong><t t-esc="fmtBms(b.soc, 0)"/>%</strong></span><span>Điện áp pin <strong><t t-esc="fmtBms(b.voltage, 2)"/> V</strong></span></div>
+                    <progress class="ss_ov_bms_soc" max="100" t-att-value="b.soc || 0" aria-label="SOC pin JK BMS"/>
+                    <div class="ss_ov_bms_temperatures"><span>Pin T1 <strong><t t-esc="fmtBms(b.battery_temperature_1, 1)"/> °C</strong></span><span>Pin T2 <strong><t t-esc="fmtBms(b.battery_temperature_2, 1)"/> °C</strong></span><span>MOS <strong><t t-esc="fmtBms(b.mos_temperature, 1)"/> °C</strong></span></div>
+                    <div class="ss_ov_bms_age"><t t-esc="b.ageLabel"/><t t-if="b.status !== 'ONLINE'"> · Dữ liệu cũ, chưa xác nhận pin hiện tại</t></div>
+                    <div class="ss_ov_bms_cells"><t t-foreach="b.cells || []" t-as="cell" t-key="cell_index"><div t-att-class="{ minimum: cell_index + 1 === b.cell_min_index, maximum: cell_index + 1 === b.cell_max_index }"><span>Cell <t t-esc="cellLabel(cell_index)"/></span><strong><t t-esc="fmtBms(cell)"/> V</strong></div></t></div>
+                </t>
             </div>
-            <div class="ss_ov_balance_note" t-if="state.inverter_seen and state.charger_seen">
-                <span t-if="controllerDifferenceW !== null">Chênh lệch số liệu PV / MPPT: <t t-esc="fmtW(controllerDifferenceW)"/> W. </span>
-                Chênh lệch này chưa phải tổn hao đã đo. Sạc/xả pin là ước tính, chưa đối chiếu BMS.
-            </div>
+            <div class="ss_ov_balance_note" t-else="">JK BMS chưa có dữ liệu kết nối</div>
         </div>
     </t>
 </templates>

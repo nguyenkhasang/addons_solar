@@ -4,7 +4,7 @@ const vm = require('node:vm');
 const path = require('node:path');
 const sourcePath = process.argv[2] || path.resolve(__dirname, '../static/src/components/system_overview/system_overview.js');
 const code = fs.readFileSync(sourcePath, 'utf8').replace(/^import .*;$/mg, '').replace('export class SystemOverview', 'globalThis.SystemOverview = class SystemOverview');
-const context = { Component: class {}, useState: value => value, onMounted: callback => callback() };
+const context = { Component: class {}, useState: value => value, onMounted: callback => callback(), onWillUnmount: () => {}, setInterval: () => 1, clearInterval: () => {} };
 vm.createContext(context); vm.runInContext(code, context);
 function overview() { const component = new context.SystemOverview(); component.props = {}; component.setup(); return component; }
 function inverter(component, output = 184, grid = 5) { component.updateFromRealtime({ device_type: 'grid_tie_inverter', output_power: output, limiter_power: grid }); }

@@ -1,6 +1,6 @@
 /** @odoo-module **/
 
-import { Component, onMounted, useState } from "@odoo/owl";
+import { Component, onMounted, onWillUnmount, useState } from "@odoo/owl";
 
 export class SystemOverview extends Component {
     static template = "smartsolar.SystemOverview";
@@ -9,11 +9,13 @@ export class SystemOverview extends Component {
         kpi: { type: Object, optional: true },
         devices: { type: Array, optional: true },
         theme: { type: String, optional: true },
+        batteries: { type: Array, optional: true },
         onUpdate: { type: Function, optional: true },
     };
 
     setup() {
         this.state = useState({
+            now: Date.now(),
             solar_w: 0,
             solar_v: 0,
             solar_a: 0,
@@ -31,7 +33,10 @@ export class SystemOverview extends Component {
             home_w: 0,
             acout_w: 0,
         });
+        let bmsClock;
+        onWillUnmount(() => clearInterval(bmsClock));
         onMounted(() => {
+            bmsClock = setInterval(() => { this.state.now = Date.now(); }, 1000);
             this._syncFromProps();
             if (this.props.onUpdate) {
                 this.props.onUpdate(this);
@@ -93,6 +98,18 @@ export class SystemOverview extends Component {
         this.state.bat_w = flow.net === null ? null : Math.abs(flow.net);
         this.state.bat_a = flow.current;
     }
+
+    get bmsCards() {
+        return (this.props.batteries || []).map(b => {
+            const age = b.timestamp ? Math.max(0, (this.state.now - Date.parse(b.timestamp)) / 1000) : Infinity;
+            const status = age > b.offline_seconds ? "OFFLINE" : age >= b.stale_seconds ? "STALE" : "ONLINE";
+            return { ...b, status, ageLabel: Number.isFinite(age) ? `${Math.floor(age)} giây trước` : "Chưa có mẫu" };
+        });
+    }
+    fmtBms(value, digits = 3) {
+        return value == null || !Number.isFinite(Number(value)) ? "—" : Number(value).toFixed(digits);
+    }
+    cellLabel(index) { return String(index + 1).padStart(2, "0"); }
 
     get batteryLabel() {
         if (this.state.bat_flow_w === null) return "Chờ dữ liệu pin";

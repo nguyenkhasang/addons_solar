@@ -1793,6 +1793,8 @@ class SmartSolarDashboard(models.AbstractModel):
             'temperature': self.get_temperature_series(time_range=time_range, system_id=system_id),
             'battery': self.get_battery_series(time_range=time_range, system_id=system_id),
             'battery_flow': balance,
+            'bms': self.env['smartsolar.battery'].get_snapshots(system_id),
+            'bms_history': self.get_bms_history(time_range, system_id),
             'pv_efficiency': self.get_pv_efficiency_series(time_range=time_range, system_id=system_id, balance=balance),
             'distribution': self.get_energy_distribution(
                 time_range=time_range, system_id=system_id),
@@ -1804,3 +1806,24 @@ class SmartSolarDashboard(models.AbstractModel):
             'time_range': time_range,
             'system_id': system_id,
         }
+
+    @api.model
+    def get_bms_history(self, time_range='24h', system_id=None):
+        _, start, end = self._resolve_time_range(time_range, system_id)
+        batteries = self.env['smartsolar.battery'].search(
+            [('active', '=', True)] + ([('system_id', '=', int(system_id))] if system_id else []))
+        result = []
+        for battery in batteries:
+            rows = self.env['smartsolar.battery.telemetry'].search([
+                ('battery_id', '=', battery.id), ('record_date', '>=', start),
+                ('record_date', '<=', end)], order='record_date desc', limit=10001)
+            truncated = len(rows) > 10000
+            rows = rows[:10000].sorted('record_date')
+            stride = max(1, (len(rows) + 239) // 240)
+            sampled = rows[::stride]
+            result.append({'id': battery.id, 'name': battery.name,
+                           'labels': [r.record_date.replace(tzinfo=timezone.utc).isoformat() for r in sampled],
+                           **{k: [r.state.get(k) for r in sampled] for k in
+                              ('soc', 'voltage', 'current', 'power', 'cell_delta_voltage', 'battery_temperature_1')},
+                           'truncated': truncated})
+        return result

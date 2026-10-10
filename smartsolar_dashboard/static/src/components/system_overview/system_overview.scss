@@ -92,3 +92,21 @@
     .ss_ov_estimate { font-size: 11px; color: var(--ov-title); margin-top: 4px; }
     .ss_ov_balance_note { font-size: 11px; color: var(--ov-title); text-align: center; margin-top: 12px; line-height: 1.5; }
 }
+
+.ss_overview_wrap {
+    .ss_ov_bms { width: 100%; max-width: 480px; margin-top: 16px; color: var(--ov-value); }
+    .ss_ov_bms_header, .ss_ov_bms_summary { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 12px; }
+    .ss_ov_bms_header { margin-bottom: 10px; }
+    .ss_ov_bms_status { font-weight: 700; &.online { color: var(--ov-battery); } &.stale { color: #d97706; } &.offline { color: #ef4444; } }
+    .ss_ov_bms_summary strong { font-size: 17px; margin-left: 5px; }
+    .ss_ov_bms_soc { width: 100%; height: 10px; margin-top: 8px; accent-color: var(--ov-battery); }
+    .ss_ov_bms_temperatures { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 12px; margin-top: 6px; font-size: 11px; color: var(--ov-title); }
+    .ss_ov_bms_temperatures strong { color: var(--ov-value); margin-left: 3px; }
+    .ss_ov_bms_age { font-size: 11px; color: var(--ov-title); margin: 8px 0; }
+    .ss_ov_bms_cells { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; }
+    .ss_ov_bms_cells > div { display: flex; flex-direction: column; text-align: center; padding: 3px 1px; border: 1px solid var(--ov-line); border-radius: 4px; font-size: 9px; line-height: 1.3; }
+    .ss_ov_bms_cells strong { font-size: 10px; margin-top: 1px; white-space: nowrap; }
+    .ss_ov_bms_cells .minimum { border-color: var(--ov-grid); }
+    .ss_ov_bms_cells .maximum { border-color: var(--ov-home); }
+}
+@media (max-width: 480px) { .ss_overview_wrap .ss_ov_bms_cells { grid-template-columns: repeat(4, minmax(0, 1fr)); } }

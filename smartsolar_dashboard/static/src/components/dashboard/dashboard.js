@@ -321,9 +321,35 @@ export class SmartSolarDashboard extends Component {
         };
         await this.busService.addChannel(channel);
         this.busService.subscribe("smartsolar_data", this._realtimeCallback);
+        this._bmsCallback = (payload) => {
+            if (!this.state.data || (this.state.systemId && payload.system_id !== this.state.systemId)) return;
+            const existing = this.state.data.bms || [];
+            this.state.data.bms = [...existing.filter(b => b.id !== payload.id), payload].sort((a, b) => a.id - b.id);
+            if (payload.history_enabled === false) return;
+            const histories = this.state.data.bms_history || [];
+            let h = histories.find(h => h.id === payload.id);
+            if (!h) {
+                h = { id: payload.id, name: payload.name, labels: [], soc: [], voltage: [], current: [], power: [], cell_delta_voltage: [], battery_temperature_1: [] };
+                histories.push(h);
+            }
+            if (this.state.timeRange === "realtime" && (!h.labels.length || Date.parse(payload.timestamp) - Date.parse(h.labels.at(-1)) >= payload.history_interval * 1000)) {
+                h.labels.push(payload.timestamp);
+                for (const key of ["soc", "voltage", "current", "power", "cell_delta_voltage", "battery_temperature_1"]) {
+                    h[key].push(payload[key]);
+                    if (h[key].length > 240) h[key].shift();
+                }
+                if (h.labels.length > 240) h.labels.shift();
+                this.state.data.bms_history = histories.map(item => ({ ...item }));
+            }
+        };
+        this.busService.subscribe("smartsolar_bms", this._bmsCallback);
     }
 
     _stopRealtime() {
+        if (this._bmsCallback) {
+            this.busService.unsubscribe("smartsolar_bms", this._bmsCallback);
+            this._bmsCallback = null;
+        }
         this.state.realtimeActive = false;
         if (this._realtimeCallback) {
             this.busService.unsubscribe("smartsolar_data", this._realtimeCallback);

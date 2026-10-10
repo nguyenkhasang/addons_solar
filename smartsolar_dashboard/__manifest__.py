@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Smart Solar Dashboard',
-    'version': '19.0.3.0.3',
+    'version': '19.0.3.1.0',
     'category': 'Custom',
     'summary': 'Dashboard tổng quan cho hệ thống Smart Solar',
     'description': """

@@ -5,7 +5,7 @@ const vm = require('node:vm');
 const root = process.argv[2] || path.resolve(__dirname, '..');
 const context = {Component: class {}, useState: x=>x, registry:{category:()=>({add(){}})}, console, _t:x=>x};
 vm.createContext(context);
-for (const [file, name] of [ ['system_overview/system_overview.js','SystemOverview'], ['dashboard/dashboard.js','SmartSolarDashboard'] ]) {
+for (const [file, name] of [ ['bms/bms.js','BmsPanel'], ['system_overview/system_overview.js','SystemOverview'], ['dashboard/dashboard.js','SmartSolarDashboard'] ]) {
     const code=fs.readFileSync(path.join(root,'static/src/components',file),'utf8')
         .replace(/^import .*;$/mg,'').replace(`export class ${name}`,`globalThis.${name} = class ${name}`);
     vm.runInContext(code,context);

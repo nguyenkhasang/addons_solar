@@ -5,3 +5,9 @@ access_charge_power_user,charge.power user,model_charge_power,base.group_user,1,
 access_grid_tie_inverter_user,grid.tie.inverter user,model_grid_tie_inverter,base.group_user,1,1,1,1
 access_charge_power_summary_user,charge.power.summary user,model_charge_power_summary,base.group_user,1,1,1,1
 access_grid_tie_inverter_summary_user,grid.tie.inverter.summary user,model_grid_tie_inverter_summary,base.group_user,1,1,1,1
+access_battery_reader,battery reader,model_smartsolar_battery,base.group_user,1,0,0,0
+access_battery_admin,battery admin,model_smartsolar_battery,base.group_system,1,1,1,1
+access_battery_collector,battery collector,model_smartsolar_battery,smartsolar.group_bms_collector,1,1,0,0
+access_battery_history_reader,battery history reader,model_smartsolar_battery_telemetry,base.group_user,1,0,0,0
+access_battery_history_collector,battery history collector,model_smartsolar_battery_telemetry,smartsolar.group_bms_collector,1,0,1,0
+access_battery_history_admin,battery history admin,model_smartsolar_battery_telemetry,base.group_system,1,1,1,1

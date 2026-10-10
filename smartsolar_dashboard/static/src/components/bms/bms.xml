@@ -1,0 +1,36 @@
+<templates xml:space="preserve">
+<t t-name="smartsolar.BmsPanel">
+<section class="ss_bms_section" t-if="props.batteries.length">
+    <h3>Pin · JK BMS trực tiếp</h3>
+    <div class="ss_bms_cards">
+    <t t-foreach="cards" t-as="b" t-key="b.id">
+        <article class="ss_bms_card">
+            <header><strong><t t-esc="b.name"/></strong><span t-att-class="'ss_bms_status ' + b.status"><t t-esc="b.status.toUpperCase()"/></span></header>
+            <p><t t-esc="b.bms_model || 'JK BMS'"/> · firmware <t t-esc="b.firmware || '—'"/> · <t t-esc="b.age"/></p>
+            <div t-if="b.status !== 'online'" class="ss_bms_notice">Dữ liệu cũ · chưa xác nhận trạng thái pin hiện tại</div>
+            <div class="ss_bms_soc"><strong><t t-esc="fmt(b.soc, 0)"/>%</strong><progress max="100" t-att-value="b.soc || 0" aria-label="SOC"/></div>
+            <div class="ss_bms_values">
+                <div>Điện áp <strong><t t-esc="fmt(b.voltage, 3)"/> V</strong></div>
+                <div>Dòng điện <strong><t t-esc="fmt(b.current, 3)"/> A</strong></div>
+                <div>Công suất ròng <strong><t t-esc="fmt(b.power, 1)"/> W</strong></div>
+                <div>Trạng thái mẫu <strong><t t-esc="b.flow_status"/></strong></div>
+                <div>Dung lượng còn <strong><t t-esc="fmt(b.remaining_capacity)"/> Ah</strong></div>
+                <div>Dung lượng danh định <strong><t t-esc="fmt(b.nominal_capacity)"/> Ah</strong></div>
+                <div>Nhiệt pin 1 / 2 <strong><t t-esc="fmt(b.battery_temperature_1, 1)"/> / <t t-esc="fmt(b.battery_temperature_2, 1)"/> °C</strong></div>
+                <div>Nhiệt MOS <strong><t t-esc="fmt(b.mos_temperature, 1)"/> °C</strong></div>
+                <div>Cell thấp nhất <strong><t t-esc="fmt(b.cell_min_voltage, 3)"/> V · #<t t-esc="b.cell_min_index"/></strong></div>
+                <div>Cell cao nhất <strong><t t-esc="fmt(b.cell_max_voltage, 3)"/> V · #<t t-esc="b.cell_max_index"/></strong></div>
+                <div>Chênh cell <strong t-att-class="{ 'ss_bms_notice': b.cell_delta_voltage >= b.cell_delta_warning }"><t t-esc="fmt(b.cell_delta_voltage * 1000, 0)"/> mV</strong></div>
+                <div>Chu kỳ <strong><t t-esc="b.cycle_count"/></strong></div>
+            </div>
+            <div class="ss_bms_cells"><t t-foreach="b.cells || []" t-as="cell" t-key="cell_index"><div t-att-class="{ min: cell_index + 1 === b.cell_min_index, max: cell_index + 1 === b.cell_max_index }"><small>Cell <t t-esc="cellLabel(cell_index)"/></small><strong><t t-esc="fmt(cell, 3)"/> V</strong></div></t></div>
+            <p>Viền xanh: cell min · viền tím: cell max. Ngưỡng ΔV: <t t-esc="fmt(b.cell_delta_warning * 1000, 0)"/> mV.</p>
+            <p>MOS sạc: <t t-esc="b.charge_mos ? 'Bật' : 'Tắt'"/> · MOS xả: <t t-esc="b.discharge_mos ? 'Bật' : 'Tắt'"/> · Cân bằng: <t t-esc="b.balancing ? 'Có' : 'Không'"/> · <t t-esc="fmt(b.balance_current, 3)"/> A · Alarm bits: <t t-esc="b.alarm_bits"/></p>
+            <p>Lần cập nhật: <t t-esc="timestampLabel(b.timestamp)"/></p>
+        </article>
+    </t>
+    </div>
+    <div class="ss_bms_card"><header><strong>Lịch sử BMS · theo khoảng thời gian đang chọn</strong><select t-on-change="changeMetric"><t t-foreach="metrics" t-as="m" t-key="m[0]"><option t-att-value="m[0]"><t t-esc="m[1]"/></option></t></select></header><p t-if="props.history.some(h => h.truncated)" class="ss_bms_notice">Lịch sử đã giới hạn 10.000 mẫu gần nhất trong khoảng đang chọn.</p><div class="ss_bms_chart"><canvas t-ref="history"/></div></div>
+</section>
+</t>
+</templates>
