@@ -414,7 +414,7 @@ export class SmartSolarDashboard extends Component {
             const values = {
                 gridTie: [this._rt.grid_out_w ?? null, this._rt.grid_in_w ?? null, this._rt.pv_w ?? null, flow.net],
                 chargePower: [this._rt.pv_w ?? null, this._rt.pv_v ?? null, this._rt.bat_v ?? null],
-                battery: [this._rt.bat_v ?? null, this._rt.bat_v ?? null, this._rt.bat_a ?? null, flow.current],
+                battery: [this._rt.bat_v ?? null, flow.current],
                 pvEfficiency: [this._rt.pv_w ?? null, flow.gross,
                     this._rt.pv_w > 0 && flow.gross !== null ? flow.gross / this._rt.pv_w * 100 : null],
             };
@@ -720,10 +720,8 @@ export class SmartSolarDashboard extends Component {
             data: {
                 labels: b.labels.map(this._fmtLabel.bind(this)),
                 datasets: [
-                    { label: "Điện áp bus pin TB (MPPT, V)", data: b.bat_voltage, borderColor: COLORS.success, backgroundColor: gradientV, borderWidth: 2, fill: true, tension: 0.35, pointRadius: 0, pointHoverRadius: 4, yAxisID: "y" },
-                    { label: "Điện áp bus pin Min (MPPT, V)", data: b.bat_voltage_min, borderColor: COLORS.danger, borderWidth: 1.4, borderDash: [3, 4], fill: false, tension: 0.35, pointRadius: 0, pointHoverRadius: 4, yAxisID: "y" },
-                    { label: "Dòng đầu ra MPPT TB (A)", data: b.bat_current, borderColor: COLORS.warning, borderWidth: 1.6, borderDash: [4, 4], fill: false, tension: 0.35, pointRadius: 0, pointHoverRadius: 4, yAxisID: "y1" },
-                    { label: "Dòng sạc/xả ròng ước tính (A)", data: this._alignBatteryFlow(b.labels, "net_current"), borderColor: COLORS.accent, borderWidth: 2, fill: false, tension: 0.35, pointRadius: 2, pointHoverRadius: 4, yAxisID: "y1" },
+                    { label: "Điện áp pin (MPPT, V)", data: b.bat_voltage, borderColor: COLORS.success, backgroundColor: gradientV, borderWidth: 2, fill: true, tension: 0.35, pointRadius: 0, pointHoverRadius: 4, yAxisID: "y" },
+                    { label: "Dòng sạc/xả pin · ước tính (A)", data: this._alignBatteryFlow(b.labels, "net_current"), borderColor: COLORS.accent, borderWidth: 2, fill: false, tension: 0.35, pointRadius: 2, pointHoverRadius: 4, yAxisID: "y1" },
                 ],
             },
             options: this._commonChartOptions({

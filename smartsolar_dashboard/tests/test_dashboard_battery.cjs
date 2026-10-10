@@ -56,21 +56,27 @@ test('historical alignment preserves missing and signed values',()=>{
 });
 test('append updates exactly one label and point per dataset',()=>{
     const c=dashboard();c.state.timeRange='realtime';c._fmtLabel=x=>x;
-    for(const [name,n] of Object.entries({gridTie:4,chargePower:3,battery:4,pvEfficiency:3})) c.charts[name]={data:{labels:[],datasets:Array.from({length:n},()=>({data:[]}))},update(){}};
+    for(const [name,n] of Object.entries({gridTie:4,chargePower:3,battery:2,pvEfficiency:3})) c.charts[name]={data:{labels:[],datasets:Array.from({length:n},()=>({data:[]}))},update(){}};
     c._appendRealtimePoint(charger);c._appendRealtimePoint(inverter);
     for(const chart of Object.values(c.charts)){assert.equal(chart.data.labels.length,2);for(const ds of chart.data.datasets)assert.equal(ds.data.length,2);}
-    assert.equal(c.charts.battery.data.datasets[2].data.at(-1),10);assert.equal(c.charts.battery.data.datasets[3].data.at(-1),6);
+    assert.equal(c.charts.battery.data.datasets[0].data.at(-1),50);assert.equal(c.charts.battery.data.datasets[1].data.at(-1),6);
     assert.equal(c.charts.gridTie.data.datasets[3].data.at(-1),300);
 });
-test('historical chart uses estimated net curve and explicitly labels MPPT current',()=>{
+test('battery chart shows only voltage and signed net current',()=>{
     const c=dashboard();c.state.data.battery={labels:['a','b'],bat_voltage:[50,50],bat_voltage_min:[50,50],bat_current:[10,10]};
     c.state.data.battery_flow={labels:['a','b'],net_current:[6,-2],net_power:[300,-100]};
     c.refs={battery:{el:{getContext:()=>({createLinearGradient:()=>({addColorStop(){}})})}}};
     context.Chart=class {constructor(ctx,opts){this.data=opts.data;}};
     c._fmtLabel=x=>x;c._renderBatteryChart();
-    assert(c.charts.battery.data.datasets[2].label.includes('MPPT'));
-    assert(c.charts.battery.data.datasets[3].pointRadius > 0);
-    assert.deepEqual(Array.from(c.charts.battery.data.datasets[3].data),[6,-2]);
+    assert.equal(c.charts.battery.data.datasets.length,2);
+    assert(c.charts.battery.data.datasets[0].label.includes('Điện áp pin'));
+    assert.equal(c.charts.battery.data.datasets[0].yAxisID,'y');
+    assert.equal(c.charts.battery.data.datasets[1].yAxisID,'y1');
+    assert(c.charts.battery.data.datasets[1].label.includes('sạc/xả'));
+    assert(c.charts.battery.data.datasets[1].pointRadius > 0);
+    assert.deepEqual(Array.from(c.charts.battery.data.datasets[1].data),[6,-2]);
+    c.state.data.battery_flow.net_current=[null,0];c._renderBatteryChart();
+    assert.deepEqual(Array.from(c.charts.battery.data.datasets[1].data),[null,0]);
 });
 test('second-bucket Live history aligns already paired MPPT and AC labels',()=>{
     const c=dashboard();c.state.data.battery_flow={bucket:'second', labels:['2026-10-07 09:00:00'],net_power:[-138]};
