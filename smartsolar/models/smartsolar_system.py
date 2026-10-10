@@ -140,6 +140,11 @@ class SmartSolarSystem(models.Model):
     def _sync_devices_from_mqsolar_websocket(self, devices=None):
         """Connect to MQSolar websocket once and create raw records for received messages."""
         self.ensure_one()
+        from ..services.websocket_listener import LOCK_NAMESPACE
+        # Same lock as the continuous collector: cron/manual must not subscribe twice.
+        self.env.cr.execute('SELECT pg_try_advisory_xact_lock(%s, %s)', [LOCK_NAMESPACE, self.id])
+        if not self.env.cr.fetchone()[0]:
+            return False
         devices = devices or self.device_ids.filtered(lambda d: d.active)
         devices = devices.filtered(lambda d: d.device_guid)
         if not devices:
@@ -211,23 +216,9 @@ class SmartSolarSystem(models.Model):
                 # Push lên bus ngay lập tức — dùng cursor riêng để commit ngay
                 device = devices_by_guid[device_guid]
                 try:
-                    from .utils import mqsolar_message_to_legacy_api_data, detect_mqsolar_device_type
-                    api_data = mqsolar_message_to_legacy_api_data(data)
-                    target_type = detect_mqsolar_device_type(data) or device.device_type
-                    if api_data and target_type:
-                        payload = device._build_realtime_payload(api_data, target_type)
-                        with self.env.registry.cursor() as bus_cr:
-                            bus_env = self.env(cr=bus_cr)
-                            bus_env['bus.bus']._sendone(
-                                f'smartsolar.realtime.{self.id}',
-                                'smartsolar_data',
-                                payload,
-                            )
-                            bus_env['bus.bus']._sendone(
-                                'smartsolar.realtime.all',
-                                'smartsolar_data',
-                                payload,
-                            )
+                    with self.env.registry.cursor() as bus_cr:
+                        bus_env = self.env(cr=bus_cr)
+                        bus_env['smartsolar.device'].browse(device.id)._send_mqsolar_realtime(data)
                 except Exception as bus_err:
                     _logger.warning('Realtime bus push failed: %s', bus_err)
 

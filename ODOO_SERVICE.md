@@ -28,3 +28,33 @@ Unit mặc định tìm `~/addons_solar` và `~/odoo-19.0`. Cần chỉnh đư�
 
 Để tắt tự chạy khi boot: `systemctl --user disable smartsolar-odoo.service`.
 Giới hạn restart: 10 lần khởi động trong 120 giây. Nếu service lỗi liên tục và chạm giới hạn, sửa lỗi rồi chạy `systemctl --user reset-failed smartsolar-odoo.service` và khởi động lại.
+
+## Bộ nhận MQSolar liên tục
+
+`smartsolar-listener.service` dùng cùng Python, cấu hình và database với Odoo,
+nhưng chạy riêng: không mở HTTP và không chạy cron. Mỗi hệ thống có một kết nối
+WebSocket, ping mỗi 20 giây, tự kết nối lại với thời gian chờ 1–30 giây. Nếu không
+nhận được dữ liệu thiết bị trong 60 giây, bộ nhận sẽ mở lại kết nối. Danh sách
+thiết bị/token được kiểm tra lại mỗi 30 giây.
+
+Bus được commit ngay từng message. Mẫu raw lưu khoảng mỗi 5 giây cho
+mỗi thiết bị; mỗi mẫu mới ghi kèm nhịp 5 giây để tổng hợp đúng độ phủ. Mẫu cũ
+không có nhịp vẫn dùng cấu hình legacy `smartsolar.sync_interval_seconds`
+(60 giây). PostgreSQL advisory lock ngăn cron/manual hoặc một bộ nhận thứ hai
+subscribe trùng hệ thống. Cron nhận WebSocket được tắt; cron tổng hợp giờ/ngày
+và dọn raw vẫn hoạt động.
+
+Khi áp dụng lần đầu, dừng listener và Odoo, cập nhật code rồi upgrade module
+`smartsolar` để thêm metadata nhịp mẫu. Sau đó khởi động lại Odoo và bật listener:
+
+```bash
+ln -s "$PWD/smartsolar-listener.service" "$HOME/.config/systemd/user/smartsolar-listener.service"
+systemctl --user daemon-reload
+systemctl --user enable --now smartsolar-listener.service
+systemctl --user status smartsolar-listener.service
+```
+
+Log nhận dữ liệu: `../odoo-19.0/.odoo-runtime/listener.log`. Khi sửa code Python,
+restart cả hai dịch vụ. Nếu cần quay lại nhịp cũ, dừng listener rồi kích hoạt lại
+cron nhận WebSocket; giữ nguyên các cột metadata để không mất dữ liệu đã ghi.
+Không xóa hoặc sửa mẫu raw lịch sử.

@@ -20,6 +20,7 @@ class ChargePower(models.Model):
     last_updated = fields.Float(string='Last Updated', digits=(16, 6))
     timestamp = fields.Integer(string='Timestamp')
     record_date = fields.Datetime(string='Ngày ghi nhận', default=fields.Datetime.now, index=True)
+    sample_interval_seconds = fields.Integer(string='Nhịp mẫu raw (giây)', default=0, readonly=True)
 
     # Thông tin từ lastMessage
     command = fields.Char(string='Command')
@@ -96,6 +97,7 @@ class ChargePower(models.Model):
             'server_time': server_time,
             'last_updated': api_data.get('lastUpdated', 0),
             'record_date': record_date,
+            'sample_interval_seconds': self.env.context.get('smartsolar_sample_interval_seconds', 0),
             'command': last_message.get('command', ''),
             'esp_id': last_message.get('espId', ''),
             'timestamp': last_message.get('timeStamp', 0),

@@ -96,7 +96,7 @@ class GridTieInverterSummary(models.Model):
                    AND device_id IS NOT NULL
             ), source_rows AS (
                 SELECT r.id, r.record_date, r.device_id, r.system_id, r.device_guid,
-                       r.is_online, r.dc_voltage, r.ac_voltage,
+                       r.is_online, r.sample_interval_seconds, r.dc_voltage, r.ac_voltage,
                        r.output_power, r.total_power, r.limiter_power,
                        r.energy_total, r.limiter_total, r.temperature
                   FROM grid_tie_inverter r
@@ -104,7 +104,7 @@ class GridTieInverterSummary(models.Model):
                    AND r.device_id IS NOT NULL
                 UNION ALL
                 SELECT p.id, p.record_date, p.device_id, p.system_id, p.device_guid,
-                       p.is_online, p.dc_voltage, p.ac_voltage,
+                       p.is_online, p.sample_interval_seconds, p.dc_voltage, p.ac_voltage,
                        p.output_power, p.total_power, p.limiter_power,
                        p.energy_total, p.limiter_total, p.temperature
                   FROM active_devices d
@@ -154,8 +154,9 @@ class GridTieInverterSummary(models.Model):
                 (ARRAY_AGG(device_guid ORDER BY record_date DESC, id DESC))[1],
                 COUNT(*),
                 LEAST(
-                    SUM(CASE WHEN is_online THEN 1.0 ELSE 0.0 END)
-                    * %s / 3600.0 * 100.0,
+                    SUM(CASE WHEN is_online THEN
+                        COALESCE(NULLIF(sample_interval_seconds, 0), %s) ELSE 0 END)
+                    / 3600.0 * 100.0,
                     100.0
                 ),
                 %s,

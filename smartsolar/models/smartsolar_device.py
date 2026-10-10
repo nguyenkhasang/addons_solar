@@ -123,6 +123,39 @@ class SmartSolarDevice(models.Model):
             self._record_sync_result('api_error', str(e))
             return False
 
+    def _save_mqsolar_raw_sample(self, raw_data):
+        """Guard against fast replay/restart using the last committed device sample."""
+        from datetime import datetime, timedelta, timezone
+        from ..services.websocket_listener import RAW_SAMPLE_SECONDS
+        self.ensure_one()
+        kind = detect_mqsolar_device_type(raw_data) or self.device_type
+        model = {'charge_power': 'charge.power', 'grid_tie_inverter': 'grid.tie.inverter'}.get(kind)
+        if not model:
+            return False
+        try:
+            at = datetime.fromtimestamp(float(raw_data['_received_at']), timezone.utc).replace(tzinfo=None)
+        except (KeyError, TypeError, ValueError, OSError, OverflowError):
+            return False
+        previous = self.env[model].search([('device_id', '=', self.id)],
+                                          order='record_date desc, id desc', limit=1)
+        if previous and at - previous.record_date < timedelta(seconds=RAW_SAMPLE_SECONDS):
+            return False
+        if not self.with_context(smartsolar_sample_interval_seconds=RAW_SAMPLE_SECONDS)._sync_data_from_mqsolar_message(raw_data):
+            raise ValueError('Raw sample rejected')
+        return True
+
+    def _send_mqsolar_realtime(self, raw_data):
+        """Publish one message in the caller's short, independently committed transaction."""
+        self.ensure_one()
+        api_data = mqsolar_message_to_legacy_api_data(raw_data)
+        target_type = detect_mqsolar_device_type(raw_data) or self.device_type
+        if not api_data or target_type not in ('charge_power', 'grid_tie_inverter'):
+            return False
+        payload = self._build_realtime_payload(api_data, target_type)
+        for channel in (f'smartsolar.realtime.{self.system_id.id}', 'smartsolar.realtime.all'):
+            self.env['bus.bus']._sendone(channel, 'smartsolar_data', payload)
+        return True
+
     def _build_realtime_payload(self, api_data, device_type):
         """Xây dựng payload gọn để push lên bus.bus cho realtime chart."""
         from datetime import timezone, timedelta
