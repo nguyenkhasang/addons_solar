@@ -264,16 +264,50 @@
         .ss_col_4, .ss_col_6, .ss_col_8 { grid-column: span 12; }
     }
     @media (max-width: 760px) {
-        padding: 12px;
+        padding: 10px 10px 24px;
+        .ss_topbar { gap: 10px; }
+        .ss_brand { min-width: 0; gap: 10px; }
+        .ss_brand > div { min-width: 0; }
+        .ss_brand_title { font-size: 16px; }
+        .ss_topbar_right { width: 100%; gap: 6px; }
+        .ss_select_wrap { flex: 1; min-width: 0; }
+        .ss_select { width: 100%; min-width: 0; min-height: 44px; font-size: 16px; padding: 8px; }
+        .ss_icon_btn { width: 44px; height: 44px; flex-shrink: 0; }
+        .ss_ops_grid { grid-template-columns: minmax(0, 1fr); }
+        .ss_overview_container { min-width: 0; }
         .ss_kpi_grid, .ss_status_metrics { grid-template-columns: 1fr; }
+        .ss_status_metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+        .ss_status_metric span { white-space: normal; line-height: 1.4; }
+        .ss_status_metric strong { font-size: 17px; }
         .ss_health_block { grid-template-columns: 1fr; justify-items: center; }
+        .ss_health_stats { width: 100%; min-width: 0; }
+        .ss_health_row strong, .ss_status_item strong { overflow-wrap: anywhere; }
         .ss_lifetime_grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .ss_weather_grid { grid-template-columns: repeat(2, 1fr); }
-        .ss_device_row { grid-template-columns: 1fr 1fr; }
+        .ss_device_row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .ss_device_identity, .ss_device_sync { grid-column: 1 / -1; }
+        .ss_device_identity > div { min-width: 0; }
+        .ss_device_meta { flex-wrap: wrap; overflow-wrap: anywhere; }
+        .ss_device_row { min-height: 44px; }
+        .ss_time_bar { padding: 10px; gap: 8px; }
+        .ss_time_buttons { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); width: 100%; }
+        .ss_time_btn { min-height: 44px; padding: 6px; }
         .ss_time_meta { margin-left: 0; }
+        .ss_charts_grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+        .ss_col_4, .ss_col_6, .ss_col_8, .ss_col_12 { grid-column: 1; }
+        .ss_chart_card { padding: 12px; }
+        .ss_chart_body { height: 240px; min-width: 0; }
+        .ss_chart_body_large { height: 280px; }
+        .ss_chart_body_heatmap { height: 320px; }
         .ss_chart_header { align-items: flex-start; gap: 10px; flex-wrap: wrap; }
         .ss_heatmap_buttons { width: 100%; }
-        .ss_heatmap_btn { flex: 1; padding-inline: 8px; }
+        .ss_heatmap_btn { flex: 1; padding-inline: 4px; min-height: 44px; font-size: 11px; }
+        .ss_weather_panel { padding: 12px; }
+        .ss_weather_now { gap: 10px; min-width: 0; }
+        .ss_weather_meta { text-align: left; }
+        .ss_energy_card_head { align-items: flex-start; }
+        .ss_energy_value { font-size: 23px; }
+        .ss_energy_card { padding: 12px; }
+        .ss_energy_icon { flex-shrink: 0; }
     }
 }

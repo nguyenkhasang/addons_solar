@@ -12,14 +12,14 @@
                 </div>
                 <div class="ss_topbar_right">
                     <div class="ss_select_wrap">
-                        <select class="ss_select" t-on-change="onSystemChange">
+                        <select class="ss_select" aria-label="Chọn hệ thống" t-on-change="onSystemChange">
                             <option value="">Tat ca he thong</option>
                             <t t-foreach="state.data?.systems || []" t-as="sys" t-key="sys.id"><option t-att-value="sys.id" t-att-selected="state.systemId === sys.id"><t t-esc="sys.name"/></option></t>
                         </select>
                     </div>
-                    <button class="ss_icon_btn" t-on-click="onManualRefresh" title="Lam moi"><i class="fa fa-refresh" t-att-class="{ 'fa-spin': state.loading }"/></button>
-                    <button class="ss_icon_btn" t-on-click="toggleAutoRefresh" t-att-class="{ active: state.autoRefresh }"><i class="fa" t-att-class="state.autoRefresh ? 'fa-pause' : 'fa-play'"/></button>
-                    <button class="ss_icon_btn" t-on-click="toggleTheme"><i class="fa" t-att-class="state.theme === 'dark' ? 'fa-sun-o' : 'fa-moon-o'"/></button>
+                    <button class="ss_icon_btn" t-on-click="onManualRefresh" title="Làm mới" aria-label="Làm mới"><i class="fa fa-refresh" t-att-class="{ 'fa-spin': state.loading }"/></button>
+                    <button class="ss_icon_btn" t-on-click="toggleAutoRefresh" t-att-aria-label="state.autoRefresh ? 'Tạm dừng tự cập nhật' : 'Bật tự cập nhật'" t-att-class="{ active: state.autoRefresh }"><i class="fa" t-att-class="state.autoRefresh ? 'fa-pause' : 'fa-play'"/></button>
+                    <button class="ss_icon_btn" t-on-click="toggleTheme" aria-label="Đổi giao diện sáng tối"><i class="fa" t-att-class="state.theme === 'dark' ? 'fa-sun-o' : 'fa-moon-o'"/></button>
                 </div>
             </div>
             <div class="ss_loading_bar" t-if="state.loading"/>
