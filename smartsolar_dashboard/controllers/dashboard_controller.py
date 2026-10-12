@@ -8,6 +8,13 @@ _logger = logging.getLogger(__name__)
 
 class SmartSolarDashboardController(http.Controller):
 
+    @http.route('/smartsolar/dashboard/bms_history', type='jsonrpc', auth='user', methods=['POST'])
+    def bms_history(self, time_range='24h', system_id=None):
+        if time_range not in ('6h', '12h', '24h', '1week', '1month'):
+            raise ValueError('Unsupported BMS history range')
+        sid = int(system_id) if system_id else None
+        return request.env['smartsolar.dashboard'].get_bms_history(time_range, sid)
+
     @http.route('/smartsolar/dashboard/data', type='json', auth='user', methods=['POST'])
     def dashboard_data(self, time_range='24h', system_id=None, **kwargs):
         try:

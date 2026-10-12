@@ -236,12 +236,8 @@ class SmartSolarSystem(models.Model):
         """Dọn dữ liệu môi trường cũ. Chạy sau super() nên charge.power /
         grid.tie.inverter vẫn được purge như cũ.
 
-        Raw thời tiết KHÔNG dùng chung ngưỡng 30 ngày của thiết bị: nó chỉ cần sống
-        đủ để (a) trả lời câu hỏi <=2 ngày và (b) cho cron gộp ngày quét lại 3 ngày
-        gần nhất. Quá ~3 ngày thì mọi truy vấn đã đọc bucket ngày, raw 5 phút/lần
-        thành rác. Vì vậy dùng tham số RIÊNG smartsolar.env_raw_retention_days,
-        mặc định 7 ngày (biên an toàn phòng cron lỡ vài ngày). Bucket ngày rất nhỏ
-        nên mặc định giữ mãi (daily_retention_days = 0).
+        Mẫu chi tiết và tổng hợp ngày dùng tham số riêng cho môi trường,
+        mặc định giữ 30 ngày; không thay đổi thời hạn lịch sử điện năng.
         """
         res = super()._cron_purge_old_data()
         ICP = self.env['ir.config_parameter'].sudo()
@@ -253,10 +249,10 @@ class SmartSolarSystem(models.Model):
             except (TypeError, ValueError):
                 return default
 
-        raw_days = _to_int(ICP.get_param('smartsolar.env_raw_retention_days', '7'), 7)
+        raw_days = _to_int(ICP.get_param('smartsolar.env_raw_retention_days', '30'), 30)
         # Môi trường KHÔNG có bucket 'hour' (chỉ gộp tới ngày) nên bỏ qua
         # hourly_retention_days; chỉ dùng raw + daily.
-        daily_days = _to_int(ICP.get_param('smartsolar.daily_retention_days', '0'), 0)
+        daily_days = _to_int(ICP.get_param('smartsolar.env_daily_retention_days', '30'), 30)
 
         if raw_days > 0:
             # Keep complete local days for the daily replay window.
@@ -277,7 +273,7 @@ class SmartSolarSystem(models.Model):
             _logger.info('[purge] smartsolar_environment: deleted %s rows outside retained local days',
                          self.env.cr.rowcount)
 
-        if daily_days > 0:  # 0 (mặc định) -> giữ bucket ngày vĩnh viễn
+        if daily_days > 0:  # 0 -> giữ bucket ngày vĩnh viễn
             cutoff = now - timedelta(days=daily_days)
             self.env.cr.execute(
                 "DELETE FROM smartsolar_environment_summary "

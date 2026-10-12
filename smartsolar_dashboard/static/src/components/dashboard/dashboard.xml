@@ -206,18 +206,7 @@
                     </div>
                 </div>
 
-                <!-- So sánh tháng năm nay vs năm trước -->
-                <div class="ss_chart_card ss_col_12">
-                    <div class="ss_chart_header">
-                        <div>
-                            <div class="ss_chart_title"><i class="fa fa-calendar"/> So sánh sản lượng theo tháng</div>
-                            <div class="ss_chart_sub">Năm nay vs năm trước (kWh)</div>
-                        </div>
-                    </div>
-                    <div class="ss_chart_body">
-                        <canvas t-ref="monthlyComparisonChart"/>
-                    </div>
-                </div>
+                <BmsHistory systemId="state.systemId" theme="state.theme" refreshToken="state.lastRefresh"/>
 
             </div>
             <div class="ss_empty_state" t-if="!hasData and !state.loading"><i class="fa fa-database"/><h3>Chua co du lieu</h3><p>Hay dam bao cac thiet bi da duoc dong bo qua API.</p></div>

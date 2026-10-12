@@ -6,6 +6,7 @@ import { useService } from "@web/core/utils/hooks";
 import { rpc } from "@web/core/network/rpc";
 import { loadBundle } from "@web/core/assets";
 import { _t } from "@web/core/l10n/translation";
+import { BmsHistory } from "../bms_history/bms_history";
 import { SystemOverview } from "../system_overview/system_overview";
 
 const TIME_RANGES = [
@@ -58,7 +59,7 @@ const COLORS = {
 export class SmartSolarDashboard extends Component {
     static template = "smartsolar.Dashboard";
     static props = ["*"];
-    static components = { SystemOverview };
+    static components = { SystemOverview, BmsHistory };
 
     setup() {
         this.notification = useService("notification");
@@ -106,7 +107,6 @@ export class SmartSolarDashboard extends Component {
             pvEfficiency: useRef("pvEfficiencyChart"),
             distribution: useRef("distributionChart"),
             heatmap: useRef("heatmapChart"),
-            monthlyComparison: useRef("monthlyComparisonChart"),
         };
 
         onWillStart(async () => {
@@ -484,7 +484,6 @@ export class SmartSolarDashboard extends Component {
         this._renderPvEfficiencyChart();
         this._renderDistributionChart();
         this._renderHeatmapChart();
-        this._renderMonthlyComparisonChart();
     }
 
     _renderRealtimeFromBuffer() {
@@ -999,30 +998,6 @@ export class SmartSolarDashboard extends Component {
     get heatmapTooltipStyle() {
         const tooltip = this.state.heatmapTooltip;
         return tooltip ? `left: ${tooltip.left}px; top: ${tooltip.top}px` : "";
-    }
-
-    _renderMonthlyComparisonChart() {
-        const canvas = this.refs.monthlyComparison?.el;
-        if (!canvas) return;
-        const mc = this.state.data.monthly_comparison;
-        if (!mc || !mc.labels.length) { this._showEmpty(canvas); return; }
-        const ctx = canvas.getContext("2d");
-        this.charts.monthlyComparison = new Chart(ctx, {
-            type: "bar",
-            data: {
-                labels: mc.labels,
-                datasets: [
-                    { label: mc.this_year_label, data: mc.this_year, backgroundColor: COLORS.primary + "cc", borderRadius: 4, borderSkipped: false },
-                    { label: mc.last_year_label, data: mc.last_year, backgroundColor: COLORS.info + "88", borderRadius: 4, borderSkipped: false },
-                ],
-            },
-            options: this._commonChartOptions({
-                plugins: {
-                    ...this._commonChartOptions().plugins,
-                    tooltip: { ...this._commonChartOptions().plugins.tooltip, callbacks: { label: (c) => `${c.dataset.label}: ${c.parsed.y.toFixed(1)} kWh` } },
-                },
-            }),
-        });
     }
 
     _showEmpty(canvas) {

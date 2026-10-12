@@ -1,0 +1,6 @@
+.o_smartsolar_dashboard {
+    .ss_bms_history_ranges { display:flex; flex-wrap:wrap; gap:4px; background:var(--ss-surface-2); padding:4px; border-radius:8px; }
+    .ss_bms_history_body { margin-top:8px; }
+    .ss_bms_history_empty { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; text-align:center; padding:20px; color:var(--ss-text-muted); background:var(--ss-surface); }
+    @media(max-width:760px) { .ss_bms_history_ranges { width:100%; } .ss_bms_history_ranges .ss_time_btn { flex:1; min-width:48px; padding:6px 3px; font-size:11px; } }
+}

@@ -1820,8 +1820,10 @@ class SmartSolarDashboard(models.AbstractModel):
             truncated = len(rows) > 10000
             rows = rows[:10000].sorted('record_date')
             stride = max(1, (len(rows) + 239) // 240)
-            sampled = rows[::stride]
+            sampled = rows[::stride][:239] | rows[-1:]
             result.append({'id': battery.id, 'name': battery.name,
+                           'history_enabled': battery.history_enabled,
+                           'sample_step_seconds': battery.history_interval * stride,
                            'labels': [r.record_date.replace(tzinfo=timezone.utc).isoformat() for r in sampled],
                            **{k: [r.state.get(k) for r in sampled] for k in
                               ('soc', 'voltage', 'current', 'power', 'cell_delta_voltage', 'battery_temperature_1')},

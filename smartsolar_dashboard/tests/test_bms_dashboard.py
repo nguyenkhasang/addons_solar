@@ -1,4 +1,4 @@
-from datetime import timezone
+from datetime import timezone, timedelta
 from pathlib import Path
 from odoo import fields
 from odoo.tests import TransactionCase, tagged
@@ -7,6 +7,25 @@ from odoo.addons.smartsolar.services.jk_bms.protocol import decode_telemetry
 
 @tagged('post_install', '-at_install', 'smartsolar_bms')
 class TestBmsDashboard(TransactionCase):
+    def test_history_ranges_and_latest_sample_survives_sampling(self):
+        system = self.env['smartsolar.system'].create({'name': 'BMS range test', 'code': 'BMS-RANGES'})
+        battery = self.env['smartsolar.battery'].create({'name': 'range test', 'system_id': system.id,
+            'device_identifier': 'BMS-RANGES', 'history_enabled': False, 'history_interval': 300})
+        now = fields.Datetime.now()
+        telemetry = self.env['smartsolar.battery.telemetry']
+        telemetry.create([{'battery_id': battery.id, 'record_date': now - timedelta(hours=h),
+            'state': {'soc': 40, 'voltage': 52.4}} for h in [5, 10, 48, 480]])
+        dashboard = self.env['smartsolar.dashboard']
+        for key, expected in [('6h', 1), ('12h', 2), ('24h', 2), ('1week', 3), ('1month', 4)]:
+            result = dashboard.get_bms_history(key, system.id)[0]
+            self.assertEqual(len(result['labels']), expected)
+            self.assertFalse(result['history_enabled'])
+        telemetry.create([{'battery_id': battery.id, 'record_date': now - timedelta(seconds=300*i+1),
+            'state': {'soc': 41, 'voltage': 52.5}} for i in range(300)])
+        result = dashboard.get_bms_history('1month', system.id)[0]
+        self.assertLessEqual(len(result['labels']), 240)
+        self.assertEqual(result['labels'][-1], (now-timedelta(seconds=1)).replace(tzinfo=timezone.utc).isoformat())
+
     def test_snapshot_and_history_scope(self):
         system=self.env['smartsolar.system'].create({'name':'BMS dashboard test','code':'BMS-DASHBOARD'})
         battery=self.env['smartsolar.battery'].create({'name':'test','system_id':system.id,'device_identifier':'DASH-BMS'})
