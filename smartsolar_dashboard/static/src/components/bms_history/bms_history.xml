@@ -1,12 +1,12 @@
 <templates xml:space="preserve">
     <t t-name="smartsolar.BmsHistory">
         <div class="ss_chart_card ss_col_12 ss_bms_history">
-            <div class="ss_chart_header"><div><div class="ss_chart_title"><i class="fa fa-battery-three-quarters"/> Thông tin pin JK BMS</div><div class="ss_chart_sub">SOC và điện áp pin · dữ liệu đo từ JK BMS</div></div>
+            <div class="ss_chart_header"><div><div class="ss_chart_title"><i class="fa fa-battery-three-quarters"/> Thông tin pin JK BMS</div><div class="ss_chart_sub">SOC và công suất sạc/xả · dương: sạc, âm: xả · dữ liệu đo từ JK BMS</div></div>
                 <div class="ss_bms_history_ranges"><t t-foreach="ranges" t-as="r" t-key="r.key"><button type="button" class="ss_time_btn" t-att-class="{active:state.range === r.key}" t-att-aria-pressed="state.range === r.key ? 'true' : 'false'" t-on-click="() => this.changeRange(r.key)"><t t-esc="r.label"/></button></t></div>
             </div>
             <div class="ss_energy_note" t-if="historyDisabled">Lưu lịch sử đang tắt. Bật trong SmartSolar → Pin JK BMS để có mẫu mới.</div>
             <div class="ss_energy_note" t-if="truncated">Khoảng này vượt giới hạn tải dữ liệu; biểu đồ chỉ hiển thị phần lịch sử gần nhất.</div>
-            <div class="ss_chart_body ss_bms_history_body"><canvas t-ref="chart" t-att-aria-busy="state.loading ? 'true' : 'false'" aria-label="Biểu đồ SOC và điện áp pin JK BMS"/><div class="ss_bms_history_empty ss_bms_history_loading" t-if="!state.loaded">Đang tải lịch sử pin…</div><div class="ss_bms_history_empty" t-if="state.loaded and !hasHistory"><t t-if="state.error">Không tải được lịch sử pin. Hãy thử tải lại.</t><t t-else="">Chưa có lịch sử pin trong khoảng thời gian này.</t></div></div>
+            <div class="ss_chart_body ss_bms_history_body"><canvas t-ref="chart" t-att-aria-busy="state.loading ? 'true' : 'false'" aria-label="Biểu đồ SOC và công suất sạc/xả pin JK BMS"/><div class="ss_bms_history_empty ss_bms_history_loading" t-if="!state.loaded">Đang tải lịch sử pin…</div><div class="ss_bms_history_empty" t-if="state.loaded and !hasHistory"><t t-if="state.error">Không tải được lịch sử pin. Hãy thử tải lại.</t><t t-else="">Chưa có lịch sử pin trong khoảng thời gian này.</t></div></div>
         </div>
     </t>
 </templates>

@@ -50,22 +50,22 @@ export class BmsHistory extends Component {
         }
         const labels = [...times].sort();
         const colors = ["#22C55E", "#1E88E5", "#8B5CF6", "#F59E0B"];
-        const datasets = history.flatMap((h, i) => ["soc", "voltage"].map(metric => {
-            const values = new Map(h.labels.map((t,j) => [t,h[metric][j]]));
-            return { label: `${h.name} · ${metric === "soc" ? "SOC (%)" : "Điện áp (V)"}`,
-                data: labels.map(t => ({ x: Date.parse(t), y: values.get(t) ?? null })), yAxisID: metric === "soc" ? "soc" : "voltage",
-                borderColor: colors[(i * 2 + (metric === "voltage" ? 1 : 0)) % colors.length],
-                borderDash: metric === "voltage" ? [5,3] : [], borderWidth: 2, pointRadius: labels.length === 1 ? 3 : 0,
+        const datasets = history.flatMap((h, i) => ["soc", "power"].map(metric => {
+            const values = new Map(h.labels.map((t,j) => [t,h[metric]?.[j]]));
+            return { label: `${h.name} · ${metric === "soc" ? "SOC (%)" : "Công suất sạc/xả (W)"}`,
+                data: labels.map(t => ({ x: Date.parse(t), y: values.get(t) ?? null })), yAxisID: metric === "soc" ? "soc" : "power",
+                borderColor: colors[(i * 2 + (metric === "power" ? 1 : 0)) % colors.length],
+                borderDash: metric === "power" ? [5,3] : [], borderWidth: 2, pointRadius: labels.length === 1 ? 3 : 0,
                 pointHitRadius: 12, tension: 0, spanGaps: false };
         }));
         const text = this.props.theme === "dark" ? "#cbd5e1" : "#475569";
         const options = { responsive: true, maintainAspectRatio: false, animation: false,
             interaction: { mode: "index", intersect: false },
             plugins: { legend: { position: "bottom", labels: { color: text, boxWidth: 14, font: {size:11} } },
-                tooltip: { callbacks: { title: items => items.length ? new Date(items[0].parsed.x).toLocaleString("vi-VN") : "", label: c => `${c.dataset.label}: ${c.parsed.y.toFixed(c.dataset.yAxisID === "soc" ? 1 : 2)}` } } },
+                tooltip: { callbacks: { title: items => items.length ? new Date(items[0].parsed.x).toLocaleString("vi-VN") : "", label: c => `${c.dataset.label}: ${c.parsed.y.toFixed(1)} ${c.dataset.yAxisID === "soc" ? "%" : "W"}` } } },
             scales: { x: { type: "linear", ticks: { color: text, maxTicksLimit: 6, maxRotation: 0, callback: value => new Date(value).toLocaleString("vi-VN", {day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}) }, grid: { display: false } },
                 soc: { position: "left", min: 0, max: 100, title: { display: true, text: "SOC (%)", color: text }, ticks: {color:text} },
-                voltage: { position: "right", title: { display: true, text: "Điện áp (V)", color: text }, ticks: {color:text}, grid: {drawOnChartArea:false} } } };
+                power: { position: "right", beginAtZero: true, title: { display: true, text: "Công suất sạc/xả (W)", color: text }, ticks: {color:text}, grid: {drawOnChartArea:false} } } };
         const data = { labels: labels.map(t => new Date(t).toLocaleString("vi-VN", {day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})), datasets };
         if (this.chart) { this.chart.data = data; this.chart.options = options; this.chart.update("none"); }
         else this.chart = new Chart(this.canvas.el, {type:"line",data,options});

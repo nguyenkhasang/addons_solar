@@ -45,6 +45,11 @@
                     <div class="ss_ov_bms_header"><strong>JK BMS · <t t-esc="b.name"/></strong><span t-att-class="'ss_ov_bms_status ' + b.status.toLowerCase()"><t t-esc="b.status"/></span></div>
                     <div class="ss_ov_bms_summary"><span>SOC <strong><t t-esc="fmtBms(b.soc, 0)"/>%</strong></span><span>Điện áp pin <strong><t t-esc="fmtBms(b.voltage, 2)"/> V</strong></span></div>
                     <progress class="ss_ov_bms_soc" max="100" t-att-value="b.soc || 0" aria-label="SOC pin JK BMS"/>
+                    <div class="ss_ov_bms_flow" title="Dữ liệu đo từ JK BMS: dương là sạc, âm là xả.">
+                        <div><span>Công suất sạc/xả</span><strong><t t-esc="fmtBms(b.power, 1)"/> <small>W</small></strong></div>
+                        <div><span>Dòng sạc/xả</span><strong><t t-esc="fmtBms(b.current, 2)"/> <small>A</small></strong></div>
+                    </div>
+                    <div class="ss_ov_bms_age"><t t-esc="b.flow_status || 'Chưa có dữ liệu'"/> · Dương: sạc / âm: xả</div>
                     <div class="ss_ov_bms_temperatures"><span>Pin T1 <strong><t t-esc="fmtBms(b.battery_temperature_1, 1)"/> °C</strong></span><span>Pin T2 <strong><t t-esc="fmtBms(b.battery_temperature_2, 1)"/> °C</strong></span><span>MOS <strong><t t-esc="fmtBms(b.mos_temperature, 1)"/> °C</strong></span></div>
                     <div class="ss_ov_bms_age"><t t-esc="b.ageLabel"/><t t-if="b.status !== 'ONLINE'"> · Dữ liệu cũ, chưa xác nhận pin hiện tại</t></div>
                     <div class="ss_ov_bms_cells"><t t-foreach="b.cells || []" t-as="cell" t-key="cell_index"><div t-att-class="{ minimum: cell_index + 1 === b.cell_min_index, maximum: cell_index + 1 === b.cell_max_index }"><span>Cell <t t-esc="cellLabel(cell_index)"/></span><strong><t t-esc="fmtBms(cell)"/> V</strong></div></t></div>

@@ -12,15 +12,20 @@ w.rpc=(url,args)=>{calls.push(args);return new Promise((resolve,reject)=>pending
 w.Chart=class {constructor(canvas,config){Object.assign(this,config);this.updated=0;charts.push(this);}update(mode){assert.equal(mode,'none');this.updated++;}destroy(){this.destroyed=true;}};
 w.eval(fs.readFileSync(root+'/smartsolar_dashboard/static/src/components/bms_history/bms_history.js','utf8').replace(/^import .*;$/mg,'').replace('export class BmsHistory','window.BmsHistory = class BmsHistory'));
 const tick=async()=>{await new Promise(r=>w.requestAnimationFrame(()=>w.requestAnimationFrame(r)));};
-const history=[{id:1,name:'JK test',history_enabled:false,sample_step_seconds:300,labels:['2026-10-12T01:00:00+00:00','2026-10-12T01:05:00+00:00','2026-10-12T02:00:00+00:00'],soc:[40,39,38],voltage:[52.4,52.3,52.2]}];
+const history=[{id:1,name:'JK test',history_enabled:false,sample_step_seconds:300,labels:['2026-10-12T01:00:00+00:00','2026-10-12T01:05:00+00:00','2026-10-12T02:00:00+00:00'],soc:[40,39,38],voltage:[52.4,52.3,52.2],power:[-200,0,350]}];
 (async()=>{
  const app=new w.owl.App(w.BmsHistory,{props:{systemId:1,theme:'dark',refreshToken:null},templates:fs.readFileSync(root+'/smartsolar_dashboard/static/src/components/bms_history/bms_history.xml','utf8')});
  const card=await app.mount(w.document.getElementById('root'));await tick();
  assert.equal(calls[0].time_range,'24h');pending.shift().resolve(history);await tick();
  assert.equal(w.document.querySelectorAll('button').length,5);
  assert.equal(charts[0].data.datasets.length,2);
- assert.equal(charts[0].data.datasets[0].yAxisID,'soc');assert.equal(charts[0].data.datasets[1].yAxisID,'voltage');
+ assert.equal(charts[0].data.datasets[0].yAxisID,'soc');assert.equal(charts[0].data.datasets[1].yAxisID,'power');
  assert(charts[0].data.datasets[0].data.some(p => p.y === null));
+ assert.deepEqual(Array.from(charts[0].data.datasets[1].data,p=>p.y),[-200,0,null,350]);
+ assert.equal(charts[0].options.scales.power.beginAtZero,true);
+ assert.equal(charts[0].options.scales.power.title.text,'Công suất sạc/xả (W)');
+ assert.equal(charts[0].options.scales.voltage,undefined);
+ assert(charts[0].options.plugins.tooltip.callbacks.label({dataset:charts[0].data.datasets[1],parsed:{y:-200}}).endsWith('-200.0 W'));
  assert.equal(charts[0].options.scales.x.type,'linear');
  assert(w.document.body.textContent.includes('Lưu lịch sử đang tắt'));
  const updates = charts[0].updated;

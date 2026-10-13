@@ -100,6 +100,11 @@
     .ss_ov_bms_status { font-weight: 700; &.online { color: var(--ov-battery); } &.stale { color: #d97706; } &.offline { color: #ef4444; } }
     .ss_ov_bms_summary strong { font-size: 17px; margin-left: 5px; }
     .ss_ov_bms_soc { width: 100%; height: 10px; margin-top: 8px; accent-color: var(--ov-battery); }
+    .ss_ov_bms_flow { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+    .ss_ov_bms_flow > div { min-width: 0; padding: 8px 10px; border: 1px solid var(--ov-line); border-radius: 6px; }
+    .ss_ov_bms_flow span { display: block; color: var(--ov-title); font-size: 11px; }
+    .ss_ov_bms_flow strong { display: block; margin-top: 4px; font-size: 17px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+    .ss_ov_bms_flow small { font-size: 11px; font-weight: 500; color: var(--ov-title); }
     .ss_ov_bms_temperatures { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 12px; margin-top: 6px; font-size: 11px; color: var(--ov-title); }
     .ss_ov_bms_temperatures strong { color: var(--ov-value); margin-left: 3px; }
     .ss_ov_bms_age { font-size: 11px; color: var(--ov-title); margin: 8px 0; }
