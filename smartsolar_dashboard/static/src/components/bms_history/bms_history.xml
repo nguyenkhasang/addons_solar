@@ -1,6 +1,6 @@
 <templates xml:space="preserve">
     <t t-name="smartsolar.BmsHistory">
-        <div class="ss_chart_card ss_col_6 ss_bms_history">
+        <div class="ss_chart_card ss_col_12 ss_bms_history">
             <div class="ss_chart_header"><div><div class="ss_chart_title"><i class="fa fa-battery-three-quarters"/> Thông tin pin JK BMS</div><div class="ss_chart_sub">SOC và công suất sạc/xả · dương: sạc, âm: xả · dữ liệu đo từ JK BMS</div></div>
                 <div class="ss_bms_history_ranges"><t t-foreach="ranges" t-as="r" t-key="r.key"><button type="button" class="ss_time_btn" t-att-class="{active:state.range === r.key}" t-att-aria-pressed="state.range === r.key ? 'true' : 'false'" t-on-click="() => this.changeRange(r.key)"><t t-esc="r.label"/></button></t></div>
             </div>
