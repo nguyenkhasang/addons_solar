@@ -201,11 +201,14 @@
     .ss_chart_body { height: 280px; position: relative; }
     .ss_chart_body_large { height: 340px; }
     .ss_chart_body_donut { height: 240px; }
+    .ss_device_panel { display: grid; gap: 8px; min-width: 0; }
     .ss_device_list { display: grid; gap: 8px; max-height: 320px; overflow: auto; padding-right: 2px; }
-    .ss_device_row { display: grid; grid-template-columns: minmax(180px, 1.4fr) minmax(80px, .65fr) minmax(80px, .65fr) minmax(130px, 1fr); gap: 10px; align-items: center; background: var(--ss-surface-2); border: 1px solid var(--ss-border); border-left: 3px solid var(--ss-text-faint); border-radius: var(--ss-radius-sm); padding: 10px 12px; cursor: pointer; }
+    .ss_device_row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; align-items: center; background: var(--ss-surface-2); border: 1px solid var(--ss-border); border-left: 3px solid var(--ss-text-faint); border-radius: var(--ss-radius-sm); padding: 10px 12px; cursor: pointer; }
     .ss_device_row.status_online { border-left-color: var(--ss-success); }
     .ss_device_row.status_warning { border-left-color: var(--ss-warning); }
     .ss_device_row.status_offline { opacity: .78; }
+    .ss_device_identity, .ss_device_sync { grid-column: 1 / -1; }
+    .ss_device_identity > div { min-width: 0; }
     .ss_device_identity { display: flex; align-items: center; gap: 9px; min-width: 0; }
     .ss_device_dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ss-text-faint); flex-shrink: 0; }
     .ss_device_dot.online { background: var(--ss-success); }
