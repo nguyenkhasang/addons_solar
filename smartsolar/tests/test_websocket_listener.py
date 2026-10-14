@@ -178,7 +178,7 @@ class TestWebsocketListener(TestCase):
                     saved.append((device, second))
                     schedule.committed(device, second)
         self.assertEqual(len(live), 22)
-        self.assertEqual(saved, [(d, s) for s in [0, 5, 10] for d in ['a', 'b']])
+        self.assertEqual(saved, [(d, s) for s in [0, 10] for d in ['a', 'b']])
 
     def test_failed_commit_remains_due_for_retry(self):
         from ..services.websocket_listener import RawSampleSchedule
@@ -186,8 +186,8 @@ class TestWebsocketListener(TestCase):
         self.assertTrue(schedule.due('a', 0))
         self.assertTrue(schedule.due('a', 1))  # prior transaction failed: no committed()
         schedule.committed('a', 1)
-        self.assertFalse(schedule.due('a', 5.999))
-        self.assertTrue(schedule.due('a', 6))
+        self.assertFalse(schedule.due('a', 10.999))
+        self.assertTrue(schedule.due('a', 11))
         self.assertTrue(schedule.due('b', 1))
 
     def test_receive_wait_and_publish_delay_are_measured_separately(self):

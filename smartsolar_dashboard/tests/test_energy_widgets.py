@@ -2,7 +2,7 @@
 from datetime import datetime
 from types import SimpleNamespace
 from unittest import TestCase
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from odoo import fields
 from ..models.smartsolar_dashboard import SmartSolarDashboard
@@ -60,10 +60,18 @@ class TestEnergyWidgets(TestCase):
 
     def test_comparison_aligns_pv_days_without_adding_pv_to_consumption(self):
         start, end = datetime(2026, 10, 6, 17), datetime(2026, 10, 8, 17)
+        env = MagicMock()
+        summary_model, device_model = MagicMock(), MagicMock()
+        summary_model.search.return_value = []
+        device_model.search.return_value = SimpleNamespace(ids=[])
+        env.__getitem__.side_effect = {'grid.tie.inverter.summary': summary_model,
+                                      'smartsolar.device': device_model}.__getitem__
+        env.cr.fetchall.return_value = []
         fake = SimpleNamespace(
-            env=SimpleNamespace(flush_all=lambda: None),
+            env=env,
             _resolve_time_range=lambda *args: ({'delta': 172800}, start, end),
             _get_system_timezone=lambda *args: 'Asia/Ho_Chi_Minh',
+            _can_use_daily_summaries=lambda *args: False,
             _energy_distribution_for_range=lambda *args: {
                 'data': [2, 1], 'available': True, 'estimated': False},
             _get_daily_pv_energy=lambda *args: {'2026-10-07': 4.5})

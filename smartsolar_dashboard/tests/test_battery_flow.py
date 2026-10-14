@@ -32,6 +32,15 @@ class TestBatteryFlow(TransactionCase):
     def result(self):
         return self.dashboard.get_battery_flow_series('1h', self.system.id)
 
+    def test_pv_efficiency_reuses_provided_battery_balance(self):
+        from unittest.mock import patch
+        self.charger()
+        self.inverter()
+        balance = self.result()
+        with patch.object(type(self.dashboard), 'get_battery_flow_series',
+                          side_effect=AssertionError('Do not calculate battery balance twice')):
+            self.dashboard.get_pv_efficiency_series('1h', self.system.id, balance=balance)
+
     def test_signed_power_uses_same_row_product_not_product_of_averages(self):
         self.charger(voltage=50, current=2)
         self.inverter(watts=200)

@@ -3,6 +3,7 @@
 from datetime import timedelta, timezone
 from collections import OrderedDict, defaultdict
 from zoneinfo import ZoneInfo
+from itertools import groupby
 
 from odoo import models, fields, api, _
 from .electricity_tariff import DEFAULT_RATES, electricity_bill
@@ -187,7 +188,7 @@ class SmartSolarDashboard(models.AbstractModel):
     # Overview KPI
     # ------------------------------------------------------------------
     @api.model
-    def get_overview_kpi(self, system_id=None):
+    def get_overview_kpi(self, system_id=None, daily_cache=None, end_at=None):
         settings = self._get_settings()
         System = self.env['smartsolar.system']
         Device = self.env['smartsolar.device']
@@ -276,7 +277,7 @@ class SmartSolarDashboard(models.AbstractModel):
             'load_peak': load_peak,
             'perf_alert': perf_alert.get('alert', False),
             'perf_deviation_pct': perf_alert.get('deviation_pct', 0),
-            'energy_widgets': self.get_energy_widgets(system_id, settings),
+            'energy_widgets': self.get_energy_widgets(system_id, settings, daily_cache, end_at),
         }
 
     @staticmethod
@@ -324,10 +325,10 @@ class SmartSolarDashboard(models.AbstractModel):
         }
 
     @api.model
-    def get_energy_widgets(self, system_id=None, settings=None):
+    def get_energy_widgets(self, system_id=None, settings=None, daily_cache=None, end_at=None):
         settings = settings or self._get_settings()
-        daily = self.get_energy_comparison('this_month', system_id)
-        end = fields.Datetime.now()
+        daily = self.get_energy_comparison('this_month', system_id, daily_cache, end_at)
+        end = end_at or fields.Datetime.now()
         result = self._build_energy_widgets(
             daily, daily['pv_kwh'], settings['electricity_price'],
             _to_local(end, self._get_system_timezone(system_id)).date().isoformat(),
@@ -338,7 +339,7 @@ class SmartSolarDashboard(models.AbstractModel):
             systems = self.env['smartsolar.system'].search([])
             bills = []
             for system in systems:
-                readings = self.get_energy_comparison('this_month', system.id)
+                readings = self.get_energy_comparison('this_month', system.id, daily_cache, end_at)
                 bills.append(self._build_energy_widgets(
                     readings, [None] * len(readings['labels']), settings['electricity_price'],
                     tariff=settings['tariff']))
@@ -551,48 +552,54 @@ class SmartSolarDashboard(models.AbstractModel):
             'load': ('grid_tie_inverter', 'grid_tie_inverter', 'output_power + limiter_power'),
         }[metric]
         self.env.flush_all()
-        tz = self._get_safe_timezone(system_id)
         scope = ' AND d.system_id = %s' if system_id else ''
-        params = [kind] + ([int(system_id)] if system_id else [])
-        sql = f"""
+        self.env.cr.execute(f"""
+            SELECT d.id FROM smartsolar_device d
+              JOIN smartsolar_system s ON s.id = d.system_id
+             WHERE d.active AND s.active AND d.device_type = %s {scope}
+        """, [kind] + ([int(system_id)] if system_id else []))
+        devices = [row[0] for row in self.env.cr.fetchall()]
+        if not devices:
+            return {'time': None, 'power_w': None}
+        tz = self._get_safe_timezone(system_id)
+        self.env.cr.execute(f"""
             WITH bounds AS (
                 SELECT timezone('UTC', timezone('{tz}',
                            date_trunc('day', timezone('{tz}', NOW())))) AS start_at,
                        NOW() AT TIME ZONE 'UTC' AS end_at
-            ), devices AS (
-                SELECT d.id FROM smartsolar_device d
-                JOIN smartsolar_system s ON s.id = d.system_id
-                WHERE d.active AND s.active AND d.device_type = %s {scope}
-            ), observations AS NOT MATERIALIZED (
-                SELECT r.id, r.device_id, r.record_date, {expression} AS watts
-                FROM {table} r JOIN devices d ON d.id = r.device_id
-                CROSS JOIN bounds b
-                WHERE r.record_date >= b.start_at AND r.record_date <= b.end_at
-            ), anchors AS (
-                SELECT DISTINCT record_date FROM observations
             )
-            SELECT a.record_date, p.watts
-            FROM anchors a
-            CROSS JOIN LATERAL (
-                SELECT SUM(watts) AS watts, COUNT(watts) AS n FROM (
-                    SELECT DISTINCT ON (device_id) device_id, watts
-                    FROM observations o
-                    WHERE o.record_date BETWEEN a.record_date - INTERVAL '10 seconds'
-                                            AND a.record_date
-                    ORDER BY device_id, record_date DESC, id DESC
-                ) latest
-            ) p
-            WHERE p.n = (SELECT COUNT(*) FROM devices)
-            ORDER BY p.watts DESC, a.record_date ASC LIMIT 1
-        """
-        self.env.cr.execute(sql, params)
-        row = self.env.cr.fetchone()
-        if not row:
-            return {'time': None, 'power_w': None}
+            SELECT r.device_id, r.record_date, {expression} AS watts
+              FROM {table} r CROSS JOIN bounds b
+             WHERE r.device_id = ANY(%s)
+               AND r.record_date >= b.start_at AND r.record_date <= b.end_at
+             ORDER BY r.record_date, r.id
+        """, [devices])
+        at, watts = self._peak_from_observations(self.env.cr.fetchall(), len(devices))
         return {
-            'time': _to_local(row[0], self._get_system_timezone(system_id)).strftime('%H:%M:%S'),
-            'power_w': round(float(row[1]), 0),
+            'time': _to_local(at, self._get_system_timezone(system_id)).strftime('%H:%M:%S') if at else None,
+            'power_w': round(float(watts), 0) if watts is not None else None,
         }
+
+    @staticmethod
+    def _peak_from_observations(rows, device_count):
+        """Sweep chronological samples, retaining the latest row per device.
+
+        Evaluate once per timestamp, after duplicate rows, with the same inclusive
+        ten-second freshness window and earliest-tie rule as the SQL calculation.
+        """
+        latest = {}
+        best_at, best_watts = None, None
+        for at, samples in groupby(rows, key=lambda row: row[1]):
+            for device, observed_at, watts in samples:
+                latest[device] = (observed_at, watts)
+            cutoff = at - timedelta(seconds=10)
+            values = [watts for observed_at, watts in latest.values()
+                      if observed_at >= cutoff and watts is not None]
+            if len(values) == device_count and device_count:
+                watts = sum(values)
+                if best_watts is None or watts > best_watts:
+                    best_at, best_watts = at, watts
+        return best_at, best_watts
 
     @api.model
     def get_performance_alert(self, system_id=None):
@@ -1260,28 +1267,61 @@ class SmartSolarDashboard(models.AbstractModel):
     # Energy comparison
     # ------------------------------------------------------------------
     @api.model
-    def get_energy_comparison(self, time_range='1week', system_id=None):
+    def get_energy_comparison(self, time_range='1week', system_id=None, daily_cache=None, end_at=None):
         """Daily consumption with the same branch validation as the flow chart."""
         cfg, start, end = self._resolve_time_range(time_range, system_id)
         self.env.flush_all()
         tz = ZoneInfo(self._get_system_timezone(system_id))
+        if end_at is not None:
+            # One request uses one cutoff, so the current day can be reused too.
+            if time_range in ('today', 'this_month'):
+                midnight = end_at.replace(tzinfo=timezone.utc).astimezone(tz).replace(
+                    hour=0, minute=0, second=0, microsecond=0)
+                if time_range == 'this_month':
+                    midnight = midnight.replace(day=1)
+                start = midnight.astimezone(timezone.utc).replace(tzinfo=None)
+            else:
+                start += end_at - end
+            end = end_at
+            cfg = dict(cfg, delta=(end-start).total_seconds())
         local = start.replace(tzinfo=timezone.utc).astimezone(tz).replace(
             hour=0, minute=0, second=0, microsecond=0)
         summary_days = defaultdict(list)
-        raw_start = start
-        if cfg['delta'] > TIME_RANGE_CONFIG['1month']['delta']:
-            scope = ' AND system_id = %s' if system_id else ''
-            self.env.cr.execute(f"""
-                SELECT MIN(record_date) FROM grid_tie_inverter
-                WHERE record_date >= %s AND record_date < %s {scope}
-            """, [start, end] + ([int(system_id)] if system_id else []))
-            raw_start = self.env.cr.fetchone()[0] or end
-            domain = [('bucket_type', '=', 'day'), ('bucket_start', '>=', start),
-                      ('bucket_start', '<', end)]
-            if system_id:
-                domain.append(('system_id', '=', int(system_id)))
-            for row in self.env['grid.tie.inverter.summary'].search(domain):
-                summary_days[_to_local(row.bucket_start, str(tz)).date()].append(row)
+        domain = [('bucket_type', '=', 'day'), ('bucket_start', '>=', local.astimezone(
+            timezone.utc).replace(tzinfo=None)), ('bucket_start', '<', end)]
+        if system_id:
+            domain.append(('system_id', '=', int(system_id)))
+        for row in self.env['grid.tie.inverter.summary'].search(domain):
+            summary_days[_to_local(row.bucket_start, str(tz)).date()].append(row)
+        # Check freshness once for the whole range. Late raw samples or a missing
+        # device must fall back to raw, rather than using a partial/stale summary.
+        scope = ' AND system_id = %s' if system_id else ''
+        self.env.cr.execute(f"""
+            WITH samples AS (
+                SELECT timezone(%s, record_date AT TIME ZONE 'UTC') AS local_at,
+                       device_id, write_date
+                  FROM grid_tie_inverter
+                 WHERE record_date >= %s AND record_date < %s
+                   AND device_id IS NOT NULL {scope}
+            )
+            SELECT local_at::date, device_id, COUNT(*), MAX(write_date),
+                   MAX(write_date) FILTER (WHERE local_at::time < TIME '00:05:00'),
+                   MAX(write_date) FILTER (WHERE local_at::time >= TIME '23:55:00')
+              FROM samples GROUP BY 1, 2
+        """, [str(tz), local.astimezone(timezone.utc).replace(tzinfo=None)-timedelta(seconds=300),
+              end+timedelta(seconds=300)]
+             + ([int(system_id)] if system_id else []))
+        raw_counts, raw_writes = defaultdict(dict), defaultdict(dict)
+        for day, device, count, written, first_written, last_written in self.env.cr.fetchall():
+            raw_counts[day][device] = count
+            for affected_day, stamp in ((day, written), (day-timedelta(days=1), first_written),
+                                        (day+timedelta(days=1), last_written)):
+                if stamp:
+                    previous = raw_writes[affected_day].get(device)
+                    raw_writes[affected_day][device] = max(previous, stamp) if previous else stamp
+        expected_ids = set(self.env['smartsolar.device'].search([
+            ('active', '=', True), ('device_type', '=', 'grid_tie_inverter')]
+            + ([('system_id', '=', int(system_id))] if system_id else [])).ids)
         result = {key: [] for key in ('labels', 'inverter_kwh', 'grid_kwh',
                                       'total_kwh', 'estimated', 'notes', 'coverage_pct')}
         while True:
@@ -1290,14 +1330,27 @@ class SmartSolarDashboard(models.AbstractModel):
             if left >= end:
                 break
             day_start, day_end = max(start, left), min(end, right)
-            if day_end > raw_start:
-                day_cfg = dict(TIME_RANGE_CONFIG['24h'], delta=(day_end-day_start).total_seconds())
-                flow = self._energy_distribution_for_range(
-                    day_cfg, day_start, day_end, system_id, time_range)
-            else:
-                # Retained full-day summaries cannot describe a partial day.
+            key = (system_id, str(tz), day_start, day_end)
+            flow = daily_cache.get(key) if daily_cache is not None else None
+            if flow is None:
                 rows = summary_days[local.date()] if day_start == left and day_end == right else []
-                flow = self._daily_summary_distribution(rows, (right-left).total_seconds())
+                counts = raw_counts[local.date()]
+                if (all(row.bucket_start == left for row in rows)
+                        and self._can_use_daily_summaries(rows, counts, raw_writes[local.date()])):
+                    count = len(expected_ids | {row.device_id.id for row in rows})
+                    flow = self._daily_summary_distribution(rows, (right-left).total_seconds(), count)
+                elif (cfg['delta'] > TIME_RANGE_CONFIG['1month']['delta'] and not counts
+                      and day_start == left and day_end == right):
+                    # A full day without any raw samples cannot have a valid
+                    # <=300-second segment. Avoid thousands of empty SQL calls
+                    # for year ranges, while retaining explicit missing days.
+                    flow = self._daily_summary_distribution([], (right-left).total_seconds())
+                else:
+                    day_cfg = dict(TIME_RANGE_CONFIG['24h'], delta=(day_end-day_start).total_seconds())
+                    flow = self._energy_distribution_for_range(
+                        day_cfg, day_start, day_end, system_id, time_range)
+                if daily_cache is not None:
+                    daily_cache[key] = flow
             values = flow['data'] if flow['available'] else [None, None]
             inverter, grid = [round(float(v), 3) if v is not None else None for v in values]
             result['labels'].append(local.strftime('%Y-%m-%d'))
@@ -1315,37 +1368,72 @@ class SmartSolarDashboard(models.AbstractModel):
         result['pv_kwh'] = [pv.get(day) for day in result['labels']]
         return result
 
-    def _daily_summary_distribution(self, rows, seconds):
-        """Use validated counters, otherwise paired retained power integrals."""
-        totals = [0.0, 0.0]
-        estimated = False
-        covered = 0.0
+    @staticmethod
+    def _can_use_daily_summaries(rows, raw_counts, raw_writes=None):
+        if not rows or any(row.quality_version != 4 for row in rows):
+            return False
+        by_device = {row.device_id.id: row for row in rows}
+        if any(device not in by_device or count > by_device[device].sample_count
+               for device, count in raw_counts.items()):
+            return False
+        if raw_writes and any(device not in by_device or not by_device[device].write_date
+                              or stamp > by_device[device].write_date
+                              for device, stamp in raw_writes.items()):
+            return False
+        # Independent power integrals are equivalent to paired raw integration
+        # only when both branches were finite and nonnegative on every sample.
+        for row in rows:
+            statistics = row.metric_statistics or {}
+            power = row.power_energy or {}
+            for key in ('output_power', 'grid_import_power', 'total_load_power'):
+                item = statistics.get(key, {})
+                if (item.get('count') != row.sample_count or item.get('min', -1) < 0
+                        or key not in power):
+                    return False
+            covered = [power[key].get('covered_seconds', 0) for key in
+                       ('output_power', 'grid_import_power', 'total_load_power')]
+            if max(covered) - min(covered) > 0.001:
+                return False
+        return True
+
+    def _daily_summary_distribution(self, rows, seconds, device_count=None):
+        """Validate both branches together, including counter/power agreement."""
+        totals, power_totals = [0.0, 0.0], [0.0, 0.0]
+        covered, power_available = 0.0, bool(rows)
+        trusted = bool(rows)
         for row in rows:
             if row.quality_version != 4:
                 return {'data': [None, None], 'available': False,
                         'note': 'Chưa có dữ liệu điện năng được xác nhận.'}
             quality = row.counter_quality or {}
-            if all(quality.get(field, {}).get('reliable') for field in ('limiter_total', 'energy_total')):
-                values = [row.limiter_energy_kwh, row.energy_kwh]
-                covered += seconds
-            else:
-                power = row.power_energy or {}
-                a, b = power.get('output_power', {}), power.get('grid_import_power', {})
-                if (a.get('value') is None or b.get('value') is None
-                        or not a.get('covered_seconds')
-                        or abs(a.get('covered_seconds', 0)-b.get('covered_seconds', 0)) > 0.001):
-                    return {'data': [None, None], 'available': False,
-                            'note': 'Thiếu dữ liệu đồng thời của hai nhánh điện.'}
-                values = [a['value'], b['value']]
-                covered += a['covered_seconds']
-                estimated = True
-            for index, value in enumerate(values):
+            trusted &= all(quality.get(field, {}).get('reliable')
+                           for field in ('limiter_total', 'energy_total'))
+            for index, value in enumerate((row.limiter_energy_kwh, row.energy_kwh)):
                 totals[index] += max(0.0, value)
-        return {'data': totals if rows else [None, None], 'available': bool(rows),
-                'estimated': estimated,
-                'coverage_pct': round(covered/(seconds*len(rows))*100, 2) if rows else 0,
-                'note': 'Ước tính từ công suất trên phần thời gian có dữ liệu.' if estimated
-                        else 'Điện năng theo công-tơ trong ngày.'}
+            power = getattr(row, 'power_energy', None) or {}
+            a, b = power.get('output_power', {}), power.get('grid_import_power', {})
+            paired = (a.get('value') is not None and b.get('value') is not None
+                      and bool(a.get('covered_seconds'))
+                      and abs(a.get('covered_seconds', 0)-b.get('covered_seconds', 0)) <= 0.001)
+            power_available &= paired
+            if paired:
+                covered += a['covered_seconds']
+                for index, item in enumerate((a, b)):
+                    power_totals[index] += max(0.0, item['value'])
+        denominator = seconds * (device_count if device_count is not None else len(rows))
+        coverage = round(covered / denominator * 100, 2) if denominator else 0
+        if trusted and power_available and coverage >= 80:
+            trusted = all(abs(measured-inferred) <= max(0.002, abs(inferred)*0.5)
+                          for measured, inferred in zip(totals, power_totals))
+        available = trusted or power_available
+        return {
+            'data': [round(value, 6) for value in (totals if trusted else power_totals)]
+                    if available else [None, None],
+            'available': available, 'estimated': not trusted,
+            'coverage_pct': None if trusted else coverage,
+            'note': 'Điện năng theo công-tơ trong khoảng đã chọn.' if trusted
+                    else 'Ước tính từ công suất inverter và lấy lưới trên cùng phần thời gian có dữ liệu; không ngoại suy.',
+        }
 
     # ------------------------------------------------------------------
     # Temperature series
@@ -1783,13 +1871,14 @@ class SmartSolarDashboard(models.AbstractModel):
     # ------------------------------------------------------------------
     @api.model
     def get_dashboard_data(self, time_range='24h', system_id=None):
+        daily_cache, end_at = {}, fields.Datetime.now()
         balance = self.get_battery_flow_series(time_range, system_id)
         energy_range = '1week' if time_range in ('1h', '6h', '12h', '24h', '2min') else time_range
         return {
-            'kpi': self.get_overview_kpi(system_id=system_id),
+            'kpi': self.get_overview_kpi(system_id=system_id, daily_cache=daily_cache, end_at=end_at),
             'charge_power': self.get_charge_power_series(time_range=time_range, system_id=system_id),
             'grid_tie': self.get_grid_tie_series(time_range=time_range, system_id=system_id),
-            'energy_comparison': self.get_energy_comparison(time_range=energy_range, system_id=system_id),
+            'energy_comparison': self.get_energy_comparison(time_range=energy_range, system_id=system_id, daily_cache=daily_cache, end_at=end_at),
             'temperature': self.get_temperature_series(time_range=time_range, system_id=system_id),
             'battery': self.get_battery_series(time_range=time_range, system_id=system_id),
             'battery_flow': balance,

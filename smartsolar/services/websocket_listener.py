@@ -5,7 +5,7 @@ import time
 
 _logger = logging.getLogger(__name__)
 LOCK_NAMESPACE = 1936945001
-RAW_SAMPLE_SECONDS = 5
+RAW_SAMPLE_SECONDS = 10
 
 
 class RawSampleSchedule:
