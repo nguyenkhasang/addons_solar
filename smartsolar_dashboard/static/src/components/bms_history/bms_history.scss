@@ -1,7 +1,28 @@
 .o_smartsolar_dashboard {
     .ss_bms_history .ss_chart_header { flex-wrap:wrap; gap:10px; }
     .ss_bms_history_ranges { display:flex; flex-wrap:wrap; gap:4px; background:var(--ss-surface-2); padding:4px; border-radius:8px; }
-    .ss_bms_history_body { margin-top:8px; }
+    .ss_bms_history .ss_chart_header { align-items:center; }
+    .ss_bms_charge_text { color:#0284c7; }
+    .ss_bms_discharge_text { color:#ea580c; }
+    .ss_bms_history_readings { display:flex; flex-wrap:wrap; gap:12px; margin:18px 0 8px; }
+    .ss_bms_history_reading { display:flex; align-items:center; gap:24px; padding:12px 16px; border:1px solid var(--ss-border); border-radius:12px; background:var(--ss-surface-2); min-width:0; }
+    .ss_bms_history_device { min-width:0; padding-right:20px; border-right:1px solid var(--ss-border); }
+    .ss_bms_history_device > span { display:block; font-size:12px; font-weight:600; color:var(--ss-text); overflow-wrap:anywhere; }
+    .ss_bms_history_device small, .ss_bms_history_value small { display:block; font-size:10px; color:var(--ss-text-muted); margin-top:3px; }
+    .ss_bms_history_value { white-space:nowrap; min-width:64px; }
+    .ss_bms_history_value strong { display:block; font-size:20px; line-height:1.2; font-weight:600; font-variant-numeric:tabular-nums; margin-top:3px; color:var(--ss-text); }
+    .ss_bms_soc_value strong { color:#059669; }
+    .ss_bms_charge_value strong { color:#0284c7; }
+    .ss_bms_discharge_value strong { color:#ea580c; }
+    .ss_bms_history .ss_bms_history_body { margin-top:8px; height:300px; }
     .ss_bms_history_empty { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; text-align:center; padding:20px; color:var(--ss-text-muted); background:var(--ss-surface); }
-    @media(max-width:760px) { .ss_bms_history_ranges { width:100%; } .ss_bms_history_ranges .ss_time_btn { flex:1; min-width:48px; padding:6px 3px; font-size:11px; } }
+    &.dark { .ss_bms_charge_text, .ss_bms_charge_value strong { color:#38bdf8; } .ss_bms_discharge_text, .ss_bms_discharge_value strong { color:#fb923c; } .ss_bms_soc_value strong { color:#34d399; } }
+    @media(max-width:760px) {
+        .ss_bms_history_ranges { width:100%; }
+        .ss_bms_history_ranges .ss_time_btn { flex:1; min-width:48px; padding:6px 3px; font-size:11px; }
+        .ss_bms_history .ss_bms_history_body { height:260px; }
+        .ss_bms_history_reading { width:100%; gap:16px; padding:10px 12px; }
+        .ss_bms_history_device { flex:1; padding-right:12px; }
+        .ss_bms_history_value strong { font-size:17px; }
+    }
 }

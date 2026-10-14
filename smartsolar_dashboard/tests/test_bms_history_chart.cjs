@@ -27,6 +27,19 @@ const history=[{id:1,name:'JK test',history_enabled:false,sample_step_seconds:30
  assert.equal(charts[0].options.scales.voltage,undefined);
  assert(charts[0].options.plugins.tooltip.callbacks.label({dataset:charts[0].data.datasets[1],parsed:{y:-200}}).endsWith('-200.0 W'));
  assert.equal(charts[0].options.scales.x.type,'linear');
+ assert.equal(charts[0].options.scales.x.min,Date.parse(history[0].labels[0]));
+ assert.equal(charts[0].options.scales.x.max,Date.parse(history[0].labels.at(-1)));
+ assert.equal(charts[0].options.scales.power.min,-charts[0].options.scales.power.max);
+ assert.equal(charts[0].data.datasets[0].fill,'origin');
+ const segment=charts[0].data.datasets[1].segment.borderColor;
+ assert.equal(segment({p0:{parsed:{y:-100}},p1:{parsed:{y:-200}}}),'#fb923c');
+ assert.equal(segment({p0:{parsed:{y:100}},p1:{parsed:{y:200}}}),'#38bdf8');
+ assert.equal(charts[0].data.datasets[0].label,'SOC');
+ assert(w.document.body.textContent.includes('SOC cuối'));
+ assert(w.document.body.textContent.includes('+350 W'));
+ assert(w.document.body.textContent.includes('38.0%'));
+ assert.equal(card.lastReadings[0].phase,'charge');
+ assert.equal(charts[0].options.plugins.tooltip.callbacks.label({dataset:charts[0].data.datasets[1],parsed:{y:null}}),'Sạc (+) / Xả (−): —');
  assert(w.document.body.textContent.includes('Lưu lịch sử đang tắt'));
  const updates = charts[0].updated;
  const refresh = card.load();await tick();
@@ -43,5 +56,16 @@ const history=[{id:1,name:'JK test',history_enabled:false,sample_step_seconds:30
  assert(w.document.body.textContent.includes('Chưa có lịch sử pin'));
  assert(!w.document.body.textContent.includes('Đang tải lịch sử pin'));
  pending.shift().resolve([]);await emptyRefresh;await tick();
+ card.state.history=[{id:1,name:'Pin A · JK',labels:['2026-10-12T01:00:00+00:00'],soc:[0],power:[0]},
+                     {id:2,name:'Pin B',labels:['2026-10-12T01:00:00+00:00'],soc:[null],power:[null]}];await tick();
+ assert.equal(card.lastReadings[0].soc,'0.0%');assert.equal(card.lastReadings[0].power,'0 W');
+ assert.equal(card.lastReadings[0].phase,'idle');assert.equal(card.lastReadings[1].phase,'unknown');
+ assert.equal(card.lastReadings[1].soc,'—');assert.equal(charts[0].data.datasets.length,4);
+ assert.equal(charts[0].data.datasets[0].label,'Pin A · JK · SOC');
+ assert.equal(charts[0].data.datasets[3].borderDash.length,2);
+ card.props.theme='light';card.renderChart();
+ assert.equal(charts[0].data.datasets[1].segment.borderColor({p0:{parsed:{y:-100}},p1:{parsed:{y:-200}}}),'#ea580c');
+ assert.equal(charts[0].data.datasets[1].borderColor,'#0284c7');
+ assert.equal(charts[0].options.scales.x.max-charts[0].options.scales.x.min,600000);
  app.destroy();assert(charts[0].destroyed);dom.window.close();console.log('PASS BMS chart: dual axes, 5 ranges, gaps, request race, chart reuse, empty state, cleanup');
 })().catch(e=>{console.error(e);dom.window.close();process.exit(1)});
