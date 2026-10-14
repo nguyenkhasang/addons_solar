@@ -206,15 +206,16 @@ class SmartSolarDashboard(models.AbstractModel):
         capacity_kw = sum(System.search(sys_domain).mapped('capacity') or [0])
         current_power_w = self._get_current_total_power(system_id)
         today_kwh = self._get_today_energy(system_id)
-        total_kwh = self._get_total_energy(system_id)
-        total_limiter_kwh = self._get_total_limiter_energy(system_id)
-        total_pv_kwh = self._get_total_pv_energy(system_id)
+        lifetime = self.env['smartsolar.lifetime'].get_totals(system_id)
+        total_kwh = lifetime['inverter_kwh']
+        total_limiter_kwh = lifetime['grid_kwh']
+        total_pv_kwh = lifetime['pv_kwh']
         today_pv_kwh = self._get_today_pv_energy(system_id)
         today_grid_export_kwh = self._get_today_grid_export(system_id)
         today_grid_import_kwh = self._get_today_grid_import(system_id)
         capacity_w = capacity_kw * 1000.0
         efficiency = (current_power_w / capacity_w * 100.0) if capacity_w > 0 else 0.0
-        co2_total_kg = round(total_kwh * settings['co2_factor'], 2)
+        co2_total_kg = round(total_kwh * settings['co2_factor'], 2) if total_kwh is not None else None
 
         # Hệ hybrid: PV → MPPT → Pin → GTI → Lưới
         # today_pv_kwh = MPPT today_kwh (điện PV thu được sạc vào pin)
@@ -236,7 +237,7 @@ class SmartSolarDashboard(models.AbstractModel):
         yield_kwh_per_kwp = round(today_kwh / capacity_kw, 3) if capacity_kw > 0 else 0.0
 
         # CO2 tree equivalent
-        co2_trees = round(co2_total_kg / 21.77, 1)
+        co2_trees = round(co2_total_kg / 21.77, 1) if co2_total_kg is not None else None
         # Peak power time
         peak = self._get_peak_power_time(system_id)
         pv_peak = self._get_today_power_peak('pv', system_id)
@@ -254,13 +255,14 @@ class SmartSolarDashboard(models.AbstractModel):
             'capacity_kw': round(capacity_kw, 2),
             'efficiency': round(efficiency, 1),
             'today_kwh': round(today_kwh, 3),
-            'total_kwh': round(total_kwh, 3),
+            'total_kwh': total_kwh,
             'co2_saved_kg': round(today_kwh * settings['co2_factor'], 2),
             'co2_total_kg': co2_total_kg,
             'revenue_today': round(today_kwh * settings['electricity_price'], 0),
-            'revenue_total': round(total_kwh * settings['electricity_price'], 0),
-            'total_limiter_kwh': round(total_limiter_kwh, 3),
-            'total_pv_kwh': round(total_pv_kwh, 3),
+            'revenue_total': lifetime['saved'],
+            'total_limiter_kwh': total_limiter_kwh,
+            'total_pv_kwh': total_pv_kwh,
+            'lifetime': lifetime,
             'currency_symbol': settings['currency_symbol'],
             'refresh_interval': settings['refresh_interval'],
             'temperature_alert': settings['temperature_alert'],
@@ -1267,12 +1269,15 @@ class SmartSolarDashboard(models.AbstractModel):
     # Energy comparison
     # ------------------------------------------------------------------
     @api.model
-    def get_energy_comparison(self, time_range='1week', system_id=None, daily_cache=None, end_at=None):
+    def get_energy_comparison(self, time_range='1week', system_id=None, daily_cache=None, end_at=None, date_bounds=None):
         """Daily consumption with the same branch validation as the flow chart."""
         cfg, start, end = self._resolve_time_range(time_range, system_id)
         self.env.flush_all()
         tz = ZoneInfo(self._get_system_timezone(system_id))
-        if end_at is not None:
+        if date_bounds is not None:
+            start, end = date_bounds
+            cfg = dict(cfg, delta=(end-start).total_seconds())
+        elif end_at is not None:
             # One request uses one cutoff, so the current day can be reused too.
             if time_range in ('today', 'this_month'):
                 midnight = end_at.replace(tzinfo=timezone.utc).astimezone(tz).replace(
@@ -1781,7 +1786,7 @@ class SmartSolarDashboard(models.AbstractModel):
                     [('device_id', '=', dev.id)], limit=1, order='record_date desc')
                 if rec:
                     latest_temp = rec.temperature
-                    latest_power = rec.charge_power
+                    latest_power = rec.pv_voltage * rec.pv_current
             status = 'offline'
             if dev.is_online:
                 status = 'warning' if latest_temp >= settings['temperature_alert'] else 'online'
@@ -1796,6 +1801,7 @@ class SmartSolarDashboard(models.AbstractModel):
                 'id': dev.id,
                 'name': dev.name or dev.device_guid,
                 'guid': dev.device_guid,
+                'system_id': dev.system_id.id,
                 'type': dev.device_type,
                 'is_online': dev.is_online,
                 'status': status,

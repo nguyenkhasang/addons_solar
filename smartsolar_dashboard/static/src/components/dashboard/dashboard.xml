@@ -84,6 +84,20 @@
                         <div class="ss_status_metric"><span>Sạc/xả pin · ước tính</span><strong><t t-esc="fmtNumber(realtimeChargeW, 0)"/><small>W</small></strong></div>
                     </div>
 
+                    <div class="ss_device_panel" aria-label="Thiết bị realtime">
+                        <div class="ss_device_list" tabindex="0" aria-label="Danh sách thiết bị và công suất realtime">
+                            <div class="ss_empty" t-if="!state.data.devices.length">Chưa có thiết bị</div>
+                            <t t-foreach="state.data.devices" t-as="dev" t-key="dev.id">
+                                <button type="button" class="ss_device_row" t-att-class="'status_' + dev.status" t-on-click="() => this.onDeviceClick(dev.id)" t-att-title="dev.name + ' · ' + dev.system_name">
+                                    <div class="ss_device_identity"><span class="ss_device_dot" t-att-class="dev.status"/><span class="ss_device_name" t-esc="dev.name"/><span class="ss_device_meta" t-esc="deviceTypeLabel(dev.type)"/></div>
+                                    <div class="ss_device_metric"><span t-esc="dev.type === 'charge_power' ? 'PV' : 'AC'"/><strong><t t-esc="fmtNumber(dev.power, 1)"/> W</strong></div>
+                                    <div class="ss_device_metric" t-att-class="{ alert: dev.temperature >= state.data.kpi.temperature_alert }"><strong><t t-esc="fmtNumber(dev.temperature, 1)"/>°C</strong></div>
+                                    <div class="ss_device_sync" t-att-title="dev.last_sync || 'Chưa đồng bộ'"><i class="fa fa-clock-o"/><strong t-esc="deviceSyncLabel(dev.last_sync)"/></div>
+                                </button>
+                            </t>
+                        </div>
+                    </div>
+
                     <!-- Nhiệt độ -->
                     <div class="ss_status_section_title">Nhiệt độ</div>
                     <div class="ss_status_metrics">
@@ -110,10 +124,7 @@
                             </div>
                         </t>
                     </div>
-                    <div class="ss_device_panel">
-                        <div class="ss_status_section_title"><i class="fa fa-list"/> Thiết bị</div>
-                        <div class="ss_device_list"><t t-if="!state.data.devices.length"><div class="ss_empty">Chưa có thiết bị</div></t><t t-foreach="state.data.devices" t-as="dev" t-key="dev.id"><div class="ss_device_row" t-att-class="'status_' + dev.status" t-on-click="() => this.onDeviceClick(dev.id)"><div class="ss_device_identity"><span class="ss_device_dot" t-att-class="dev.status"/><div><div class="ss_device_name" t-esc="dev.name"/><div class="ss_device_meta"><span t-esc="deviceTypeLabel(dev.type)"/><span t-esc="dev.system_name"/></div></div></div><div class="ss_device_metric"><span><t t-esc="dev.type === 'charge_power' ? 'PV vào' : 'AC OUT'"/></span><strong><t t-esc="fmtNumber(dev.power, 1)"/> W</strong></div><div class="ss_device_metric" t-att-class="{ alert: dev.temperature >= state.data.kpi.temperature_alert }"><span>Temp</span><strong><t t-esc="fmtNumber(dev.temperature, 1)"/> C</strong></div><div class="ss_device_sync"><span>Sync</span><strong><t t-esc="dev.last_sync || 'Chưa đồng bộ'"/></strong></div></div></t></div>
-                    </div>
+
                 </div>
             </div>
             <div class="ss_weather_panel" t-if="hasData and hasEnvironment">
@@ -146,13 +157,23 @@
                 </div>
             </div>
             <div class="ss_lifetime_grid" t-if="hasData">
-                <div class="ss_lifetime_item"><span>Tong nang luong</span><strong><t t-esc="fmtNumber(state.data.kpi.total_kwh, 1)"/> kWh</strong></div>
-                <div class="ss_lifetime_item"><span>Tong thu PV</span><strong><t t-esc="fmtNumber(state.data.kpi.total_pv_kwh, 1)"/> kWh</strong></div>
-                <div class="ss_lifetime_item"><span>Tong lay luoi</span><strong><t t-esc="fmtNumber(state.data.kpi.total_limiter_kwh, 1)"/> kWh</strong></div>
-                <div class="ss_lifetime_item"><span>Tong doanh thu</span><strong><t t-esc="fmtMoney(state.data.kpi.revenue_total)"/> <t t-esc="state.data.kpi.currency_symbol"/></strong></div>
-                <div class="ss_lifetime_item"><span>CO2 hom nay</span><strong><t t-esc="fmtNumber(state.data.kpi.co2_saved_kg, 1)"/> kg</strong></div>
-                <div class="ss_lifetime_item"><span>Tong CO2</span><strong><t t-esc="fmtNumber(state.data.kpi.co2_total_kg, 0)"/> kg</strong></div>
-                <div class="ss_lifetime_item clickable" t-on-click="onOpenSystems"><span>He thong</span><strong><t t-esc="state.data.kpi.total_systems"/></strong></div>
+                <div class="ss_lifetime_item"><span>Tổng điện cấp tải</span><strong><t t-esc="fmtNumber(state.data.kpi.total_kwh, 1)"/> kWh</strong></div>
+                <div class="ss_lifetime_item"><span>Tổng thu PV</span><strong><t t-esc="fmtNumber(state.data.kpi.total_pv_kwh, 1)"/> kWh</strong></div>
+                <div class="ss_lifetime_item"><span>Tổng lấy lưới</span><strong><t t-esc="fmtNumber(state.data.kpi.total_limiter_kwh, 1)"/> kWh</strong></div>
+                <div class="ss_lifetime_item"><span>Tổng tiết kiệm</span><strong><t t-esc="fmtMoney(state.data.kpi.revenue_total)"/> <t t-esc="state.data.kpi.currency_symbol"/></strong></div>
+                <div class="ss_lifetime_item"><span>CO₂ hôm nay</span><strong><t t-esc="fmtNumber(state.data.kpi.co2_saved_kg, 1)"/> kg</strong></div>
+                <div class="ss_lifetime_item"><span>Tổng CO₂</span><strong><t t-esc="fmtNumber(state.data.kpi.co2_total_kg, 0)"/> kg</strong></div>
+                <div class="ss_lifetime_item clickable" t-on-click="onOpenSystems"><span>Hệ thống</span><strong><t t-esc="state.data.kpi.total_systems"/></strong></div>
+            </div>
+            <div class="ss_lifetime_meta" t-if="hasData and state.data.kpi.lifetime">
+                <strong>Tích luỹ hệ thống</strong>
+                <span t-if="state.data.kpi.lifetime.first_day">Từ <t t-esc="state.data.kpi.lifetime.first_day"/></span>
+                <span t-if="!state.data.kpi.lifetime.initialized">Đang tổng hợp lịch sử</span>
+                <span t-if="state.data.kpi.lifetime.missing_days">Thiếu <t t-esc="state.data.kpi.lifetime.missing_days"/> ngày dữ liệu</span>
+                <span t-if="state.data.kpi.lifetime.partial_days"><t t-esc="state.data.kpi.lifetime.partial_days"/> ngày có dữ liệu một phần</span>
+                <span t-if="state.data.kpi.lifetime.estimated_days">Điện năng có phần ước tính từ công suất</span>
+                <span title="Lịch sử chưa có biểu giá theo từng kỳ; các kỳ khởi tạo dùng biểu giá cấu hình lúc tổng hợp">Tiết kiệm ước tính · chưa trừ bảo trì/đầu tư</span>
+                <span t-if="state.data.kpi.lifetime.updated_at">Cập nhật: <t t-esc="state.data.kpi.lifetime.updated_at"/></span>
             </div>
             <div class="ss_time_bar" t-if="hasData"><div class="ss_time_label">Khoang thoi gian</div><div class="ss_time_buttons"><t t-foreach="timeRanges" t-as="r" t-key="r.key"><button class="ss_time_btn" t-att-class="{ active: state.timeRange === r.key, 'ss_live_btn': r.key === 'realtime' }" t-on-click="() => this.onTimeRangeChange(r.key)"><t t-esc="r.label"/></button></t></div><div class="ss_time_meta"><span t-if="state.realtimeActive" class="ss_live_badge online"><span class="ss_live_dot"/> LIVE</span><i class="fa fa-clock-o"/> Cap nhat: <t t-esc="refreshLabel"/></div></div>
             <div class="ss_charts_grid" t-if="hasData">

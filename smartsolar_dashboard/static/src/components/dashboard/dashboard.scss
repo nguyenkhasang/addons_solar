@@ -177,6 +177,7 @@
     .ss_status_metric strong { display: flex; align-items: baseline; gap: 4px; color: var(--ss-text); font-size: 18px; line-height: 1.1; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .ss_status_metric small { color: var(--ss-text-muted); font-size: 11px; font-weight: 700; }
     .ss_lifetime_grid { display: grid; grid-template-columns: repeat(7, minmax(120px, 1fr)); margin-bottom: 14px; overflow: hidden; }
+    .ss_lifetime_meta { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: -6px 0 14px; color: var(--ss-text-faint); font-size: 12px; }
     .ss_lifetime_item { padding: 12px 14px; border-right: 1px solid var(--ss-border); min-width: 0; }
     .ss_lifetime_item:last-child { border-right: none; }
     .ss_lifetime_item.clickable { cursor: pointer; }
@@ -202,20 +203,22 @@
     .ss_chart_body_large { height: 340px; }
     .ss_chart_body_donut { height: 240px; }
     .ss_device_panel { display: grid; gap: 8px; min-width: 0; }
-    .ss_device_list { display: grid; gap: 8px; max-height: 320px; overflow: auto; padding-right: 2px; }
-    .ss_device_row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; align-items: center; background: var(--ss-surface-2); border: 1px solid var(--ss-border); border-left: 3px solid var(--ss-text-faint); border-radius: var(--ss-radius-sm); padding: 10px 12px; cursor: pointer; }
+    .ss_device_list { display: grid; gap: 5px; max-height: 320px; overflow: auto; padding-right: 2px; }
+    .ss_device_row { display: grid; grid-template-columns: minmax(130px, 1fr) 100px 58px 74px; min-width: 420px; width: 100%; text-align: left; gap: 10px; align-items: center; background: var(--ss-surface-2); border: 1px solid var(--ss-border); border-left: 3px solid var(--ss-text-faint); border-radius: var(--ss-radius-sm); padding: 6px 10px; min-height: 34px; cursor: pointer; }
     .ss_device_row.status_online { border-left-color: var(--ss-success); }
     .ss_device_row.status_warning { border-left-color: var(--ss-warning); }
     .ss_device_row.status_offline { opacity: .78; }
-    .ss_device_identity, .ss_device_sync { grid-column: 1 / -1; }
+    .ss_device_identity, .ss_device_sync { grid-column: auto; }
     .ss_device_identity > div { min-width: 0; }
     .ss_device_identity { display: flex; align-items: center; gap: 9px; min-width: 0; }
     .ss_device_dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ss-text-faint); flex-shrink: 0; }
     .ss_device_dot.online { background: var(--ss-success); }
     .ss_device_dot.warning { background: var(--ss-warning); }
-    .ss_device_name { font-size: 13px; font-weight: 600; color: var(--ss-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .ss_device_meta { display: flex; gap: 6px; margin-top: 2px; color: var(--ss-text-faint); font-size: 11px; overflow: hidden; }
-    .ss_device_metric, .ss_device_sync { display: grid; gap: 2px; min-width: 0; }
+    .ss_device_name { min-width: 0; flex: 1; font-size: 12px; font-weight: 600; color: var(--ss-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ss_device_meta { flex-shrink: 0; padding: 2px 4px; border-radius: 4px; color: var(--ss-text-faint); background: var(--ss-surface); font-size: 10px; white-space: nowrap; }
+    .ss_device_metric, .ss_device_sync { display: flex; align-items: center; justify-content: flex-end; gap: 5px; min-width: 0; white-space: nowrap; }
+    .ss_device_sync i { color: var(--ss-text-faint); font-size: 10px; }
+    .ss_device_row:hover, .ss_device_row:focus-visible { border-color: var(--ss-primary); outline: none; }
     .ss_device_metric span, .ss_device_sync span { color: var(--ss-text-faint); font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; }
     .ss_device_metric strong, .ss_device_sync strong { color: var(--ss-text); font-size: 12px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .ss_device_metric.alert strong { color: var(--ss-danger); }
@@ -302,10 +305,7 @@
         .ss_health_row strong, .ss_status_item strong { overflow-wrap: anywhere; }
         .ss_lifetime_grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .ss_weather_grid { grid-template-columns: repeat(2, 1fr); }
-        .ss_device_row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-        .ss_device_identity, .ss_device_sync { grid-column: 1 / -1; }
-        .ss_device_identity > div { min-width: 0; }
-        .ss_device_meta { flex-wrap: wrap; overflow-wrap: anywhere; }
+        .ss_device_row { grid-template-columns: minmax(130px, 1fr) 100px 58px 74px; }
         .ss_device_row { min-height: 44px; }
         .ss_time_bar { padding: 10px; gap: 8px; }
         .ss_time_buttons { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); width: 100%; }

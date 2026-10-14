@@ -190,6 +190,30 @@ class TestWebsocketListener(TestCase):
         self.assertTrue(schedule.due('a', 11))
         self.assertTrue(schedule.due('b', 1))
 
+    def test_raw_configuration_changes_without_resetting_committed_slots(self):
+        from ..services.websocket_listener import RawSampleSchedule
+        schedule = RawSampleSchedule()
+        self.assertTrue(schedule.config_due(0))
+        schedule.configure('20', 0)
+        schedule.committed('a', 0)
+        self.assertFalse(schedule.config_due(4.999))
+        self.assertTrue(schedule.config_due(5))
+        self.assertFalse(schedule.due('a', 19.999))
+        self.assertTrue(schedule.due('a', 20))
+        schedule.configure('3', 5)
+        self.assertTrue(schedule.due('a', 5))
+        schedule.configure('30', 6)
+        self.assertFalse(schedule.due('a', 29.999))
+        self.assertTrue(schedule.due('a', 30))
+        self.assertTrue(schedule.due('b', 6))
+
+    def test_invalid_external_raw_parameter_falls_back_to_ten_seconds(self):
+        from ..services.websocket_listener import raw_sample_seconds
+        for value in (None, '', 'bad', '2.5', '0', '-3', True, '2147483648'):
+            self.assertEqual(raw_sample_seconds(value), 10, repr(value))
+        self.assertEqual(raw_sample_seconds('1'), 1)
+        self.assertEqual(raw_sample_seconds(' 30 '), 30)
+
     def test_receive_wait_and_publish_delay_are_measured_separately(self):
         clock, stop = Clock(), Stop()
         sock = Socket(clock, [frame()], step=9)

@@ -1,0 +1,17 @@
+<odoo>
+    <record id="lifetime_company_rule" model="ir.rule">
+        <field name="name">Lifetime: company</field>
+        <field name="model_id" ref="model_smartsolar_lifetime"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="lifetime_day_company_rule" model="ir.rule">
+        <field name="name">Lifetime day: company</field>
+        <field name="model_id" ref="model_smartsolar_lifetime_day"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="lifetime_month_company_rule" model="ir.rule">
+        <field name="name">Lifetime month: company</field>
+        <field name="model_id" ref="model_smartsolar_lifetime_month"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+</odoo>

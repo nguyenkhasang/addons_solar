@@ -85,6 +85,7 @@ export class SmartSolarDashboard extends Component {
         this.refreshTimer = null;
         this._realtimeChannel = null;
         this._realtimeCallback = null;
+        this._deviceRealtime = new Map();
         this._overviewComponent = null;
         this._rt = useState({});
         // Buffer realtime chạy nền — luôn tích lũy dù không ở chế độ Live
@@ -147,6 +148,11 @@ export class SmartSolarDashboard extends Component {
                 return;
             }
             this.state.data = data;
+            // A raw snapshot can lag bus readings or a message received while
+            // this RPC was in flight. Keep those newer device values visible.
+            for (const msg of this._deviceRealtime?.values() || []) {
+                this._updateDeviceFromRealtime(msg, true);
+            }
             this.state.lastRefresh = new Date();
         } catch (err) {
             this.notification.add(_t("Không thể tải dữ liệu dashboard."), { type: "danger" });
@@ -238,6 +244,7 @@ export class SmartSolarDashboard extends Component {
         const val = ev.target.value;
         this.state.systemId = val ? parseInt(val, 10) : null;
         this._stopRealtime();
+        this._deviceRealtime?.clear();
         for (const key of Object.keys(this._rt)) delete this._rt[key];
         for (const value of Object.values(this._rtBuffer)) {
             if (Array.isArray(value)) value.length = 0;
@@ -361,7 +368,40 @@ export class SmartSolarDashboard extends Component {
         }
     }
 
+    _updateDeviceFromRealtime(msg, snapshot = false) {
+        const data = this.state.data;
+        if (!data?.devices || (this.state.systemId && Number(msg.system_id) !== Number(this.state.systemId))) return;
+        const matches = data.devices.filter(dev =>
+            (msg.device_id != null ? Number(dev.id) === Number(msg.device_id) : dev.guid && dev.guid === msg.device_guid)
+            && (!dev.system_id || Number(dev.system_id) === Number(msg.system_id))
+            && dev.type === msg.device_type);
+        if (matches.length !== 1) return;
+        const dev = matches[0];
+        this._deviceRealtime ||= new Map();
+        const previous = this._deviceRealtime.get(dev.id);
+        if (msg.label && previous?.label && msg.label < previous.label) return;
+        if (snapshot && msg.label && dev.last_sync && msg.label <= dev.last_sync) return;
+        const power = dev.type === 'charge_power' ? (msg.pv_input_power ?? msg.charge_power) : msg.output_power;
+        const valid = value => typeof value === 'number' && Number.isFinite(value);
+        const next = { ...dev, is_online: true, offline_minutes: null,
+            power: valid(power) ? power : dev.power,
+            temperature: valid(msg.temperature) ? msg.temperature : dev.temperature,
+            last_sync: msg.label || dev.last_sync };
+        next.status = next.temperature >= (data.kpi?.temperature_alert ?? 60) ? 'warning' : 'online';
+        data.devices = data.devices.map(item => item.id === dev.id ? next : item);
+        this._deviceRealtime.set(dev.id, { ...previous, ...msg });
+        if (data.kpi) {
+            data.kpi.online_devices = data.devices.filter(item => item.is_online).length;
+            data.kpi.offline_devices = data.devices.length - data.kpi.online_devices;
+        }
+    }
+
+    deviceSyncLabel(value) {
+        return value ? (value.length >= 19 ? value.slice(11, 19) : value) : '—';
+    }
+
     _appendRealtimePoint(msg) {
+        this._updateDeviceFromRealtime(msg);
         const MAX = this._RT_MAX;
         const label = msg.label || "";
         const buf = this._rtBuffer;

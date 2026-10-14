@@ -78,10 +78,14 @@ def main():
                             ('active', '=', True)], limit=1)
                         if not device:
                             return False
+                        if sample_schedule.config_due(now):
+                            sample_schedule.configure(device._get_raw_sample_interval_seconds(), now)
                         if sample_schedule.due(guid, now):
                             try:
                                 with cr.savepoint():
-                                    saved = device._save_mqsolar_raw_sample(data)
+                                    saved = device.with_context(
+                                        smartsolar_sample_interval_seconds=sample_schedule.interval_seconds
+                                    )._save_mqsolar_raw_sample(data)
                             except Exception as error:
                                 logger.warning('MQSolar raw sample system=%s rejected reason=%s',
                                                system_id, type(error).__name__)

@@ -1,0 +1,12 @@
+<odoo noupdate="1">
+    <record id="ir_cron_lifetime_refresh" model="ir.cron">
+        <field name="name">Smart Solar: cập nhật tổng tích luỹ</field>
+        <field name="model_id" ref="model_smartsolar_lifetime"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_refresh()</field>
+        <field name="user_id" ref="base.user_root"/>
+        <field name="interval_number">1</field>
+        <field name="interval_type">minutes</field>
+        <field name="active">True</field>
+    </record>
+</odoo>

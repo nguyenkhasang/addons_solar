@@ -7,6 +7,19 @@ from .electricity_tariff import validate_tariff
 class ResConfigSettings(models.TransientModel):
     _inherit = "res.config.settings"
 
+    smartsolar_raw_sample_seconds = fields.Integer(
+        string='Chu kỳ lưu raw (giây)',
+        config_parameter='smartsolar.raw_sample_seconds', default=10,
+        help='Khoảng cách tối thiểu giữa hai mẫu raw của mỗi thiết bị. '
+             'Giá trị lớn hơn lưu ít mẫu hơn; realtime vẫn cập nhật theo từng message.',
+    )
+
+    @api.constrains('smartsolar_raw_sample_seconds')
+    def _check_raw_sample_seconds(self):
+        for record in self:
+            if record.smartsolar_raw_sample_seconds < 1:
+                raise ValidationError('Chu kỳ lưu raw phải lớn hơn hoặc bằng 1 giây.')
+
     smartsolar_electricity_price = fields.Float(
         string="Electricity Price",
         config_parameter="smartsolar.electricity_price",

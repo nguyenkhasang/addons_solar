@@ -6,15 +6,35 @@ import time
 _logger = logging.getLogger(__name__)
 LOCK_NAMESPACE = 1936945001
 RAW_SAMPLE_SECONDS = 10
+RAW_SAMPLE_PARAMETER = 'smartsolar.raw_sample_seconds'
+RAW_CONFIG_REFRESH_SECONDS = 5
+
+
+def raw_sample_seconds(value):
+    """Keep ingestion running if an externally edited parameter is invalid."""
+    try:
+        seconds = int(value)
+    except (TypeError, ValueError, OverflowError):
+        return RAW_SAMPLE_SECONDS
+    return seconds if not isinstance(value, bool) and 1 <= seconds <= 2147483647 else RAW_SAMPLE_SECONDS
 
 
 class RawSampleSchedule:
     """Advance only after a successful commit; bus frames are never throttled."""
     def __init__(self):
         self.last_saved = {}
+        self.interval_seconds = RAW_SAMPLE_SECONDS
+        self.last_config_check = float('-inf')
+
+    def config_due(self, now):
+        return now - self.last_config_check >= RAW_CONFIG_REFRESH_SECONDS
+
+    def configure(self, value, now):
+        self.interval_seconds = raw_sample_seconds(value)
+        self.last_config_check = now
 
     def due(self, device_guid, now):
-        return now - self.last_saved.get(device_guid, float('-inf')) >= RAW_SAMPLE_SECONDS
+        return now - self.last_saved.get(device_guid, float('-inf')) >= self.interval_seconds
 
     def committed(self, device_guid, now):
         self.last_saved[device_guid] = now

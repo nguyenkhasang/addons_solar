@@ -114,6 +114,16 @@ class TestBatteryFlow(TransactionCase):
         self.env.cr.execute("SET LOCAL TIME ZONE 'Asia/Ho_Chi_Minh'")
         self.assertEqual(self.dashboard._get_current_total_power(self.system.id), 183)
 
+    def test_device_status_pv_matches_realtime_voltage_times_current(self):
+        self.charger().write({'charge_power': 500})
+        self.inverter(watts=200)
+        rows = self.dashboard.get_device_status(self.system.id)
+        charger = next(row for row in rows if row['id'] == self.mppt.id)
+        inverter = next(row for row in rows if row['id'] == self.gti.id)
+        self.assertEqual(charger['power'], 600)
+        self.assertEqual(charger['system_id'], self.system.id)
+        self.assertEqual(inverter['power'], 200)
+
     def test_today_pv_peak_sums_nearby_devices_not_independent_maxima(self):
         second = self.device('charge_power', 'PEAK-MPPT-SECOND')
         self.charger().write({'pv_voltage': 100, 'pv_current': 8})

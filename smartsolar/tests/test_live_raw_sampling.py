@@ -9,6 +9,7 @@ from odoo.tests import TransactionCase, tagged
 class TestLiveRawSampling(TransactionCase):
     def setUp(self):
         super().setUp()
+        self.env['ir.config_parameter'].sudo().set_param('smartsolar.raw_sample_seconds', 10)
         self.system = self.env['smartsolar.system'].create({'name': 'Raw 10s', 'code': 'RAW10-TEST'})
         self.devices = {}
         for kind, guid in [('charge_power', 'RAW10-MPPT'), ('grid_tie_inverter', 'RAW10-GTI')]:
@@ -45,6 +46,33 @@ class TestLiveRawSampling(TransactionCase):
         self.assertFalse(device._save_mqsolar_raw_sample(self.frame(offset=9)))
         self.assertTrue(device._save_mqsolar_raw_sample(self.frame(offset=120)))
         self.assertEqual(len(self.raw('charge_power')), 2)
+
+    def test_configured_rate_can_decrease_and_increase_with_correct_metadata(self):
+        device = self.devices['charge_power']
+        self.assertTrue(device._save_mqsolar_raw_sample(self.frame()))
+        param = self.env['ir.config_parameter'].sudo()
+        param.set_param('smartsolar.raw_sample_seconds', 3)
+        self.assertFalse(device._save_mqsolar_raw_sample(self.frame(offset=2.999)))
+        self.assertTrue(device._save_mqsolar_raw_sample(self.frame(offset=3)))
+        param.set_param('smartsolar.raw_sample_seconds', 20)
+        self.assertFalse(device._save_mqsolar_raw_sample(self.frame(offset=22.999)))
+        self.assertTrue(device._save_mqsolar_raw_sample(self.frame(offset=23)))
+        self.assertEqual(self.raw('charge_power').mapped('sample_interval_seconds'), [10, 3, 20])
+
+    def test_listener_context_uses_one_interval_for_schedule_and_database_guard(self):
+        device = self.devices['charge_power'].with_context(smartsolar_sample_interval_seconds=25)
+        self.assertTrue(device._save_mqsolar_raw_sample(self.frame()))
+        self.assertFalse(device._save_mqsolar_raw_sample(self.frame(offset=24.999)))
+        self.assertTrue(device._save_mqsolar_raw_sample(self.frame(offset=25)))
+        self.assertEqual(self.raw('charge_power').mapped('sample_interval_seconds'), [25, 25])
+
+    def test_bad_or_missing_database_parameter_keeps_default_interval(self):
+        param = self.env['ir.config_parameter'].sudo()
+        for value in ('bad', '0', '-1', '2.5'):
+            param.set_param('smartsolar.raw_sample_seconds', value)
+            self.assertEqual(self.devices['charge_power']._get_raw_sample_interval_seconds(), 10)
+        param.search([('key', '=', 'smartsolar.raw_sample_seconds')]).unlink()
+        self.assertEqual(self.devices['charge_power']._get_raw_sample_interval_seconds(), 10)
 
     def test_failed_transaction_does_not_consume_sample_slot(self):
         device = self.devices['charge_power']

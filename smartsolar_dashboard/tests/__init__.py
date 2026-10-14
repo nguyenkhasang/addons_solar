@@ -7,3 +7,5 @@ from . import test_electricity_tariff
 from . import test_daily_pv_energy
 from . import test_bms_dashboard
 from . import test_kpi_optimization
+from . import test_raw_sample_settings
+from . import test_lifetime

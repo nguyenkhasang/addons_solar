@@ -21,6 +21,9 @@
     'depends': ['base', 'web', 'bus', 'smartsolar'],
     'data': [
         'security/smartsolar_security.xml',
+        'security/ir.model.access.csv',
+        'security/lifetime_rules.xml',
+        'data/lifetime_cron.xml',
         'views/dashboard_views.xml',
         'views/res_config_settings_views.xml',
     ],

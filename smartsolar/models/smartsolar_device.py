@@ -123,11 +123,25 @@ class SmartSolarDevice(models.Model):
             self._record_sync_result('api_error', str(e))
             return False
 
+    @api.model
+    def _get_raw_sample_interval_seconds(self):
+        from ..services.websocket_listener import RAW_SAMPLE_PARAMETER, raw_sample_seconds
+        # A long-running listener must see settings saved by the web process;
+        # avoid get_param's process-local cache for this bounded, periodic read.
+        self.env['ir.config_parameter'].flush_model(['key', 'value'])
+        self.env.cr.execute('SELECT value FROM ir_config_parameter WHERE key = %s',
+                            [RAW_SAMPLE_PARAMETER])
+        row = self.env.cr.fetchone()
+        return raw_sample_seconds(row[0] if row else None)
+
     def _save_mqsolar_raw_sample(self, raw_data):
         """Guard against fast replay/restart using the last committed device sample."""
         from datetime import datetime, timedelta, timezone
-        from ..services.websocket_listener import RAW_SAMPLE_SECONDS
+        from ..services.websocket_listener import raw_sample_seconds
         self.ensure_one()
+        interval = (raw_sample_seconds(self.env.context['smartsolar_sample_interval_seconds'])
+                    if 'smartsolar_sample_interval_seconds' in self.env.context
+                    else self._get_raw_sample_interval_seconds())
         kind = detect_mqsolar_device_type(raw_data) or self.device_type
         model = {'charge_power': 'charge.power', 'grid_tie_inverter': 'grid.tie.inverter'}.get(kind)
         if not model:
@@ -138,9 +152,9 @@ class SmartSolarDevice(models.Model):
             return False
         previous = self.env[model].search([('device_id', '=', self.id)],
                                           order='record_date desc, id desc', limit=1)
-        if previous and at - previous.record_date < timedelta(seconds=RAW_SAMPLE_SECONDS):
+        if previous and at - previous.record_date < timedelta(seconds=interval):
             return False
-        if not self.with_context(smartsolar_sample_interval_seconds=RAW_SAMPLE_SECONDS)._sync_data_from_mqsolar_message(raw_data):
+        if not self.with_context(smartsolar_sample_interval_seconds=interval)._sync_data_from_mqsolar_message(raw_data):
             raise ValueError('Raw sample rejected')
         return True
 

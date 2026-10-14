@@ -7,6 +7,11 @@
         <field name="arch" type="xml">
             <xpath expr="//form" position="inside">
                 <app string="Smart Solar" name="smartsolar_dashboard">
+                    <block title="Thu thập dữ liệu">
+                        <setting string="Chu kỳ lưu raw (giây)" help="Mặc định 10 giây, tối thiểu 1 giây. Chu kỳ lớn hơn lưu ít mẫu và giảm độ chi tiết lịch sử. Sau khi lưu, cài đặt có hiệu lực sau khoảng 5 giây, không cần khởi động lại; realtime vẫn gửi từng message. Áp dụng cho MPPT và inverter, lịch sử JK BMS có chu kỳ riêng.">
+                            <field name="smartsolar_raw_sample_seconds"/>
+                        </setting>
+                    </block>
                     <block title="Biểu giá điện">
                         <setting string="Cách tính tiền điện" help="Áp dụng cho hai widget tiền điện. Kỳ tính là tháng lịch; định mức 50/50/100/100/100 kWh và bậc cuối không giới hạn.">
                             <field name="smartsolar_tariff_mode"/>

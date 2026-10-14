@@ -1,0 +1,7 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+lifetime_reader,lifetime reader,model_smartsolar_lifetime,base.group_user,1,0,0,0
+lifetime_day_reader,lifetime day reader,model_smartsolar_lifetime_day,base.group_user,1,0,0,0
+lifetime_month_reader,lifetime month reader,model_smartsolar_lifetime_month,base.group_user,1,0,0,0
+lifetime_admin,lifetime admin,model_smartsolar_lifetime,base.group_system,1,1,1,0
+lifetime_day_admin,lifetime day admin,model_smartsolar_lifetime_day,base.group_system,1,1,1,0
+lifetime_month_admin,lifetime month admin,model_smartsolar_lifetime_month,base.group_system,1,1,1,0
