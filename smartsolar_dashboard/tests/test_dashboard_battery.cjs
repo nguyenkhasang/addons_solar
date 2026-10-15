@@ -163,11 +163,11 @@ test('daily consumption stacks two branches and overlays PV independently',()=>{
 
     assert(config.options.scales.x.stacked && config.options.scales.y.stacked);
     const tooltip=config.options.plugins.tooltip.callbacks.footer;
-    assert(tooltip([{dataIndex:0}])[0].includes(c.fmtNumber(1.83,3)));
-    assert(tooltip([{dataIndex:0}]).includes('Ước tính từ công suất'));
-    assert(tooltip([{dataIndex:1}])[0].includes(c.fmtNumber(0,3)));
-    assert(tooltip([{dataIndex:0}]).some(line=>line.includes('PV thu được: '+c.fmtNumber(2.5,3))));
-    assert(tooltip([{dataIndex:1}]).includes('PV thu được: chưa có dữ liệu'));
+    assert.deepEqual(Array.from(tooltip([{dataIndex:0}])),[`Tổng tiêu thụ: ${c.fmtNumber(1.83,3)} kWh`]);
+    assert.deepEqual(Array.from(tooltip([{dataIndex:1}])),[`Tổng tiêu thụ: ${c.fmtNumber(0,3)} kWh`]);
+    c.state.data.energy_comparison.total_kwh[1]=null;
+    assert.deepEqual(Array.from(tooltip([{dataIndex:1}])),['Tổng tiêu thụ: chưa có dữ liệu']);
+    assert.equal(tooltip([]),'');
     delete c.state.data.energy_comparison.pv_kwh;
     c._renderEnergyChart();
     assert.deepEqual(Array.from(config.data.datasets[2].data),[null,null]);

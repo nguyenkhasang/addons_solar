@@ -714,19 +714,9 @@ export class SmartSolarDashboard extends Component {
                 const index = items[0]?.dataIndex;
                 if (index === undefined) return "";
                 const total = e.total_kwh?.[index];
-                const lines = [total === null || total === undefined
+                return [total === null || total === undefined
                     ? "Tổng tiêu thụ: chưa có dữ liệu"
                     : `Tổng tiêu thụ: ${this.fmtNumber(total, 3)} kWh`];
-                const pv = e.pv_kwh?.[index];
-                lines.push(pv === null || pv === undefined
-                    ? "PV thu được: chưa có dữ liệu"
-                    : `PV thu được: ${this.fmtNumber(pv, 3)} kWh`);
-                if (e.estimated?.[index]) {
-                    lines.push("Ước tính từ công suất");
-                    const coverage = e.coverage_pct?.[index];
-                    if (coverage !== null && coverage !== undefined) lines.push(`Độ phủ dữ liệu: ${this.fmtNumber(coverage, 1)}%`);
-                }
-                return lines;
             },
         };
         this.charts.energy = new Chart(canvas.getContext("2d"), {
