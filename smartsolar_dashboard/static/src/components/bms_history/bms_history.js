@@ -80,10 +80,11 @@ export class BmsHistory extends Component {
         const single = history.filter(h => h.labels.length).length === 1;
         const datasets = history.flatMap((h, i) => ["soc", "power"].map(metric => {
             const values = new Map(h.labels.map((t,j) => [t,h[metric]?.[j]]));
+            const voltages = new Map(h.labels.map((t,j) => [t,h.voltage?.[j]]));
             const soc = metric === "soc";
             const color = colors[i % colors.length];
-            return { label: `${single ? '' : `${h.name} · `}${soc ? 'SOC' : 'Sạc (+) / Xả (−)'}`, batteryName: h.name,
-                data: labels.map(t => ({ x: Date.parse(t), y: values.get(t) ?? null })),
+            return { label: `${single ? '' : `${h.name} · `}${soc ? 'SOC' : 'Sạc (+) / Xả (−)'}`, batteryName: h.name, batteryId: h.id,
+                data: labels.map(t => ({ x: Date.parse(t), y: values.get(t) ?? null, voltage: voltages.get(t) ?? null })),
                 yAxisID: soc ? "soc" : "power", borderColor: soc ? color : charge,
                 backgroundColor: soc ? `${color}18` : charge,
                 fill: soc ? 'origin' : { target: 'origin', above: dark ? '#38bdf81a' : '#0284c714', below: dark ? '#fb923c1a' : '#ea580c14' },
@@ -110,6 +111,14 @@ export class BmsHistory extends Component {
                     padding: 12, cornerRadius: 10, caretPadding: 8,
                     callbacks: {
                         title: items => items.length ? new Date(items[0].parsed.x).toLocaleString("vi-VN") : "",
+                        afterBody: items => {
+                            const seen = new Set();
+                            return items.filter(item => {
+                                if (seen.has(item.dataset.batteryId)) return false;
+                                seen.add(item.dataset.batteryId);
+                                return true;
+                            }).map(item => `${single ? '' : `${item.dataset.batteryName} · `}Điện áp khối pin: ${Number.isFinite(item.raw?.voltage) ? `${item.raw.voltage.toFixed(2)} V` : '—'}`);
+                        },
                         label: c => {
                             if (c.parsed.y == null) return `${c.dataset.label}: —`;
                             const soc = c.dataset.yAxisID === 'soc';

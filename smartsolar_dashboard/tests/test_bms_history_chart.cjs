@@ -25,6 +25,11 @@ const history=[{id:1,name:'JK test',history_enabled:false,sample_step_seconds:30
  assert.equal(charts[0].options.scales.power.beginAtZero,true);
  assert.equal(charts[0].options.scales.power.title.text,'Công suất sạc/xả (W)');
  assert.equal(charts[0].options.scales.voltage,undefined);
+ const voltageTooltip=(index)=>Array.from(charts[0].options.plugins.tooltip.callbacks.afterBody(
+   charts[0].data.datasets.map(dataset=>({dataset,raw:dataset.data[index]}))));
+ assert.deepEqual(voltageTooltip(0),['Điện áp khối pin: 52.40 V']);
+ assert.deepEqual(voltageTooltip(2),['Điện áp khối pin: —']); // Inserted gap has no voltage.
+ assert.deepEqual(voltageTooltip(3),['Điện áp khối pin: 52.20 V']); // Same timestamp after gap.
  assert(charts[0].options.plugins.tooltip.callbacks.label({dataset:charts[0].data.datasets[1],parsed:{y:-200}}).endsWith('-200.0 W'));
  assert.equal(charts[0].options.scales.x.type,'linear');
  assert.equal(charts[0].options.scales.x.min,Date.parse(history[0].labels[0]));
@@ -56,13 +61,14 @@ const history=[{id:1,name:'JK test',history_enabled:false,sample_step_seconds:30
  assert(w.document.body.textContent.includes('Chưa có lịch sử pin'));
  assert(!w.document.body.textContent.includes('Đang tải lịch sử pin'));
  pending.shift().resolve([]);await emptyRefresh;await tick();
- card.state.history=[{id:1,name:'Pin A · JK',labels:['2026-10-12T01:00:00+00:00'],soc:[0],power:[0]},
+ card.state.history=[{id:1,name:'Pin A · JK',labels:['2026-10-12T01:00:00+00:00'],soc:[0],power:[0],voltage:[51.26]},
                      {id:2,name:'Pin B',labels:['2026-10-12T01:00:00+00:00'],soc:[null],power:[null]}];await tick();
  assert.equal(card.lastReadings[0].soc,'0.0%');assert.equal(card.lastReadings[0].power,'0 W');
  assert.equal(card.lastReadings[0].phase,'idle');assert.equal(card.lastReadings[1].phase,'unknown');
  assert.equal(card.lastReadings[1].soc,'—');assert.equal(charts[0].data.datasets.length,4);
  assert.equal(charts[0].data.datasets[0].label,'Pin A · JK · SOC');
  assert.equal(charts[0].data.datasets[3].borderDash.length,2);
+ assert.deepEqual(voltageTooltip(0),['Pin A · JK · Điện áp khối pin: 51.26 V','Pin B · Điện áp khối pin: —']);
  card.props.theme='light';card.renderChart();
  assert.equal(charts[0].data.datasets[1].segment.borderColor({p0:{parsed:{y:-100}},p1:{parsed:{y:-200}}}),'#ea580c');
  assert.equal(charts[0].data.datasets[1].borderColor,'#0284c7');
