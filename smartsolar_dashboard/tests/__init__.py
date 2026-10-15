@@ -9,3 +9,4 @@ from . import test_bms_dashboard
 from . import test_kpi_optimization
 from . import test_raw_sample_settings
 from . import test_lifetime
+from . import test_dashboard_performance

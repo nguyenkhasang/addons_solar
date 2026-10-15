@@ -4,15 +4,15 @@ import { rpc } from "@web/core/network/rpc";
 
 export class BmsHistory extends Component {
     static template = "smartsolar.BmsHistory";
-    static props = ["systemId", "theme", "refreshToken"];
+    static props = ["systemId", "theme", "refreshToken", "autoRefresh?"];
     setup() {
         this.state = useState({ range: "24h", history: [], loading: true, loaded: false, error: false });
         this.ranges = [{key:"6h",label:"6 giờ"},{key:"12h",label:"12 giờ"},{key:"24h",label:"24 giờ"},{key:"1week",label:"7 ngày"},{key:"1month",label:"30 ngày"}];
         this.canvas = useRef("chart");
         this.requestId = 0;
-        useEffect(() => { this.load(); }, () => [this.props.systemId, this.props.refreshToken, this.state.range]);
+        useEffect(() => { this.load(); }, () => [this.props.systemId, this.props.refreshToken, this.state.range, this.props.autoRefresh]);
         useEffect(() => { this.renderChart(); }, () => [this.state.history, this.props.theme]);
-        onWillUnmount(() => { this.requestId++; this.destroyed = true; this.chart?.destroy(); });
+        onWillUnmount(() => { clearTimeout(this.historyTimer); this.requestId++; this.destroyed = true; this.chart?.destroy(); });
     }
     get hasHistory() { return this.state.history.some(h => h.labels.length); }
     get historyDisabled() { return this.state.history.some(h => h.history_enabled === false); }
@@ -33,6 +33,7 @@ export class BmsHistory extends Component {
     }
     changeRange(key) { this.state.range = key; }
     async load() {
+        clearTimeout(this.historyTimer);
         const id = ++this.requestId;
         this.state.loading = true;
         this.state.error = false;
@@ -48,8 +49,16 @@ export class BmsHistory extends Component {
             if (!this.destroyed && id === this.requestId) {
                 this.state.loading = false;
                 this.state.loaded = true;
+                this.scheduleRefresh();
             }
         }
+    }
+    scheduleRefresh() {
+        clearTimeout(this.historyTimer);
+        if (this.destroyed || this.props.autoRefresh === false) return;
+        const steps = this.state.history.map(h => h.sample_step_seconds).filter(v => Number.isFinite(v) && v > 0);
+        const seconds = this.state.error ? 30 : this.historyDisabled ? 300 : Math.max(30, Math.min(300, ...(steps.length ? steps : [60])));
+        this.historyTimer = setTimeout(() => this.load(), seconds * 1000);
     }
     renderChart() {
         if (!this.canvas.el || typeof Chart === "undefined") return;

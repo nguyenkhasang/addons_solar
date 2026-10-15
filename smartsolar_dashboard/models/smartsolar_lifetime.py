@@ -36,6 +36,9 @@ class SmartSolarLifetime(models.Model):
                       'grid_tie_inverter_summary', 'charge_power_summary'):
             self.env.cr.execute(f'CREATE INDEX IF NOT EXISTS {table}_lifetime_write_idx '
                                 f'ON {table} (write_date, system_id)')
+        for table in ('grid_tie_inverter', 'charge_power'):
+            self.env.cr.execute(f'CREATE INDEX IF NOT EXISTS {table}_device_time_idx '
+                                f'ON {table} (device_id, record_date, id)')
 
     @api.model
     def get_totals(self, system_id=None):

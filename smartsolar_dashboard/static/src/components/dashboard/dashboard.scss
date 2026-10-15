@@ -176,7 +176,7 @@
     .ss_status_metric span { display: block; color: var(--ss-text-faint); font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .ss_status_metric strong { display: flex; align-items: baseline; gap: 4px; color: var(--ss-text); font-size: 18px; line-height: 1.1; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .ss_status_metric small { color: var(--ss-text-muted); font-size: 11px; font-weight: 700; }
-    .ss_lifetime_grid { display: grid; grid-template-columns: repeat(7, minmax(120px, 1fr)); margin-bottom: 14px; overflow: hidden; }
+    .ss_lifetime_grid { display: grid; grid-template-columns: repeat(5, minmax(120px, 1fr)); margin-bottom: 14px; overflow: hidden; }
     .ss_lifetime_meta { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: -6px 0 14px; color: var(--ss-text-faint); font-size: 12px; }
     .ss_lifetime_item { padding: 12px 14px; border-right: 1px solid var(--ss-border); min-width: 0; }
     .ss_lifetime_item:last-child { border-right: none; }
@@ -280,7 +280,7 @@
         .ss_kpi_grid { grid-template-columns: repeat(2, 1fr); }
         .ss_ops_grid { grid-template-columns: 1fr; }
         .ss_overview_container .ss_overview_wrap { width: 100%; min-width: 0; max-width: none; }
-        .ss_lifetime_grid { grid-template-columns: repeat(4, minmax(140px, 1fr)); }
+        .ss_lifetime_grid { grid-template-columns: repeat(3, minmax(140px, 1fr)); }
         .ss_weather_grid { grid-template-columns: repeat(3, 1fr); }
         .ss_col_4, .ss_col_6, .ss_col_8 { grid-column: span 12; }
     }

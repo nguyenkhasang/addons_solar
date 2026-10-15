@@ -68,11 +68,13 @@ export class SmartSolarDashboard extends Component {
 
         this.state = useState({
             loading: true,
+            chartsLoading: true,
             timeRange: "24h",
             systemId: null,
             theme: localStorage.getItem("smartsolar_theme") || "light",
             data: null,
             lastRefresh: null,
+            snapshotRefresh: null,
             autoRefresh: true,
             realtimeActive: false,
             heatmapMetric: "grid_out",
@@ -111,18 +113,19 @@ export class SmartSolarDashboard extends Component {
         };
 
         onWillStart(async () => {
-            await loadBundle("web.chartjs_lib");
-            await this._loadData();
+            await Promise.all([loadBundle("web.chartjs_lib"), this._loadData()]);
         });
 
         onMounted(() => {
             this._renderAllCharts();
+            this._loadCharts();
             this._startAutoRefresh();
             this._applyTheme();
             this._startRealtime();
         });
 
         onWillUnmount(() => {
+            this._disposed = true;
             this._stopAutoRefresh();
             this._stopRealtime();
             this._destroyCharts();
@@ -137,34 +140,65 @@ export class SmartSolarDashboard extends Component {
     // Data loading
     // ------------------------------------------------------------------
     async _loadData() {
+        const generation = this._dataGeneration = (this._dataGeneration || 0) + 1;
         this.state.loading = true;
         try {
-            const data = await rpc("/smartsolar/dashboard/data", {
-                time_range: this.state.timeRange === "realtime" ? "2min" : this.state.timeRange,
+            const data = await rpc("/smartsolar/dashboard/overview", {
                 system_id: this.state.systemId,
             });
+            if (this._disposed || generation !== this._dataGeneration) return false;
             if (data && data.error) {
                 this.notification.add(data.message || _t("Lỗi tải dữ liệu"), { type: "danger" });
-                return;
+                this.state.chartsLoading = false;
+                return false;
             }
-            this.state.data = data;
+            this.state.data = { ...this.state.data, ...data };
             // A raw snapshot can lag bus readings or a message received while
             // this RPC was in flight. Keep those newer device values visible.
             for (const msg of this._deviceRealtime?.values() || []) {
                 this._updateDeviceFromRealtime(msg, true);
             }
             this.state.lastRefresh = new Date();
+            this.state.snapshotRefresh = this.state.lastRefresh;
+            return true;
         } catch (err) {
+            if (this._disposed || generation !== this._dataGeneration) return false;
+            this.state.chartsLoading = false;
             this.notification.add(_t("Không thể tải dữ liệu dashboard."), { type: "danger" });
             console.error(err);
+            return false;
         } finally {
-            this.state.loading = false;
+            if (!this._disposed && generation === this._dataGeneration) this.state.loading = false;
+        }
+    }
+
+    async _loadCharts() {
+        if (!this.state.data?.kpi || this._disposed) {
+            this.state.chartsLoading = false;
+            return;
+        }
+        const generation = this._dataGeneration;
+        const range = this.state.timeRange;
+        const systemId = this.state.systemId;
+        this.state.chartsLoading = true;
+        try {
+            const charts = await rpc("/smartsolar/dashboard/data", {
+                time_range: range === "realtime" ? "2min" : range,
+                system_id: systemId, end_at: this.state.data?.cutoff,
+                include_overview: false,
+            });
+            if (this._disposed || generation !== this._dataGeneration || range !== this.state.timeRange || systemId !== this.state.systemId) return;
+            this.state.data = { ...this.state.data, ...charts };
+            this._renderAllCharts();
+        } catch (err) {
+            if (!this._disposed && generation === this._dataGeneration) this.notification.add(_t("Không thể tải biểu đồ dashboard."), {type: "warning"});
+        } finally {
+            if (!this._disposed && generation === this._dataGeneration) this.state.chartsLoading = false;
         }
     }
 
     async _refresh() {
-        await this._loadData();
-        this._renderAllCharts();
+        if (await this._loadData() !== false) await this._loadCharts();
     }
 
     // ------------------------------------------------------------------
@@ -332,22 +366,7 @@ export class SmartSolarDashboard extends Component {
             if (!this.state.data || (this.state.systemId && payload.system_id !== this.state.systemId)) return;
             const existing = this.state.data.bms || [];
             this.state.data.bms = [...existing.filter(b => b.id !== payload.id), payload].sort((a, b) => a.id - b.id);
-            if (payload.history_enabled === false) return;
-            const histories = this.state.data.bms_history || [];
-            let h = histories.find(h => h.id === payload.id);
-            if (!h) {
-                h = { id: payload.id, name: payload.name, labels: [], soc: [], voltage: [], current: [], power: [], cell_delta_voltage: [], battery_temperature_1: [] };
-                histories.push(h);
-            }
-            if (this.state.timeRange === "realtime" && (!h.labels.length || Date.parse(payload.timestamp) - Date.parse(h.labels.at(-1)) >= payload.history_interval * 1000)) {
-                h.labels.push(payload.timestamp);
-                for (const key of ["soc", "voltage", "current", "power", "cell_delta_voltage", "battery_temperature_1"]) {
-                    h[key].push(payload[key]);
-                    if (h[key].length > 240) h[key].shift();
-                }
-                if (h.labels.length > 240) h.labels.shift();
-                this.state.data.bms_history = histories.map(item => ({ ...item }));
-            }
+
         };
         this.busService.subscribe("smartsolar_bms", this._bmsCallback);
     }

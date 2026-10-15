@@ -8,6 +8,11 @@ _logger = logging.getLogger(__name__)
 
 class SmartSolarDashboardController(http.Controller):
 
+    @http.route('/smartsolar/dashboard/overview', type='jsonrpc', auth='user', methods=['POST'])
+    def dashboard_overview(self, system_id=None):
+        sid = int(system_id) if system_id else None
+        return request.env['smartsolar.dashboard'].get_dashboard_overview(sid)
+
     @http.route('/smartsolar/dashboard/bms_history', type='jsonrpc', auth='user', methods=['POST'])
     def bms_history(self, time_range='24h', system_id=None):
         if time_range not in ('6h', '12h', '24h', '1week', '1month'):
@@ -16,12 +21,14 @@ class SmartSolarDashboardController(http.Controller):
         return request.env['smartsolar.dashboard'].get_bms_history(time_range, sid)
 
     @http.route('/smartsolar/dashboard/data', type='json', auth='user', methods=['POST'])
-    def dashboard_data(self, time_range='24h', system_id=None, **kwargs):
+    def dashboard_data(self, time_range='24h', system_id=None, end_at=None, include_overview=True, **kwargs):
         try:
             sid = int(system_id) if system_id else None
         except (TypeError, ValueError):
             sid = None
-        return request.env['smartsolar.dashboard'].get_dashboard_data(time_range=time_range, system_id=sid)
+        return request.env['smartsolar.dashboard'].get_dashboard_data(
+            time_range=time_range, system_id=sid, end_at=end_at,
+            include_overview=include_overview is not False)
 
     @http.route('/smartsolar/dashboard/kpi', type='json', auth='user', methods=['POST'])
     def dashboard_kpi(self, system_id=None, **kwargs):

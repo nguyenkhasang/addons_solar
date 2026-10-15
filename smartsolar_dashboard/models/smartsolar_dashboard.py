@@ -1289,6 +1289,10 @@ class SmartSolarDashboard(models.AbstractModel):
                 start += end_at - end
             end = end_at
             cfg = dict(cfg, delta=(end-start).total_seconds())
+        if self.env.context.get('smartsolar_dashboard_read_ledger'):
+            cached = self._read_energy_ledger(start, end, system_id, daily_cache)
+            if cached is not None:
+                return cached
         local = start.replace(tzinfo=timezone.utc).astimezone(tz).replace(
             hour=0, minute=0, second=0, microsecond=0)
         summary_days = defaultdict(list)
@@ -1718,6 +1722,9 @@ class SmartSolarDashboard(models.AbstractModel):
                   FROM grid_tie_inverter
                  WHERE record_date >= %s AND record_date < %s
                    AND device_id IS NOT NULL {filters}
+                   AND {field} >= 0
+                   AND (counter_validity->>'{field}') IS DISTINCT FROM 'false'
+                   AND ({field} <> 0 OR counter_validity->>'{field}'='true')
             ), source_rows AS (
                 SELECT id, device_id, record_date, {field} AS value,
                        ((counter_validity->>'{field}') IS DISTINCT FROM 'false'
@@ -1876,31 +1883,33 @@ class SmartSolarDashboard(models.AbstractModel):
     # All-in-one fetch
     # ------------------------------------------------------------------
     @api.model
-    def get_dashboard_data(self, time_range='24h', system_id=None):
-        daily_cache, end_at = {}, fields.Datetime.now()
-        balance = self.get_battery_flow_series(time_range, system_id)
+    def get_dashboard_data(self, time_range='24h', system_id=None, end_at=None, include_overview=True):
+        daily_cache, end_at = {}, fields.Datetime.to_datetime(end_at) if end_at else fields.Datetime.now()
+        self = self.with_context(smartsolar_dashboard_end_at=end_at)
+        reader = self.with_context(smartsolar_dashboard_read_ledger=True)
+        balance = reader.get_battery_flow_series(time_range, system_id)
         energy_range = '1week' if time_range in ('1h', '6h', '12h', '24h', '2min') else time_range
-        return {
-            'kpi': self.get_overview_kpi(system_id=system_id, daily_cache=daily_cache, end_at=end_at),
+        result = {
             'charge_power': self.get_charge_power_series(time_range=time_range, system_id=system_id),
             'grid_tie': self.get_grid_tie_series(time_range=time_range, system_id=system_id),
-            'energy_comparison': self.get_energy_comparison(time_range=energy_range, system_id=system_id, daily_cache=daily_cache, end_at=end_at),
+            'energy_comparison': reader.get_energy_comparison(time_range=energy_range, system_id=system_id, daily_cache=daily_cache, end_at=end_at),
             'temperature': self.get_temperature_series(time_range=time_range, system_id=system_id),
-            'battery': self.get_battery_series(time_range=time_range, system_id=system_id),
             'battery_flow': balance,
-            'bms': self.env['smartsolar.battery'].get_snapshots(system_id),
-            'bms_history': self.get_bms_history(time_range, system_id),
             'pv_efficiency': self.get_pv_efficiency_series(time_range=time_range, system_id=system_id, balance=balance),
             'distribution': self.get_energy_distribution(
                 time_range=time_range, system_id=system_id),
-            'devices': self.get_device_status(system_id=system_id),
-            'systems': self.get_system_options(),
-            'heatmap': self.get_heatmap_data(system_id=system_id),
-            'monthly_comparison': self.get_monthly_comparison(system_id=system_id),
-            'environment': self.get_environment(system_id=system_id),
+            'heatmap': reader.get_heatmap_data(system_id=system_id),
             'time_range': time_range,
             'system_id': system_id,
         }
+        if include_overview:
+            result.update({
+                'kpi': reader._get_dashboard_overview(system_id, daily_cache, end_at),
+                'bms': self.env['smartsolar.battery'].get_snapshots(system_id),
+                'devices': self.get_device_status(system_id), 'systems': self.get_system_options(),
+                'environment': self.get_environment(system_id),
+            })
+        return result
 
     @api.model
     def get_bms_history(self, time_range='24h', system_id=None):

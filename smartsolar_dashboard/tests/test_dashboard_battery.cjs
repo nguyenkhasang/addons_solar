@@ -119,9 +119,11 @@ test('Live pie reuses its chart, disables animation and skips unchanged readings
 });
 (async()=>{
     const c=dashboard();c.state.timeRange='realtime';c.notification={add(){}};
-    let range;
-    context.rpc=async(route,args)=>{range=args.time_range;return c.state.data;};
-    await c._loadData();assert.equal(range,'2min');count++;
+    const requests=[];c._renderAllCharts=()=>{};
+    context.rpc=async(route,args)=>{requests.push({route,args});return {...c.state.data,kpi:{},cutoff:'2026-10-15 01:00:00'};};
+    await c._loadData();assert.equal(requests[0].route,'/smartsolar/dashboard/overview');
+    await c._loadCharts();assert.equal(requests[1].args.time_range,'2min');
+    assert.equal(requests[1].args.include_overview,false);assert.equal(requests[1].args.end_at,'2026-10-15 01:00:00');count++;
     process.stdout.write('PASS changing system while Live requests two-minute history\n');
     process.stdout.write(`${count} dashboard battery cases passed\n`);
 })().catch(error=>{console.error(error);process.exitCode=1;});
