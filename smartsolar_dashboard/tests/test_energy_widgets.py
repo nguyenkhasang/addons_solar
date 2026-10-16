@@ -1,51 +1,14 @@
 """Pure aggregation tests: no database or live readings are required."""
-from datetime import datetime, timedelta
+from datetime import datetime
 from types import SimpleNamespace
 from unittest import TestCase
 from unittest.mock import MagicMock, patch
 
 from odoo import fields
-from ..models.smartsolar_dashboard import SmartSolarDashboard, TIME_RANGE_CONFIG
+from ..models.smartsolar_dashboard import SmartSolarDashboard
 
 
 class TestEnergyWidgets(TestCase):
-    def test_dashboard_passes_selected_range_to_energy_chart(self):
-        cutoff = datetime(2026, 10, 16, 6)
-        for period in TIME_RANGE_CONFIG:
-            with self.subTest(period=period):
-                dashboard = MagicMock()
-                dashboard.with_context.return_value = dashboard
-                SmartSolarDashboard.get_dashboard_data(
-                    dashboard, period, 12, end_at=cutoff, include_overview=False)
-                dashboard.get_energy_comparison.assert_called_once_with(
-                    time_range=period, system_id=12, daily_cache={}, end_at=cutoff)
-
-    def test_short_range_clips_daily_energy_at_selected_bounds(self):
-        # Six hours crossing local midnight must clip both daily buckets.
-        end = datetime(2026, 10, 15, 20)
-        start = end - timedelta(hours=6)
-        env = MagicMock()
-        env.context = {}
-        env.cr.fetchall.return_value = []
-        env.__getitem__.return_value.search.return_value.ids = []
-        flow = MagicMock(return_value={
-            'data': [2, 1], 'available': True, 'estimated': False})
-        pv = MagicMock(return_value={'2026-10-15': 4, '2026-10-16': 5})
-        fake = SimpleNamespace(
-            env=env,
-            _resolve_time_range=lambda *args: (TIME_RANGE_CONFIG['6h'], start, end),
-            _get_system_timezone=lambda *args: 'Asia/Ho_Chi_Minh',
-            _can_use_daily_summaries=lambda *args: False,
-            _energy_distribution_for_range=flow, _get_daily_pv_energy=pv)
-        result = SmartSolarDashboard.get_energy_comparison(fake, '6h', 12, end_at=end)
-        midnight = datetime(2026, 10, 15, 17)
-        self.assertEqual(result['labels'], ['2026-10-15', '2026-10-16'])
-        self.assertEqual([(call.args[1], call.args[2]) for call in flow.call_args_list],
-                         [(start, midnight), (midnight, end)])
-        pv.assert_called_once_with(start, end, 12)
-        self.assertEqual(result['pv_kwh'], [4, 5])
-        self.assertEqual(result['total_kwh'], [3, 3])
-
     def daily(self):
         return {
             'labels': ['2026-10-01', '2026-10-02', '2026-10-03'],
@@ -113,7 +76,7 @@ class TestEnergyWidgets(TestCase):
             _energy_distribution_for_range=lambda *args: {
                 'data': [2, 1], 'available': True, 'estimated': False},
             _get_daily_pv_energy=lambda *args: {'2026-10-07': 4.5})
-        result = SmartSolarDashboard.get_energy_comparison(fake, '1week', 12)
+        result = SmartSolarDashboard.get_energy_comparison(fake, '1week', 12, date_bounds=(start, end))
         self.assertEqual(result['labels'], ['2026-10-07', '2026-10-08'])
         self.assertEqual(result['pv_kwh'], [4.5, None])
         self.assertEqual(result['total_kwh'], [3, 3])

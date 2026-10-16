@@ -854,25 +854,27 @@ class SmartSolarDashboard(models.AbstractModel):
         self.env.cr.execute(sql_gti, params)
         return float(self.env.cr.fetchone()[0] or 0)
 
+    def _read_chart_rows(self, kind, cfg, start, end, system_id=None, device_ids=None):
+        """Legacy standalone readers; dashboard requests can share their source scans."""
+        source = 'raw' if cfg.get('source', 'raw') == 'raw' else 'summary'
+        builder = getattr(self, f'_build_{kind}_{source}_sql')
+        args = (cfg, start, end, system_id)
+        sql, params = builder(*args) if kind == 'temperature' else builder(*args, device_ids)
+        self.env.cr.execute(sql, params)
+        return list(self.env.cr.fetchall())
+
     # ------------------------------------------------------------------
     # Charge Power series
     # ------------------------------------------------------------------
     @api.model
     def get_charge_power_series(self, time_range='24h', system_id=None, device_ids=None):
         cfg, date_from, date_to = self._resolve_time_range(time_range, system_id)
-        if cfg['source'] == 'raw':
-            sql, params = self._build_charge_power_raw_sql(cfg, date_from, date_to, system_id, device_ids)
-        else:
-            sql, params = self._build_charge_power_summary_sql(cfg, date_from, date_to, system_id, device_ids)
-        self.env.cr.execute(sql, params)
-        rows = list(self.env.cr.fetchall())
+        rows = self._read_chart_rows('charge_power', cfg, date_from, date_to, system_id, device_ids)
         if cfg['source'] != 'raw':
             for raw_cfg, edge_from, edge_to in self._summary_edge_ranges(
                     cfg, date_from, date_to, system_id):
-                edge_sql, edge_params = self._build_charge_power_raw_sql(
-                    raw_cfg, edge_from, edge_to, system_id, device_ids)
-                self.env.cr.execute(edge_sql, edge_params)
-                rows.extend(self.env.cr.fetchall())
+                rows.extend(self._read_chart_rows(
+                    'charge_power', raw_cfg, edge_from, edge_to, system_id, device_ids))
             rows = self._merge_rows(rows)
         timezone_name = self._get_system_timezone(system_id)
         return {
@@ -942,19 +944,12 @@ class SmartSolarDashboard(models.AbstractModel):
     @api.model
     def get_grid_tie_series(self, time_range='24h', system_id=None, device_ids=None):
         cfg, date_from, date_to = self._resolve_time_range(time_range, system_id)
-        if cfg['source'] == 'raw':
-            sql, params = self._build_grid_tie_raw_sql(cfg, date_from, date_to, system_id, device_ids)
-        else:
-            sql, params = self._build_grid_tie_summary_sql(cfg, date_from, date_to, system_id, device_ids)
-        self.env.cr.execute(sql, params)
-        rows = list(self.env.cr.fetchall())
+        rows = self._read_chart_rows('grid_tie', cfg, date_from, date_to, system_id, device_ids)
         if cfg['source'] != 'raw':
             for raw_cfg, edge_from, edge_to in self._summary_edge_ranges(
                     cfg, date_from, date_to, system_id):
-                edge_sql, edge_params = self._build_grid_tie_raw_sql(
-                    raw_cfg, edge_from, edge_to, system_id, device_ids)
-                self.env.cr.execute(edge_sql, edge_params)
-                rows.extend(self.env.cr.fetchall())
+                rows.extend(self._read_chart_rows(
+                    'grid_tie', raw_cfg, edge_from, edge_to, system_id, device_ids))
             rows = self._merge_rows(rows)
         timezone_name = self._get_system_timezone(system_id)
         return {
@@ -1186,19 +1181,12 @@ class SmartSolarDashboard(models.AbstractModel):
     @api.model
     def get_pv_efficiency_series(self, time_range='24h', system_id=None, device_ids=None, balance=None):
         cfg, date_from, date_to = self._resolve_time_range(time_range, system_id)
-        if cfg['source'] == 'raw':
-            sql, params = self._build_pv_efficiency_raw_sql(cfg, date_from, date_to, system_id, device_ids)
-        else:
-            sql, params = self._build_pv_efficiency_summary_sql(cfg, date_from, date_to, system_id, device_ids)
-        self.env.cr.execute(sql, params)
-        rows = list(self.env.cr.fetchall())
+        rows = self._read_chart_rows('pv_efficiency', cfg, date_from, date_to, system_id, device_ids)
         if cfg['source'] != 'raw':
             for raw_cfg, edge_from, edge_to in self._summary_edge_ranges(
                     cfg, date_from, date_to, system_id):
-                edge_sql, edge_params = self._build_pv_efficiency_raw_sql(
-                    raw_cfg, edge_from, edge_to, system_id, device_ids)
-                self.env.cr.execute(edge_sql, edge_params)
-                rows.extend(self.env.cr.fetchall())
+                rows.extend(self._read_chart_rows(
+                    'pv_efficiency', raw_cfg, edge_from, edge_to, system_id, device_ids))
             rows = self._merge_rows(rows)
         if balance is None:
             balance = self.get_battery_flow_series(time_range, system_id)
@@ -1288,6 +1276,14 @@ class SmartSolarDashboard(models.AbstractModel):
             else:
                 start += end_at - end
             end = end_at
+            cfg = dict(cfg, delta=(end-start).total_seconds())
+        if time_range == '1week' and date_bounds is None:
+            # Seven daily columns, including the current partial day. A rolling
+            # 168-hour window touches eight dates and clips the oldest day's PV
+            # and consumption. Keep explicit bounds used by raw/ledger readers.
+            last_day = _to_local(end - timedelta(microseconds=1), str(tz)).replace(
+                hour=0, minute=0, second=0, microsecond=0)
+            start = (last_day - timedelta(days=6)).astimezone(timezone.utc).replace(tzinfo=None)
             cfg = dict(cfg, delta=(end-start).total_seconds())
         if self.env.context.get('smartsolar_dashboard_read_ledger'):
             cached = self._read_energy_ledger(start, end, system_id, daily_cache)
@@ -1450,19 +1446,12 @@ class SmartSolarDashboard(models.AbstractModel):
     @api.model
     def get_temperature_series(self, time_range='24h', system_id=None):
         cfg, date_from, date_to = self._resolve_time_range(time_range, system_id)
-        if cfg['source'] == 'raw':
-            sql, params = self._build_temperature_raw_sql(cfg, date_from, date_to, system_id)
-        else:
-            sql, params = self._build_temperature_summary_sql(cfg, date_from, date_to, system_id)
-        self.env.cr.execute(sql, params)
-        rows = list(self.env.cr.fetchall())
+        rows = self._read_chart_rows('temperature', cfg, date_from, date_to, system_id)
         if cfg['source'] != 'raw':
             for raw_cfg, edge_from, edge_to in self._summary_edge_ranges(
                     cfg, date_from, date_to, system_id):
-                edge_sql, edge_params = self._build_temperature_raw_sql(
-                    raw_cfg, edge_from, edge_to, system_id)
-                self.env.cr.execute(edge_sql, edge_params)
-                rows.extend(self.env.cr.fetchall())
+                rows.extend(self._read_chart_rows(
+                    'temperature', raw_cfg, edge_from, edge_to, system_id))
             rows.sort(key=lambda row: (row[3], row[0]))
         bucket_set = OrderedDict()
         device_map = {}
@@ -1885,7 +1874,8 @@ class SmartSolarDashboard(models.AbstractModel):
     @api.model
     def get_dashboard_data(self, time_range='24h', system_id=None, end_at=None, include_overview=True):
         daily_cache, end_at = {}, fields.Datetime.to_datetime(end_at) if end_at else fields.Datetime.now()
-        self = self.with_context(smartsolar_dashboard_end_at=end_at)
+        self = self.with_context(smartsolar_dashboard_end_at=end_at,
+            smartsolar_chart_rows={} if self.env.context.get('smartsolar_share_chart_reads', True) else None)
         reader = self.with_context(smartsolar_dashboard_read_ledger=True)
         balance = reader.get_battery_flow_series(time_range, system_id)
         energy_range = '1week' if time_range in ('1h', '6h', '12h', '24h', '2min') else time_range

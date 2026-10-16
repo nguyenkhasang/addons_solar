@@ -156,3 +156,77 @@ class TestDashboardPerformance(TransactionCase):
         result = self.original._raw_counter_delta('limiter_total', self.at,
                                                   self.at+timedelta(seconds=60), self.system.id)
         self.assertEqual(result, (0, 1))
+
+    def assert_shared_series(self, period, system_id):
+        legacy = self.original.with_context(smartsolar_dashboard_end_at=self.now,
+                                            smartsolar_chart_rows=None)
+        shared = legacy.with_context(smartsolar_chart_rows={})
+        for name in ('charge_power', 'grid_tie', 'temperature', 'pv_efficiency'):
+            kwargs = {'balance': {'labels': [], 'mppt_output_power': []}} if name == 'pv_efficiency' else {}
+            expected = getattr(legacy, 'get_'+name+'_series')(period, system_id, **kwargs)
+            actual = getattr(shared, 'get_'+name+'_series')(period, system_id, **kwargs)
+            self.assertEqual(actual, expected, (period, system_id, name))
+        return shared
+
+    def test_shared_raw_scans_preserve_nulls_products_devices_and_request_scope(self):
+        second = self.device('charge_power', 'SHARED-MPPT-2')
+        for offset, volts, amps in ((0, 100, 2), (60, 200, 1), (120, 0, 0)):
+            self.charger(offset, pv_voltage=volts, pv_current=amps, temperature=30+offset)
+            self.inverter(offset, output_power=offset, temperature=40+offset)
+        self.charger(60, second, pv_voltage=300, pv_current=4, temperature=70)
+        other = self.env['smartsolar.system'].create({'name': 'Shared other', 'code': 'SHARED-OTHER'})
+        self.charger(3590, self.device('charge_power', 'SHARED-OTHER-CP', other),
+                     pv_voltage=50, pv_current=7, temperature=21)
+        self.inverter(3590, self.device('grid_tie_inverter', 'SHARED-OTHER-GT', other), temperature=55)
+        orphan = self.charger(180, temperature=99)
+        self.env.flush_all()
+        self.env.cr.execute('UPDATE charge_power SET device_id=NULL, pv_current=NULL WHERE id=%s', [orphan.id])
+        for period in ('2min', '1h', '6h', '12h', '24h'):
+            for scope in (self.system.id, None):
+                shared = self.assert_shared_series(period, scope)
+                self.assertEqual(len(shared.env.context['smartsolar_chart_rows']), 1)
+        shared = self.assert_shared_series('24h', self.system.id)
+        cfg, start, end = shared._resolve_time_range('24h', self.system.id)
+        queries = self.env.cr.sql_log_count
+        shared._read_chart_bundle(cfg, start, end, self.system.id)
+        self.assertEqual(self.env.cr.sql_log_count-queries, 2)
+        # A later standalone request must not reuse data from an earlier snapshot.
+        self.charger(240, pv_voltage=500, pv_current=10)
+        self.env.flush_all()
+        later = self.assert_shared_series('24h', self.system.id)
+        self.assertIsNot(shared.env.context['smartsolar_chart_rows'], later.env.context['smartsolar_chart_rows'])
+
+    def test_shared_summary_weights_edges_and_timezones_match_standalone(self):
+        second = self.device('charge_power', 'SHARED-SUMMARY-2')
+        for kind in ('hour', 'day'):
+            for device, count, voltage in ((self.mppt, 3, 100), (second, 7, 200)):
+                self.env['charge.power.summary'].create({'device_id': device.id,
+                    'system_id': self.system.id, 'bucket_type': kind,
+                    'bucket_start': self.at-timedelta(days=2), 'sample_count': count,
+                    'pv_voltage_avg': voltage, 'pv_current_avg': 3,
+                    'pv_input_power_avg': voltage*2, 'temperature_avg': voltage/10,
+                    'temperature_max': voltage/5})
+            self.env['grid.tie.inverter.summary'].create({'device_id': self.gti.id,
+                'system_id': self.system.id, 'bucket_type': kind,
+                'bucket_start': self.at-timedelta(days=2), 'sample_count': 5,
+                'output_power_avg': 123, 'output_power_max': 456,
+                'temperature_avg': 30, 'temperature_max': 50})
+        self.charger(); self.inverter()
+        self.env.flush_all()
+        for tz in ('Asia/Ho_Chi_Minh', 'Asia/Kathmandu', 'America/New_York'):
+            self.system.timezone = tz
+            for period in ('1week', '1month', '3month', '6month', '1year', '5year'):
+                self.assert_shared_series(period, self.system.id)
+
+    def test_shared_empty_and_device_subset_keep_legacy_contract(self):
+        empty = self.env['smartsolar.system'].create({'name': 'Shared empty', 'code': 'SHARED-EMPTY'})
+        self.assert_shared_series('24h', empty.id)
+        self.charger(); self.env.flush_all()
+        shared = self.original.with_context(smartsolar_dashboard_end_at=self.now, smartsolar_chart_rows={})
+        legacy = shared.with_context(smartsolar_chart_rows=None)
+        for name in ('charge_power', 'grid_tie', 'pv_efficiency'):
+            args = {'device_ids': [self.mppt.id]}
+            if name == 'pv_efficiency':args['balance'] = {'labels': [], 'mppt_output_power': []}
+            self.assertEqual(getattr(shared, 'get_'+name+'_series')('24h', self.system.id, **args),
+                             getattr(legacy, 'get_'+name+'_series')('24h', self.system.id, **args))
+        self.assertEqual(shared.env.context['smartsolar_chart_rows'], {})

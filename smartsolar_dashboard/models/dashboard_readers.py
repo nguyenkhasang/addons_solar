@@ -10,6 +10,88 @@ from .smartsolar_dashboard import _to_local
 class DashboardReaders(models.AbstractModel):
     _inherit = 'smartsolar.dashboard'
 
+    def _read_chart_rows(self, kind, cfg, start, end, system_id=None, device_ids=None):
+        cache = self.env.context.get('smartsolar_chart_rows')
+        if cache is None or device_ids:
+            return super()._read_chart_rows(kind, cfg, start, end, system_id, device_ids)
+        key = (cfg.get('source', 'raw'), cfg['truncate_expr'], start, end, system_id)
+        if key not in cache:
+            cache[key] = self._read_chart_bundle(cfg, start, end, system_id)
+        # Each getter may append edge buckets; never mutate the shared rows.
+        return list(cache[key][kind])
+
+    def _read_chart_bundle(self, cfg, start, end, system_id=None):
+        """One scan per source table, with global and per-device grouping sets.
+
+        Aggregate each measure directly: AVG(V*I), per-column null counts and
+        summary sample weights must not be reconstructed from averaged values.
+        All state is scoped to this dashboard request, including raw edge ranges.
+        """
+        raw = cfg.get('source', 'raw') == 'raw'
+        cp_fields = ['avg_power', 'max_power', 'pv_voltage', 'bat_voltage',
+                     'pv_current', 'bat_current', 'temperature']
+        gt_fields = ['output_power', 'max_power', 'total_power', 'ac_voltage',
+                     'dc_voltage', 'temperature', 'limiter_power']
+        if raw:
+            cp_expr = ['AVG(charge_power)', 'MAX(charge_power)', 'AVG(pv_voltage)',
+                       'AVG(bat_voltage)', 'AVG(pv_current)', 'AVG(bat_current)',
+                       'AVG(temperature)', 'AVG(pv_voltage * pv_current)',
+                       'AVG(bat_voltage * bat_current)',
+                       'CASE WHEN AVG(pv_voltage * pv_current)>0 THEN '
+                       'AVG(bat_voltage * bat_current)/AVG(pv_voltage * pv_current)*100 END',
+                       'MAX(temperature)']
+            gt_expr = ['AVG(output_power)', 'MAX(output_power)', 'AVG(total_power)',
+                       'AVG(ac_voltage)', 'AVG(dc_voltage)', 'AVG(temperature)',
+                       'AVG(limiter_power)', 'MAX(temperature)']
+        else:
+            def weighted(field):
+                return f'SUM({field} * sample_count)/NULLIF(SUM(sample_count), 0)'
+            cp_expr = [weighted('charge_power_avg'), 'MAX(charge_power_max)',
+                       *[weighted(f'{field}_avg') for field in cp_fields[2:]],
+                       weighted('pv_input_power_avg'), 'NULL::numeric',
+                       'NULL::numeric', 'MAX(temperature_max)']
+            gt_expr = [weighted('output_power_avg'), 'MAX(output_power_max)',
+                       *[weighted(f'{field}_avg') for field in gt_fields[2:]],
+                       'MAX(temperature_max)']
+        result = {'charge_power': [], 'grid_tie': [], 'pv_efficiency': [], 'temperature': []}
+        for table, kind, names, expressions in (
+                ('charge_power', 'charge_power', cp_fields + ['pv_input', 'dc_output', 'ratio', 'temperature_max'], cp_expr),
+                ('grid_tie_inverter', 'grid_tie', gt_fields + ['temperature_max'], gt_expr)):
+            source = table if raw else f'{table}_summary'
+            date_field = 'record_date' if raw else 'bucket_start'
+            params = [start, end]
+            where = f'{date_field}>=%s AND {date_field}<%s'
+            if not raw:
+                where += ' AND bucket_type=%s'
+                params.append('hour' if cfg['source'] == 'hourly' else 'day')
+            if system_id:
+                where += ' AND system_id=%s'
+                params.append(int(system_id))
+            metrics = ', '.join(f'{expr} AS {name}' for name, expr in zip(names, expressions))
+            self.env.cr.execute(f'''
+                SELECT a.*, d.name AS device_name, d.device_guid, d.id AS existing_device
+                  FROM (
+                    SELECT {cfg['truncate_expr']} AS bucket, device_id,
+                           GROUPING(device_id) AS all_devices, {metrics}
+                      FROM {source} WHERE {where}
+                     GROUP BY GROUPING SETS ((bucket), (bucket, device_id))
+                  ) a LEFT JOIN smartsolar_device d ON d.id=a.device_id
+                 WHERE a.all_devices=1 OR d.id IS NOT NULL
+                 ORDER BY a.bucket, a.device_id NULLS FIRST
+            ''', params)
+            for row in self.env.cr.dictfetchall():
+                if row['all_devices']:
+                    fields_ = cp_fields if kind == 'charge_power' else gt_fields
+                    result[kind].append((row['bucket'], *(row[f] for f in fields_)))
+                    if kind == 'charge_power':
+                        result['pv_efficiency'].append((row['bucket'], row['pv_input'],
+                                                       row['dc_output'], row['ratio']))
+                else:
+                    result['temperature'].append((row['device_id'], row['device_name'],
+                        row['device_guid'], row['bucket'], row['temperature'], row['temperature_max']))
+        result['temperature'].sort(key=lambda row: (row[3], row[0]))
+        return result
+
     def _resolve_time_range(self, time_range, system_id=None):
         cfg, start, end = super()._resolve_time_range(time_range, system_id)
         cutoff = self.env.context.get('smartsolar_dashboard_end_at')
