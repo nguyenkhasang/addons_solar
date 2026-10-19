@@ -21,6 +21,7 @@
     'data': [
         'security/bms_security.xml',
         'security/ir.model.access.csv',
+        'views/mail_menu_views.xml',
         'views/smartsolar_system_views.xml',
         'views/smartsolar_battery_views.xml',
         'views/smartsolar_device_views.xml',
