@@ -152,6 +152,17 @@ export class SmartSolarDashboard extends Component {
                 this.state.chartsLoading = false;
                 return false;
             }
+            // A dedicated energy response can arrive while overview is loading.
+            // Do not replace newer cards with an older overview snapshot.
+            const energy = this._energySnapshot;
+            if (data?.kpi?.energy_widgets && data.cutoff) {
+                if (energy?.systemId === this.state.systemId && energy.cutoff > data.cutoff) {
+                    data.kpi.energy_widgets = energy.widgets;
+                } else {
+                    this._energySnapshot = {systemId: this.state.systemId,
+                        cutoff: data.cutoff, widgets: data.kpi.energy_widgets};
+                }
+            }
             this.state.data = { ...this.state.data, ...data };
             // A raw snapshot can lag bus readings or a message received while
             // this RPC was in flight. Keep those newer device values visible.
@@ -358,6 +369,7 @@ export class SmartSolarDashboard extends Component {
         this._realtimeCallback = (payload) => {
             if (this.state.systemId && payload.system_id !== this.state.systemId) return;
             this._appendRealtimePoint(payload);
+            if (["charge_power", "grid_tie_inverter"].includes(payload.device_type)) this._queueEnergyWidgets();
             this.state.lastRefresh = new Date();
         };
         await this.busService.addChannel(channel);
@@ -372,6 +384,12 @@ export class SmartSolarDashboard extends Component {
     }
 
     _stopRealtime() {
+        if (this._energyTimer != null) clearTimeout(this._energyTimer);
+        this._energyTimer = null;
+        this._energyDirty = false;
+        this._energyRequest = null;
+        this._energyLastRequestAt = undefined;
+        this._energySnapshot = null;
         if (this._bmsCallback) {
             this.busService.unsubscribe("smartsolar_bms", this._bmsCallback);
             this._bmsCallback = null;
@@ -384,6 +402,43 @@ export class SmartSolarDashboard extends Component {
         if (this._realtimeChannel) {
             this.busService.deleteChannel(this._realtimeChannel);
             this._realtimeChannel = null;
+        }
+    }
+
+    _queueEnergyWidgets() {
+        if (this._disposed || !this.state.data?.kpi) return;
+        this._energyDirty = true;
+        if (this._energyTimer != null || this._energyRequest) return;
+        // Throttle, not debounce: a continuous stream must still update cards.
+        const delay = Math.max(0, (this._energyLastRequestAt ?? Date.now()) + 5000 - Date.now());
+        this._energyTimer = setTimeout(() => {
+            this._energyTimer = null;
+            this._loadEnergyWidgets();
+        }, delay);
+    }
+
+    async _loadEnergyWidgets() {
+        if (this._disposed || !this._energyDirty || this._energyRequest) return;
+        this._energyDirty = false;
+        const token = {systemId: this.state.systemId, generation: this._dataGeneration};
+        this._energyRequest = token;
+        this._energyLastRequestAt = Date.now();
+        try {
+            const data = await rpc("/smartsolar/dashboard/energy_widgets", {system_id: token.systemId});
+            if (this._disposed || this._energyRequest !== token || token.systemId !== this.state.systemId
+                || token.generation !== this._dataGeneration || !this.state.data?.kpi
+                || !data?.energy_widgets || !data.cutoff) return;
+            if (this._energySnapshot?.systemId === token.systemId && this._energySnapshot.cutoff > data.cutoff) return;
+            this._energySnapshot = {systemId: token.systemId, cutoff: data.cutoff, widgets: data.energy_widgets};
+            this.state.data.kpi.energy_widgets = data.energy_widgets;
+        } catch {
+            // Keep the last confirmed values. A later bus event retries; no
+            // polling loop or extrapolated kWh while the connection is down.
+        } finally {
+            if (this._energyRequest === token) {
+                this._energyRequest = null;
+                if (this._energyDirty) this._queueEnergyWidgets();
+            }
         }
     }
 
