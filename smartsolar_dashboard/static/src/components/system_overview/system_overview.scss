@@ -95,25 +95,38 @@
 
 .ss_overview_wrap {
     .ss_ov_bms { width: 100%; max-width: 480px; margin-top: 16px; color: var(--ov-value); }
-    .ss_ov_bms_header, .ss_ov_bms_summary { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 12px; }
-    .ss_ov_bms_header { margin-bottom: 10px; }
+    .ss_ov_bms_header { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 12px; }
+    .ss_ov_bms_header { align-items: baseline; margin-bottom: 14px; }
+    .ss_ov_bms_header strong { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+    .ss_ov_bms_header:not(:first-child) { border-top: 1px solid var(--ov-line); padding-top: 16px; margin-top: 16px; }
     .ss_ov_bms_status { font-weight: 700; &.online { color: var(--ov-battery); } &.stale { color: #d97706; } &.offline { color: #ef4444; } }
-    .ss_ov_bms_summary strong { font-size: 17px; margin-left: 5px; }
-    .ss_ov_bms_soc { width: 100%; height: 10px; margin-top: 8px; accent-color: var(--ov-battery); }
-    .ss_ov_bms_flow { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 12px 24px; padding: 10px 0; margin-bottom: 10px; border-bottom: 1px solid var(--ov-line); }
-    .ss_ov_bms_flow > div { min-width: 0; text-align: right; }
+    .ss_ov_bms_summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    .ss_ov_bms_summary > span { min-width: 0; }
+    .ss_ov_bms_summary > span > span { display: block; color: var(--ov-title); font-size: 11px; margin-bottom: 4px; }
+    .ss_ov_bms_summary strong { display: block; font-size: 17px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+    .ss_ov_bms_summary > span:last-child { text-align: right; }
+    .ss_ov_bms_soc { width: 100%; height: 6px; display: block; margin: 12px 0 2px; accent-color: var(--ov-battery); }
+    .ss_ov_bms_flow { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--ov-line); }
+    .ss_ov_bms_flow > div { min-width: 0; }
+    .ss_ov_bms_flow > div:last-child { text-align: right; }
     .ss_ov_bms_flow > div > span { display: block; color: var(--ov-title); font-size: 11px; }
     .ss_ov_bms_flow_state { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ov-title); }
     .ss_ov_bms_flow_state.online { color: var(--ov-battery); }
     .ss_ov_bms_flow_state i { font-size: 10px; }
     .ss_ov_bms_flow strong { display: block; margin-top: 4px; font-size: 17px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
     .ss_ov_bms_flow small { font-size: 11px; font-weight: 500; color: var(--ov-title); }
-    .ss_ov_bms_temperatures { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 12px; margin-top: 6px; font-size: 11px; color: var(--ov-title); }
-    .ss_ov_bms_temperatures strong { color: var(--ov-value); margin-left: 3px; }
-    .ss_ov_bms_age { font-size: 11px; color: var(--ov-title); margin: 8px 0; }
-    .ss_ov_bms_cells { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
-    .ss_ov_bms_cells > div { display: flex; flex-direction: column; text-align: center; padding: 3px 1px; border: 1px solid var(--ov-line); border-radius: 4px; font-size: 9px; line-height: 1.3; }
-    .ss_ov_bms_cells strong { font-size: 10px; margin-top: 1px; white-space: nowrap; }
+    .ss_ov_bms_balance { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px; padding: 10px 0; font-size: 11px; color: var(--ov-title); border-bottom: 1px solid var(--ov-line); }
+    .ss_ov_bms_balance strong { color: var(--ov-value); font-variant-numeric: tabular-nums; margin-left: 5px; }
+    .ss_ov_bms_balance_state { display: inline-block; padding: 2px 8px; border: 1px solid var(--ov-line); border-radius: 4px; font-size: 11px; }
+    .ss_ov_bms_balance_state.on { color: var(--ov-battery); }
+    .ss_ov_bms_balance_state.off { color: var(--ov-title); }
+    .ss_ov_bms_temperatures { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding: 12px 0; font-size: 11px; color: var(--ov-title); }
+    .ss_ov_bms_temperatures strong { display: block; color: var(--ov-value); margin-top: 4px; font-size: 13px; font-variant-numeric: tabular-nums; }
+    .ss_ov_bms_temperatures > span:last-child { text-align: right; }
+    .ss_ov_bms_age { font-size: 11px; color: var(--ov-title); margin: 10px 0 0; }
+    .ss_ov_bms_cells { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; }
+    .ss_ov_bms_cells > div { display: flex; flex-direction: column; text-align: center; padding: 6px 2px; border: 1px solid var(--ov-line); border-radius: 4px; font-size: 10px; line-height: 1.3; }
+    .ss_ov_bms_cells strong { font-size: 12px; margin-top: 2px; white-space: nowrap; }
     .ss_ov_bms_cells .minimum { border-color: var(--ov-grid); }
     .ss_ov_bms_cells .maximum { border-color: var(--ov-home); }
 }
