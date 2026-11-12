@@ -11,18 +11,19 @@ class TestElectricityTariff(TestCase):
 
     def test_every_tier_boundary_and_fractional_kwh(self):
         tariff = self.tariff()
-        for kwh, expected in [(0, 0), (50, 99200), (100, 201700),
-                              (200, 439700), (300, 739500), (400, 1074500),
-                              (401, 1077960), (500, 1420500), (50.5, 100225)]:
+        for kwh, expected in [(0, 0), (100, 190100), (101, 192389),
+                              (200, 419000), (201, 421894), (400, 997800),
+                              (401, 1001256), (700, 2034600), (701, 2038444),
+                              (800, 2419000), (100.5, 191245)]:
             with self.subTest(kwh=kwh):
                 self.assertEqual(electricity_bill(kwh, tariff)['subtotal'], expected)
         self.assertEqual(electricity_bill(100, tariff),
-                         dict(subtotal=201700, tax=16136, total=217836))
+                         dict(subtotal=190100, tax=15208, total=205308))
 
     def test_custom_rates_flat_price_and_zero_vat(self):
         tariff = self.tariff()
-        tariff.update(rates=[1, 2, 3, 4, 5, 6], vat_pct=0)
-        self.assertEqual(electricity_bill(450, tariff)['total'], 1650)
+        tariff.update(rates=[1, 2, 3, 4, 5], vat_pct=0)
+        self.assertEqual(electricity_bill(450, tariff)['total'], 1100)
         tariff.update(mode='flat', flat_price=2000, vat_pct=10)
         self.assertEqual(electricity_bill(12.5, tariff)['total'], 27500)
         self.assertIsNone(electricity_bill(None, tariff))
@@ -34,12 +35,20 @@ class TestElectricityTariff(TestCase):
 
     def test_invalid_configuration_is_rejected(self):
         for patch in [dict(vat_pct=-1), dict(vat_pct=101), dict(vat_pct=float('nan')),
-                      dict(rates=[1]*5), dict(rates=[-1]*6), dict(flat_price=-1),
+                      dict(rates=[1]*4), dict(rates=[1]*7), dict(rates=[-1]*5), dict(flat_price=-1),
                       dict(mode='unknown')]:
             tariff = self.tariff()
             tariff.update(patch)
             with self.subTest(patch=patch), self.assertRaises(ValueError):
                 validate_tariff(tariff)
+
+    def test_closed_six_tier_snapshots_keep_original_boundaries(self):
+        tariff = self.tariff()
+        tariff['rates'] = [1984, 2050, 2380, 2998, 3350, 3460]
+        for kwh, subtotal in [(50, 99200), (100, 201700), (200, 439700),
+                              (300, 739500), (400, 1074500), (401, 1077960)]:
+            with self.subTest(kwh=kwh):
+                self.assertEqual(electricity_bill(kwh, tariff)['subtotal'], subtotal)
 
     def daily(self, inverter, grid):
         return dict(labels=['2026-10-01', '2026-10-02'],
@@ -51,9 +60,9 @@ class TestElectricityTariff(TestCase):
     def test_savings_is_avoided_top_tiers_not_bill_for_solar_alone(self):
         daily = self.daily([50, 50], [150, 150])
         result = SmartSolarDashboard._build_energy_widgets(daily, [80, 80], 3000, tariff=self.tariff())
-        self.assertEqual(result['payable'], 798660)
-        self.assertEqual(result['without_solar'], 1160460)
-        self.assertEqual(result['saved'], 361800)
+        self.assertEqual(result['payable'], 765072)
+        self.assertEqual(result['without_solar'], 1077624)
+        self.assertEqual(result['saved'], 312552)
         self.assertNotEqual(result['saved'], electricity_bill(100, self.tariff())['total'])
 
     def test_missing_branch_does_not_invent_savings(self):
@@ -70,21 +79,22 @@ class TestElectricityTariff(TestCase):
     def test_month_tariff_is_not_reset_each_day(self):
         result = SmartSolarDashboard._build_energy_widgets(self.daily([0, 0], [50, 50]),
                                                           [0, 0], 3000, tariff=self.tariff())
-        self.assertEqual(result['payable'], 217836)
+        self.assertEqual(result['payable'], 205308)
         self.assertEqual(result['saved'], 0)
 
     def test_separate_meters_do_not_share_tier_allowances(self):
         bill = SmartSolarDashboard._build_energy_widgets(self.daily([0, 0], [50, 50]),
                                                         [0, 0], 3000, tariff=self.tariff())
         combined = SmartSolarDashboard._sum_meter_bills([bill, bill])
-        self.assertEqual(combined['payable'], 435672)
+        self.assertEqual(combined['payable'], 410616)
         self.assertNotEqual(combined['payable'], electricity_bill(200, self.tariff())['total'])
         self.assertEqual(combined['meter_count'], 2)
         unknown = dict(bill, payable=None)
         self.assertIsNone(SmartSolarDashboard._sum_meter_bills([bill, unknown])['payable'])
 
     def test_settings_load_defaults_and_preserve_explicit_zero_rates_and_vat(self):
-        stored = {}
+        # Legacy persisted settings must not become prices for the new bands.
+        stored = {'smartsolar.tier_1_price': '1984', 'smartsolar.tier_2_price': '2050'}
         param = SimpleNamespace(get_param=lambda key, default: stored.get(key, default))
         param.sudo = lambda: param
         fake = SimpleNamespace(env={'ir.config_parameter': param})
@@ -92,7 +102,7 @@ class TestElectricityTariff(TestCase):
         self.assertEqual(settings['tariff']['rates'], list(DEFAULT_RATES))
         self.assertEqual(settings['tariff']['vat_pct'], 8)
         self.assertEqual(settings['tariff']['mode'], 'tiered')
-        stored.update({'smartsolar.tier_1_price': '0', 'smartsolar.electricity_vat': '0',
+        stored.update({'smartsolar.five_tier_1_price': '0', 'smartsolar.electricity_vat': '0',
                        'smartsolar.tariff_mode': 'flat', 'smartsolar.billing_scope': 'shared'})
         settings = SmartSolarDashboard._get_settings(fake)
         self.assertEqual(settings['tariff']['rates'][0], 0)

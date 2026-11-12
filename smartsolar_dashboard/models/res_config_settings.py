@@ -26,7 +26,7 @@ class ResConfigSettings(models.TransientModel):
         default=2000.0,
     )
     smartsolar_tariff_mode = fields.Selection(
-        [('tiered', 'Sinh hoạt 6 bậc'), ('flat', 'Một đơn giá')],
+        [('tiered', 'Sinh hoạt 5 bậc'), ('flat', 'Một đơn giá')],
         string='Cách tính tiền điện', config_parameter='smartsolar.tariff_mode', default='tiered',
     )
     smartsolar_electricity_vat = fields.Float(
@@ -38,20 +38,21 @@ class ResConfigSettings(models.TransientModel):
         config_parameter='smartsolar.billing_scope', default='per_system',
     )
     smartsolar_tier_1_price = fields.Float(
-        string='Đơn giá bậc 1', config_parameter='smartsolar.tier_1_price', default=1984.0,
+        string='Đơn giá bậc 1', config_parameter='smartsolar.five_tier_1_price', default=1901.0,
     )
     smartsolar_tier_2_price = fields.Float(
-        string='Đơn giá bậc 2', config_parameter='smartsolar.tier_2_price', default=2050.0,
+        string='Đơn giá bậc 2', config_parameter='smartsolar.five_tier_2_price', default=2289.0,
     )
     smartsolar_tier_3_price = fields.Float(
-        string='Đơn giá bậc 3', config_parameter='smartsolar.tier_3_price', default=2380.0,
+        string='Đơn giá bậc 3', config_parameter='smartsolar.five_tier_3_price', default=2894.0,
     )
     smartsolar_tier_4_price = fields.Float(
-        string='Đơn giá bậc 4', config_parameter='smartsolar.tier_4_price', default=2998.0,
+        string='Đơn giá bậc 4', config_parameter='smartsolar.five_tier_4_price', default=3456.0,
     )
     smartsolar_tier_5_price = fields.Float(
-        string='Đơn giá bậc 5', config_parameter='smartsolar.tier_5_price', default=3350.0,
+        string='Đơn giá bậc 5', config_parameter='smartsolar.five_tier_5_price', default=3844.0,
     )
+    # Retained for compatibility with the previous settings model; no longer displayed.
     smartsolar_tier_6_price = fields.Float(
         string='Đơn giá bậc 6', config_parameter='smartsolar.tier_6_price', default=3460.0,
     )
@@ -75,7 +76,7 @@ class ResConfigSettings(models.TransientModel):
                     'smartsolar_electricity_price',
                     'smartsolar_tier_1_price', 'smartsolar_tier_2_price',
                     'smartsolar_tier_3_price', 'smartsolar_tier_4_price',
-                    'smartsolar_tier_5_price', 'smartsolar_tier_6_price')
+                    'smartsolar_tier_5_price')
     def _check_electricity_tariff(self):
         for record in self:
             try:
@@ -83,7 +84,7 @@ class ResConfigSettings(models.TransientModel):
                     'mode': record.smartsolar_tariff_mode,
                     'vat_pct': record.smartsolar_electricity_vat,
                     'flat_price': record.smartsolar_electricity_price,
-                    'rates': [record[f'smartsolar_tier_{i}_price'] for i in range(1, 7)],
+                    'rates': [record[f'smartsolar_tier_{i}_price'] for i in range(1, 6)],
                 })
             except ValueError as error:
                 raise ValidationError(str(error)) from error

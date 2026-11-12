@@ -1,8 +1,10 @@
 """Monthly domestic electricity tariff (rates exclude VAT)."""
 from decimal import Decimal, ROUND_HALF_UP
 
-TIER_LIMITS = (50, 100, 200, 300, 400)
-DEFAULT_RATES = (1984, 2050, 2380, 2998, 3350, 3460)
+TIER_LIMITS = (100, 200, 400, 700)
+DEFAULT_RATES = (1901, 2289, 2894, 3456, 3844)
+# Closed monthly ledger snapshots still contain the previous six-tier rates.
+LEGACY_TIER_LIMITS = (50, 100, 200, 300, 400)
 
 
 def validate_tariff(tariff):
@@ -13,8 +15,8 @@ def validate_tariff(tariff):
     flat = Decimal(str(tariff['flat_price']))
     if not vat.is_finite() or not 0 <= vat <= 100:
         raise ValueError('Thuế GTGT phải từ 0 đến 100%.')
-    if len(prices) != 6 or any(not p.is_finite() or p < 0 for p in prices) or not flat.is_finite() or flat < 0:
-        raise ValueError('Đơn giá điện phải là số không âm và có đủ 6 bậc.')
+    if len(prices) not in (5, 6) or any(not p.is_finite() or p < 0 for p in prices) or not flat.is_finite() or flat < 0:
+        raise ValueError('Đơn giá điện phải là số không âm và có đủ 5 bậc (hoặc 6 bậc cho biểu giá lịch sử).')
 
 
 def electricity_bill(kwh, tariff):
@@ -30,7 +32,8 @@ def electricity_bill(kwh, tariff):
         subtotal = usage * Decimal(str(tariff['flat_price']))
     else:
         lower = Decimal(0)
-        for limit, rate in zip((*TIER_LIMITS, None), tariff['rates']):
+        limits = LEGACY_TIER_LIMITS if len(tariff['rates']) == 6 else TIER_LIMITS
+        for limit, rate in zip((*limits, None), tariff['rates']):
             upper = Decimal(limit) if limit is not None else usage
             units = max(Decimal(0), min(usage, upper) - lower)
             subtotal += units * Decimal(str(rate))

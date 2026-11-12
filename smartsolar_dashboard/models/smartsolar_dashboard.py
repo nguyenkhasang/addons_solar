@@ -105,7 +105,7 @@ class SmartSolarDashboard(models.AbstractModel):
                 'mode': Param.get_param('smartsolar.tariff_mode', 'tiered'),
                 'flat_price': float(Param.get_param('smartsolar.electricity_price', 2500.0) or 0),
                 'vat_pct': float(Param.get_param('smartsolar.electricity_vat', 8.0) or 0),
-                'rates': [float(Param.get_param(f'smartsolar.tier_{i}_price', rate) or 0)
+                'rates': [float(Param.get_param(f'smartsolar.five_tier_{i}_price', rate) or 0)
                           for i, rate in enumerate(DEFAULT_RATES, 1)],
             },
             'billing_scope': Param.get_param('smartsolar.billing_scope', 'per_system'),

@@ -58,7 +58,7 @@
                 <details class="ss_energy_details">
                     <summary>Cách tính tiền điện và phạm vi dữ liệu</summary>
                     <div class="ss_energy_note">
-                        <t t-if="energy.tariff_mode === 'tiered'">Biểu giá sinh hoạt 6 bậc</t><t t-else="">Đơn giá <t t-esc="fmtMoney(energy.price)"/> <t t-esc="state.data.kpi.currency_symbol"/>/kWh</t> · đã gồm VAT <t t-esc="fmtNumber(energy.vat_pct, 2)"/>%.
+                        <t t-if="energy.tariff_mode === 'tiered'">Biểu giá sinh hoạt 5 bậc</t><t t-else="">Đơn giá <t t-esc="fmtMoney(energy.price)"/> <t t-esc="state.data.kpi.currency_symbol"/>/kWh</t> · đã gồm VAT <t t-esc="fmtNumber(energy.vat_pct, 2)"/>%.
                         <t t-if="energy.billing_scope === 'per_system'"> Cộng tiền của <t t-esc="energy.meter_count"/> hệ thống đang hoạt động; bậc thang tính riêng từng công-tơ.</t>
                         <t t-if="energy.billing_scope === 'shared'"> Tính chung một công-tơ cho tất cả hệ thống.</t>
                         Tiết kiệm = tiền điện nếu toàn bộ tải dùng lưới − tiền điện lấy lưới. Tính từ đầu tháng đến hiện tại.
