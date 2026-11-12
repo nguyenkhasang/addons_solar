@@ -154,6 +154,9 @@ test('daily consumption stacks two branches and overlays PV independently',()=>{
     assert.equal(config.data.datasets[0].stack,config.data.datasets[1].stack);
     assert.deepEqual(config.data.datasets[0].data,[1.8,0]);
     assert.deepEqual(config.data.datasets[1].data,[0.03,0]);
+    assert.equal(config.data.datasets[0].backgroundColor,'#1E88E5');
+    assert.equal(config.data.datasets[1].backgroundColor,'#EF4444');
+    assert.equal(config.data.datasets[2].borderColor,'#FFB800');
     assert.equal(config.data.datasets[2].type,'line');
     assert.equal(config.data.datasets[2].stack,'pv');
     assert.notEqual(config.data.datasets[2].stack,config.data.datasets[0].stack);
@@ -187,4 +190,16 @@ test('PV and MPPT chart shows only PV power and PV voltage',()=>{
     assert.deepEqual(Array.from(config.data.datasets[1].data),[100,0]);
     assert.equal(config.data.datasets[0].yAxisID,'y');
     assert.equal(config.data.datasets[1].yAxisID,'y1');
+});
+
+test('chart update status distinguishes historical polling from live connection',()=>{
+    const c=dashboard();
+    c.state.autoRefresh=true;c.state.realtimeActive=true;
+    assert.equal(c.chartUpdateLabel,'Tự cập nhật');
+    c.state.autoRefresh=false;
+    assert.equal(c.chartUpdateLabel,'Đã tạm dừng tự cập nhật');
+    c.state.timeRange='realtime';
+    assert.equal(c.chartUpdateLabel,'Trực tiếp');
+    c.state.realtimeActive=false;
+    assert.equal(c.chartUpdateLabel,'Mất kết nối trực tiếp');
 });

@@ -740,7 +740,7 @@ export class SmartSolarDashboard extends Component {
                 labels: gt.labels.map(this._fmtLabel.bind(this)),
                 datasets: [
                     { label: "Công suất hòa lưới (W)", data: gt.output_power, borderColor: COLORS.accent, backgroundColor: gradient, borderWidth: 2, fill: true, tension: 0.35, pointRadius: 0, pointHoverRadius: 4, yAxisID: "y" },
-                    { label: "Công suất lấy lưới (W)", data: gt.limiter_power, borderColor: COLORS.purple, borderWidth: 1.6, borderDash: [4, 4], fill: false, pointRadius: 0, pointHoverRadius: 4, yAxisID: "y" },
+                    { label: "Công suất lấy lưới (W)", data: gt.limiter_power, borderColor: COLORS.danger, borderWidth: 1.6, borderDash: [4, 4], fill: false, pointRadius: 0, pointHoverRadius: 4, yAxisID: "y" },
                     { label: "Công suất dàn PV (W)", data: gt.labels.map(label => {const i = cp?.labels?.indexOf(label) ?? -1; return i >= 0 ? (cp.pv_input_power?.[i] ?? null) : null;}), borderColor: COLORS.primary, borderWidth: 1.6, borderDash: [4, 2], fill: false, pointRadius: 0, pointHoverRadius: 4, yAxisID: "y" },
                     { label: "Sạc/xả ròng ước tính (W)", data: this._alignBatteryFlow(gt.labels, "net_power"), borderColor: COLORS.success, borderWidth: 1.6, borderDash: [2, 4], fill: false, pointRadius: 2, pointHoverRadius: 4, yAxisID: "y" },
                 ],
@@ -780,12 +780,12 @@ export class SmartSolarDashboard extends Component {
                 labels: e.labels,
                 datasets: [
                     {label: "Điện inverter cấp tải (kWh)", data: e.inverter_kwh,
-                     backgroundColor: COLORS.primary, stack: "consumption", borderSkipped: false},
+                     backgroundColor: COLORS.accent, stack: "consumption", borderSkipped: false},
                     {label: "Điện lấy lưới (kWh)", data: e.grid_kwh,
-                     backgroundColor: COLORS.purple, stack: "consumption", borderRadius: 6, borderSkipped: false},
+                     backgroundColor: COLORS.danger, stack: "consumption", borderRadius: 6, borderSkipped: false},
                     {type: "line", label: "Điện PV thu được (kWh)",
                      data: e.pv_kwh || e.labels.map(() => null),
-                     borderColor: COLORS.success, backgroundColor: COLORS.success,
+                     borderColor: COLORS.primary, backgroundColor: COLORS.primary,
                      stack: "pv", order: -1, borderWidth: 2.5,
                      pointRadius: 3, pointHoverRadius: 5, tension: 0.2,
                      fill: false, spanGaps: false},
@@ -1047,6 +1047,12 @@ export class SmartSolarDashboard extends Component {
             ctx.fillText(`${h}h`, labelW + h * cellW + cellW / 2, 14);
         }
 
+        const heatmapColor = {
+            grid_out: "30,136,229",
+            pv_input: "255,184,0",
+            total_load: "139,92,246",
+        }[this.state.heatmapMetric] || "30,136,229";
+
         // Day rows
         hm.days.forEach((day, di) => {
             const y = paddingTop + di * cellH;
@@ -1058,11 +1064,8 @@ export class SmartSolarDashboard extends Component {
             hm.hours.forEach((h, hi) => {
                 const val = (values[di] || [])[hi] || 0;
                 const intensity = Math.min(val / maxVal, 1);
-                const r = Math.round(30 + intensity * 225);
-                const g = Math.round(200 - intensity * 100);
-                const b = 0;
                 ctx.fillStyle = val > 0
-                    ? `rgba(${r},${g},${b},${0.3 + intensity * 0.7})`
+                    ? `rgba(${heatmapColor},${0.15 + intensity * 0.85})`
                     : (isDark ? "rgba(30,42,60,0.5)" : "rgba(226,232,240,0.5)");
                 ctx.fillRect(labelW + hi * cellW + 1, y + 1, cellW - 2, cellH - 2);
             });
@@ -1073,9 +1076,7 @@ export class SmartSolarDashboard extends Component {
         const lgX = cssW - 120;
         for (let i = 0; i <= 10; i++) {
             const t = i / 10;
-            const r = Math.round(30 + t * 225);
-            const g = Math.round(200 - t * 100);
-            ctx.fillStyle = `rgb(${r},${g},0)`;
+            ctx.fillStyle = `rgba(${heatmapColor},${0.15 + t * 0.85})`;
             ctx.fillRect(lgX + i * 10, lgY, 10, 8);
         }
         ctx.fillStyle = textColor;
@@ -1265,6 +1266,13 @@ export class SmartSolarDashboard extends Component {
 
     get connectionLabel() {
         return this.state.realtimeActive ? "TRỰC TIẾP" : "Offline";
+    }
+
+    get chartUpdateLabel() {
+        if (this.state.timeRange === "realtime") {
+            return this.state.realtimeActive ? "Trực tiếp" : "Mất kết nối trực tiếp";
+        }
+        return this.state.autoRefresh ? "Tự cập nhật" : "Đã tạm dừng tự cập nhật";
     }
 
     get currentRangeLabel() {

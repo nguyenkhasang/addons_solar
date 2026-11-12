@@ -1,16 +1,16 @@
 .ss_overview_wrap {
     --ov-card-bg: rgba(255,255,255,.05);
     --ov-card-border: rgba(255,255,255,.08);
-    --ov-title: #94a3b8;
-    --ov-label: #64748b;
+    --ov-title: var(--ss-text-muted, #b7c4d7);
+    --ov-label: var(--ss-text-muted, #b7c4d7);
     --ov-value: #e2e8f0;
     --ov-line: #1e3a5f;
     --ov-dot-border: #334155;
     --ov-inv-bg: rgba(255,255,255,.04);
     --ov-inv-border: #334155;
-    --ov-inv-label: #64748b;
+    --ov-inv-label: var(--ss-text-muted, #b7c4d7);
     --ov-solar: #FFB800;
-    --ov-grid: #06B6D4;
+    --ov-grid: #EF4444;
     --ov-home: #8B5CF6;
     --ov-battery: #22C55E;
     background: var(--ss-surface, #1a2a3a);
@@ -27,30 +27,30 @@
     &.light {
         --ov-card-bg: #ffffff;
         --ov-card-border: #e2e8f0;
-        --ov-title: #64748b;
-        --ov-label: #94a3b8;
+        --ov-title: #475569;
+        --ov-label: #52627a;
         --ov-value: #0f172a;
         --ov-line: #cbd5e1;
         --ov-dot-border: #94a3b8;
         --ov-inv-bg: #ffffff;
         --ov-inv-border: #e2e8f0;
-        --ov-inv-label: #94a3b8;
+        --ov-inv-label: #52627a;
     }
     .ss_overview_title { font-size: 13px; font-weight: 700; letter-spacing: .12em; color: var(--ov-title); margin-bottom: 20px; }
     .ss_overview_diagram { display: flex; flex-direction: column; align-items: center; width: 100%; max-width: 560px; }
     .ss_ov_node { display: flex; flex-direction: column; align-items: center; gap: 6px; }
     .ss_ov_icon_wrap { width: 64px; height: 64px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 26px; border: 3px solid transparent; transition: border-color .3s ease, box-shadow .3s ease, transform .3s ease; }
     .ss_ov_icon_wrap.solar { background: rgba(255,184,0,.12); color: var(--ov-solar); border-color: var(--ov-solar); --ov-node-glow: rgba(255,184,0,.55); }
-    .ss_ov_icon_wrap.grid { background: rgba(6,182,212,.12); color: var(--ov-grid); border-color: var(--ov-grid); --ov-node-glow: rgba(6,182,212,.5); }
+    .ss_ov_icon_wrap.grid { background: rgba(239,68,68,.12); color: var(--ov-grid); border-color: var(--ov-grid); --ov-node-glow: rgba(239,68,68,.5); }
     .ss_ov_icon_wrap.home { background: rgba(139,92,246,.12); color: var(--ov-home); border-color: var(--ov-home); --ov-node-glow: rgba(139,92,246,.5); }
     .ss_ov_icon_wrap.battery { background: rgba(34,197,94,.10); color: var(--ov-battery); border-color: var(--ov-dot-border); --ov-node-glow: rgba(34,197,94,.5); }
     .ss_ov_icon_wrap.battery.active { border-color: var(--ov-battery); }
-    .ss_ov_label { font-size: 11px; font-weight: 700; letter-spacing: .1em; color: var(--ov-label); }
+    .ss_ov_label { font-size: 12px; font-weight: 700; letter-spacing: .1em; color: var(--ov-label); }
     .ss_ov_value_box, .ss_ov_sub_box { background: var(--ov-card-bg); border: 1px solid var(--ov-card-border); border-radius: 8px; display: flex; align-items: center; justify-content: center; }
     .ss_ov_value_box { padding: 4px 14px; min-width: 80px; align-items: baseline; gap: 4px; }
     .ss_ov_sub_box { padding: 3px 12px; gap: 8px; font-size: 12px; color: var(--ov-title); font-weight: 600; }
     .ss_ov_big { font-size: 20px; font-weight: 700; color: var(--ov-value); }
-    .ss_ov_big.cyan { color: var(--ov-grid); }
+    .ss_ov_big.cyan { color: #1E88E5; }
     .ss_ov_big.purple { color: var(--ov-home); }
     .ss_ov_unit { font-size: 12px; color: var(--ov-label); font-weight: 500; }
     .ss_ov_divider { color: var(--ov-dot-border); }
@@ -67,7 +67,7 @@
     .ss_ov_line_bottom { --ov-flow: var(--ov-battery); }
     .ss_ov_hline.left { --ov-flow: var(--ov-grid); }
     .ss_ov_hline.right { --ov-flow: var(--ov-home); }
-    .ss_ov_inverter { width: 80px; height: 120px; border-radius: 15%; background: var(--ov-inv-bg); border: 3px solid var(--ov-inv-border); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; flex-shrink: 0; --ov-inverter-flow: var(--ov-grid); }
+    .ss_ov_inverter { width: 80px; height: 120px; border-radius: 15%; background: var(--ov-inv-bg); border: 3px solid var(--ov-inv-border); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; flex-shrink: 0; --ov-inverter-flow: #1E88E5; }
     .ss_ov_inverter.active { border-color: var(--ov-inverter-flow); box-shadow: 0 0 16px var(--ov-inverter-flow); animation: ss_ov_inverter_breathe 2.2s ease-in-out infinite; }
     .ss_ov_inverter.solar_source { --ov-inverter-flow: var(--ov-solar); }
     .ss_ov_inverter.grid_source { --ov-inverter-flow: var(--ov-grid); }
@@ -75,8 +75,8 @@
     .ss_ov_inverter_icon, .ss_ov_inverter_label { color: var(--ov-inv-label); }
     .ss_ov_inverter.active .ss_ov_inverter_icon, .ss_ov_inverter.active .ss_ov_inverter_label { color: var(--ov-inverter-flow); }
     .ss_ov_inverter_icon { font-size: 20px; }
-    .ss_ov_inverter_label { font-size: 9px; font-weight: 700; letter-spacing: .08em; }
-    .ss_ov_inverter_value { font-size: 12px; font-weight: 700; color: var(--ov-grid); }
+    .ss_ov_inverter_label { font-size: 12px; font-weight: 700; letter-spacing: .08em; }
+    .ss_ov_inverter_value { font-size: 12px; font-weight: 700; color: #1E88E5; }
     .ss_ov_solar, .ss_ov_battery { min-width: 160px; }
     .ss_ov_grid, .ss_ov_home { min-width: 100px; flex-shrink: 0; }
     .ss_ov_node.active .ss_ov_icon_wrap { animation: ss_ov_node_pulse 2s ease-in-out infinite; }
@@ -89,8 +89,8 @@
 }
 
 .ss_overview_wrap {
-    .ss_ov_estimate { font-size: 11px; color: var(--ov-title); margin-top: 4px; }
-    .ss_ov_balance_note { font-size: 11px; color: var(--ov-title); text-align: center; margin-top: 12px; line-height: 1.5; }
+    .ss_ov_estimate { font-size: 12px; color: var(--ov-title); margin-top: 4px; }
+    .ss_ov_balance_note { font-size: 12px; color: var(--ov-title); text-align: center; margin-top: 12px; line-height: 1.5; }
 }
 
 .ss_overview_wrap {
@@ -102,32 +102,32 @@
     .ss_ov_bms_status { font-weight: 700; &.online { color: var(--ov-battery); } &.stale { color: #d97706; } &.offline { color: #ef4444; } }
     .ss_ov_bms_summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
     .ss_ov_bms_summary > span { min-width: 0; }
-    .ss_ov_bms_summary > span > span { display: block; color: var(--ov-title); font-size: 11px; margin-bottom: 4px; }
+    .ss_ov_bms_summary > span > span { display: block; color: var(--ov-title); font-size: 12px; margin-bottom: 4px; }
     .ss_ov_bms_summary strong { display: block; font-size: 17px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
     .ss_ov_bms_summary > span:last-child { text-align: right; }
     .ss_ov_bms_soc { width: 100%; height: 6px; display: block; margin: 12px 0 2px; accent-color: var(--ov-battery); }
     .ss_ov_bms_flow { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--ov-line); }
     .ss_ov_bms_flow > div { min-width: 0; }
     .ss_ov_bms_flow > div:last-child { text-align: right; }
-    .ss_ov_bms_flow > div > span { display: block; color: var(--ov-title); font-size: 11px; }
+    .ss_ov_bms_flow > div > span { display: block; color: var(--ov-title); font-size: 12px; }
     .ss_ov_bms_flow_state { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ov-title); }
     .ss_ov_bms_flow_state.online { color: var(--ov-battery); }
-    .ss_ov_bms_flow_state i { font-size: 10px; }
+    .ss_ov_bms_flow_state i { font-size: 12px; }
     .ss_ov_bms_flow strong { display: block; margin-top: 4px; font-size: 17px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-    .ss_ov_bms_flow small { font-size: 11px; font-weight: 500; color: var(--ov-title); }
-    .ss_ov_bms_balance { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px; padding: 10px 0; font-size: 11px; color: var(--ov-title); border-bottom: 1px solid var(--ov-line); }
+    .ss_ov_bms_flow small { font-size: 12px; font-weight: 500; color: var(--ov-title); }
+    .ss_ov_bms_balance { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px; padding: 10px 0; font-size: 12px; color: var(--ov-title); border-bottom: 1px solid var(--ov-line); }
     .ss_ov_bms_balance strong { color: var(--ov-value); font-variant-numeric: tabular-nums; margin-left: 5px; }
-    .ss_ov_bms_balance_state { display: inline-block; padding: 2px 8px; border: 1px solid var(--ov-line); border-radius: 4px; font-size: 11px; }
+    .ss_ov_bms_balance_state { display: inline-block; padding: 2px 8px; border: 1px solid var(--ov-line); border-radius: 4px; font-size: 12px; }
     .ss_ov_bms_balance_state.on { color: var(--ov-battery); }
     .ss_ov_bms_balance_state.off { color: var(--ov-title); }
-    .ss_ov_bms_temperatures { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding: 12px 0; font-size: 11px; color: var(--ov-title); }
+    .ss_ov_bms_temperatures { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding: 12px 0; font-size: 12px; color: var(--ov-title); }
     .ss_ov_bms_temperatures strong { display: block; color: var(--ov-value); margin-top: 4px; font-size: 13px; font-variant-numeric: tabular-nums; }
     .ss_ov_bms_temperatures > span:last-child { text-align: right; }
-    .ss_ov_bms_age { font-size: 11px; color: var(--ov-title); margin: 10px 0 0; }
+    .ss_ov_bms_age { font-size: 12px; color: var(--ov-title); margin: 10px 0 0; }
     .ss_ov_bms_cells { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; }
-    .ss_ov_bms_cells > div { display: flex; flex-direction: column; text-align: center; padding: 6px 2px; border: 1px solid var(--ov-line); border-radius: 4px; font-size: 10px; line-height: 1.3; }
+    .ss_ov_bms_cells > div { display: flex; flex-direction: column; text-align: center; padding: 6px 2px; border: 1px solid var(--ov-line); border-radius: 4px; font-size: 12px; line-height: 1.3; }
     .ss_ov_bms_cells strong { font-size: 12px; margin-top: 2px; white-space: nowrap; }
-    .ss_ov_bms_cells .minimum { border-color: var(--ov-grid); }
+    .ss_ov_bms_cells .minimum { border-color: #06B6D4; }
     .ss_ov_bms_cells .maximum { border-color: var(--ov-home); }
 }
 
@@ -149,8 +149,25 @@
         .ss_ov_big { font-size: 18px; }
         .ss_ov_bms_header strong { flex: 1; min-width: 0; overflow-wrap: anywhere; }
         .ss_ov_bms_header { gap: 8px; }
-        .ss_ov_bms_cells > div { padding: 5px 2px; font-size: 10px; }
+        .ss_ov_bms_cells > div { padding: 5px 2px; font-size: 12px; }
         .ss_ov_bms_cells strong { font-size: 12px; }
         .ss_ov_bms_temperatures { gap: 6px; }
+    }
+}
+
+.ss_overview_wrap .ss_ov_grid .ss_ov_big { color: var(--ov-grid); }
+.ss_overview_wrap.ss_bms_panel {
+    display: block;
+    min-width: 0;
+    height: auto;
+    margin-bottom: 14px;
+    .ss_ov_bms { max-width: none; margin-top: 0; }
+    .ss_ov_bms_card { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 24px; }
+    .ss_ov_bms_card + .ss_ov_bms_card { border-top: 1px solid var(--ov-line); margin-top: 16px; padding-top: 16px; }
+    .ss_ov_bms_details { min-width: 0; }
+    .ss_ov_bms_cells { align-self: center; }
+    .ss_ov_bms_age { grid-column: 1 / -1; }
+    @media (max-width: 760px) {
+        .ss_ov_bms_card { grid-template-columns: minmax(0, 1fr); gap: 8px; }
     }
 }

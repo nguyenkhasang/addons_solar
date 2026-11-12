@@ -10,6 +10,8 @@ export class SystemOverview extends Component {
         devices: { type: Array, optional: true },
         theme: { type: String, optional: true },
         batteries: { type: Array, optional: true },
+        showDiagram: { type: Boolean, optional: true },
+        showBms: { type: Boolean, optional: true },
         onUpdate: { type: Function, optional: true },
     };
 
@@ -36,7 +38,9 @@ export class SystemOverview extends Component {
         let bmsClock;
         onWillUnmount(() => clearInterval(bmsClock));
         onMounted(() => {
-            bmsClock = setInterval(() => { this.state.now = Date.now(); }, 1000);
+            if (this.props.showBms !== false) {
+                bmsClock = setInterval(() => { this.state.now = Date.now(); }, 1000);
+            }
             this._syncFromProps();
             if (this.props.onUpdate) {
                 this.props.onUpdate(this);

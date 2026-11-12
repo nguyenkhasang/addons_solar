@@ -4,8 +4,8 @@
     --ss-surface-2: #F8FAFC;
     --ss-border: #E2E8F0;
     --ss-text: #0F172A;
-    --ss-text-muted: #64748B;
-    --ss-text-faint: #94A3B8;
+    --ss-text-muted: #475569;
+    --ss-text-faint: #52627A;
     --ss-primary: #FFB800;
     --ss-primary-soft: rgba(255, 184, 0, .12);
     --ss-accent: #1E88E5;
@@ -35,8 +35,8 @@
         --ss-surface-2: #0F1827;
         --ss-border: #1F2A3F;
         --ss-text: #E2E8F0;
-        --ss-text-muted: #94A3B8;
-        --ss-text-faint: #64748B;
+        --ss-text-muted: #B7C4D7;
+        --ss-text-faint: #A4B4CB;
         --ss-shadow-sm: 0 1px 2px rgba(0,0,0,.3);
         --ss-shadow: 0 2px 8px rgba(0,0,0,.35);
     }
@@ -45,14 +45,14 @@
     .ss_brand { display: flex; align-items: center; gap: 14px; }
     .ss_brand_icon { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #FFB800, #FF8C00); color: #fff; border-radius: var(--ss-radius); box-shadow: 0 4px 12px rgba(255, 140, 0, .25); font-size: 20px; }
     .ss_brand_title { font-size: 17px; font-weight: 700; color: var(--ss-text); }
-    .ss_brand_sub { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 11.5px; color: var(--ss-text-muted); margin-top: 2px; }
+    .ss_brand_sub { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--ss-text-muted); margin-top: 2px; }
     .ss_topbar_right { display: flex; align-items: center; gap: 8px; }
     .ss_select { background: var(--ss-surface); color: var(--ss-text); border: 1px solid var(--ss-border); border-radius: var(--ss-radius-sm); padding: 8px 12px; min-width: 180px; outline: none; }
     .ss_icon_btn { width: 36px; height: 36px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--ss-border); background: var(--ss-surface); color: var(--ss-text-muted); border-radius: var(--ss-radius-sm); cursor: pointer; }
     .ss_icon_btn:hover, .ss_icon_btn.active { color: var(--ss-primary); border-color: rgba(255, 184, 0, .45); background: var(--ss-primary-soft); }
     .ss_loading_bar { height: 3px; background: linear-gradient(90deg, transparent, var(--ss-primary), transparent); background-size: 200% 100%; border-radius: 999px; margin-bottom: 14px; animation: ss_loading 1.4s ease-in-out infinite; }
     @keyframes ss_loading { from { background-position: 200% 0; } to { background-position: -200% 0; } }
-    .ss_status_pill, .ss_live_badge { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 999px; font-size: 10.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; border: 1px solid var(--ss-border); }
+    .ss_status_pill, .ss_live_badge { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; border: 1px solid var(--ss-border); }
     .ss_status_pill.fresh, .ss_live_badge.online { color: var(--ss-success); background: var(--ss-success-soft); border-color: rgba(34,197,94,.28); }
     .ss_status_pill.stale, .ss_live_badge.offline { color: var(--ss-warning); background: var(--ss-warning-soft); border-color: rgba(245,158,11,.28); }
     .ss_status_dot, .ss_live_dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
@@ -63,38 +63,38 @@
     .ss_energy_heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
     .ss_energy_period_title { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 700; color: var(--ss-text); }
     .ss_energy_period_title i { color: var(--ss-primary); font-size: 15px; }
-    .ss_energy_period_sub { font-size: 11px; color: var(--ss-text-muted); margin-top: 4px; }
-    .ss_energy_unit { flex-shrink: 0; font-size: 11px; color: var(--ss-text-muted); padding: 5px 9px; background: var(--ss-surface-2); border: 1px solid var(--ss-border); border-radius: var(--ss-radius-sm); }
+    .ss_energy_period_sub { font-size: 12px; color: var(--ss-text-muted); margin-top: 4px; }
+    .ss_energy_unit { flex-shrink: 0; font-size: 12px; color: var(--ss-text-muted); padding: 5px 9px; background: var(--ss-surface-2); border: 1px solid var(--ss-border); border-radius: var(--ss-radius-sm); }
     .ss_energy_grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
     .ss_energy_card {
-        --energy-color: #B77900;
+        --energy-color: #8A6000;
         --energy-soft: var(--ss-primary-soft);
         min-width: 0; position: relative; overflow-wrap: anywhere; padding: 16px;
         background: var(--ss-surface-2); border: 1px solid var(--ss-border); border-radius: var(--ss-radius-sm);
         &::before { content: ""; position: absolute; left: 16px; right: 16px; top: -1px; height: 2px; background: var(--energy-color); border-radius: 0 0 2px 2px; }
     }
     .ss_energy_import { --energy-color: #D64343; --energy-soft: var(--ss-danger-soft); }
-    .ss_energy_inverter { --energy-color: #168B58; --energy-soft: var(--ss-success-soft); }
+    .ss_energy_inverter { --energy-color: #1669AD; --energy-soft: var(--ss-accent-soft); }
     .ss_energy_load { --energy-color: #7551C9; --energy-soft: rgba(139, 92, 246, .12); }
     &.dark {
         .ss_energy_card { --energy-color: #FFBE32; }
         .ss_energy_import { --energy-color: #FF7B7B; }
-        .ss_energy_inverter { --energy-color: #34D399; }
+        .ss_energy_inverter { --energy-color: #60A5FA; }
         .ss_energy_load { --energy-color: #B39AFF; }
     }
     .ss_energy_card_head { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
     .ss_energy_card_head > div { min-width: 0; }
     .ss_energy_label { color: var(--ss-text); font-size: 13px; font-weight: 600; }
     .ss_energy_icon { display: flex; align-items: center; justify-content: center; width: 34px; height: 34px; flex-shrink: 0; border-radius: var(--ss-radius-sm); color: var(--energy-color); background: var(--energy-soft); font-size: 16px; }
-    .ss_energy_today_label { font-size: 11px; color: var(--ss-text-muted); margin-bottom: 4px; }
+    .ss_energy_today_label { font-size: 12px; color: var(--ss-text-muted); margin-bottom: 4px; }
     .ss_energy_value { color: var(--ss-text); font-size: clamp(26px, 2.2vw, 32px); font-weight: 700; line-height: 1.2; letter-spacing: -.035em; display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; font-variant-numeric: tabular-nums; }
     .ss_energy_summary small { color: var(--ss-text-muted); font-size: 12px; font-weight: 500; letter-spacing: 0; }
-    .ss_energy_caption { display: block; font-size: 11px; color: var(--ss-text-muted); margin-top: 3px; line-height: 1.4; }
+    .ss_energy_caption { display: block; font-size: 12px; color: var(--ss-text-muted); margin-top: 3px; line-height: 1.4; }
     .ss_energy_month { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 6px; border-top: 1px solid var(--ss-border); padding-top: 12px; margin-top: 16px; }
     .ss_energy_month > span { color: var(--ss-text-muted); font-size: 12px; }
     .ss_energy_month strong { display: flex; align-items: baseline; flex-wrap: wrap; gap: 5px; font-size: 18px; font-weight: 650; font-variant-numeric: tabular-nums; }
     .ss_energy_peak { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
-    .ss_energy_peak > span { font-size: 11px; color: var(--ss-text-muted); }
+    .ss_energy_peak > span { font-size: 12px; color: var(--ss-text-muted); }
     .ss_energy_peak i { margin-right: 4px; color: var(--energy-color); }
     .ss_energy_peak strong { color: var(--energy-color); font-size: 13px; display: flex; gap: 5px; align-items: baseline; flex-wrap: wrap; font-variant-numeric: tabular-nums; }
     .ss_energy_finance { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 12px; }
@@ -109,10 +109,10 @@
     .ss_energy_finance strong { grid-column: 2; grid-row: 1 / 3; display: flex; align-items: baseline; gap: 5px; flex-wrap: wrap; color: var(--energy-color); font-size: 24px; font-weight: 700; letter-spacing: -.025em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
     .ss_energy_finance strong small { color: var(--energy-color); font-size: 13px; }
     .ss_energy_finance .ss_energy_caption { margin-top: 0; }
-    .ss_energy_note { font-size: 11px; line-height: 1.6; color: var(--ss-text-muted); margin-top: 10px; }
-    .ss_energy_data_note { display: flex; align-items: baseline; gap: 7px; font-size: 11px; line-height: 1.6; color: var(--ss-text-muted); margin-top: 12px; }
+    .ss_energy_note { font-size: 12px; line-height: 1.6; color: var(--ss-text-muted); margin-top: 10px; }
+    .ss_energy_data_note { display: flex; align-items: baseline; gap: 7px; font-size: 12px; line-height: 1.6; color: var(--ss-text-muted); margin-top: 12px; }
     .ss_energy_details { margin-top: 12px; border-top: 1px solid var(--ss-border); padding-top: 10px; }
-    .ss_energy_details summary { width: fit-content; max-width: 100%; cursor: pointer; color: var(--ss-text-muted); font-size: 11px; line-height: 1.6; }
+    .ss_energy_details summary { width: fit-content; max-width: 100%; cursor: pointer; color: var(--ss-text-muted); font-size: 12px; line-height: 1.6; }
     .ss_energy_details summary:hover { color: var(--ss-text); }
     .ss_energy_details summary:focus-visible { outline: 2px solid var(--ss-accent); outline-offset: 4px; border-radius: 2px; }
     @media (max-width: 1000px) {
@@ -121,11 +121,11 @@
     @media (max-width: 540px) {
         .ss_energy_summary { padding: 12px; }
         .ss_energy_heading { align-items: flex-start; }
-        .ss_energy_unit { padding: 4px 6px; font-size: 10px; }
+        .ss_energy_unit { padding: 4px 6px; font-size: 12px; }
         .ss_energy_grid { gap: 10px; }
         .ss_energy_card { padding: 12px; }
         .ss_energy_card_head { gap: 7px; margin-bottom: 14px; }
-        .ss_energy_card_head .ss_energy_caption { font-size: 10px; }
+        .ss_energy_card_head .ss_energy_caption { font-size: 12px; }
         .ss_energy_icon { width: 30px; height: 30px; font-size: 15px; border-radius: 9px; }
         .ss_energy_label { font-size: 12px; }
         .ss_energy_value { font-size: 26px; }
@@ -152,20 +152,20 @@
     .ss_kpi_label { font-size: 12px; text-transform: uppercase; letter-spacing: .03em; color: var(--ss-text-muted); font-weight: 500; margin-bottom: 4px; }
     .ss_kpi_value { font-size: 23px; font-weight: 700; line-height: 1.1; color: var(--ss-text); display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
     .ss_kpi_unit { font-size: 13px; font-weight: 500; color: var(--ss-text-muted); }
-    .ss_kpi_sub { font-size: 11.5px; color: var(--ss-text-faint); margin-top: 6px; }
+    .ss_kpi_sub { font-size: 12px; color: var(--ss-text-faint); margin-top: 6px; }
     .ss_kpi_progress { height: 6px; width: 100%; background: var(--ss-border); border-radius: 999px; overflow: hidden; margin-top: 8px; }
     .ss_kpi_progress_bar { height: 100%; background: linear-gradient(90deg, #22C55E, #FFB800, #EF4444); }
-    .ss_ops_grid { display: grid; grid-template-columns: minmax(420px, 520px) minmax(320px, 1fr); gap: 14px; align-items: stretch; margin-bottom: 14px; }
+    .ss_ops_grid { display: grid; grid-template-columns: minmax(420px, 520px) minmax(320px, 1fr); gap: 14px; align-items: start; margin-bottom: 14px; }
     .ss_status_panel { padding: 16px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
-    .ss_status_section_title { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--ss-text-faint); padding-bottom: 4px; border-bottom: 1px solid var(--ss-border); margin-top: 2px; }
+    .ss_status_section_title { font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--ss-text-faint); padding-bottom: 4px; border-bottom: 1px solid var(--ss-border); margin-top: 2px; }
     .ss_panel_header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
     .ss_panel_title { font-size: 14px; font-weight: 700; color: var(--ss-text); display: flex; align-items: center; gap: 8px; }
     .ss_panel_title i { color: var(--ss-primary); }
-    .ss_panel_sub { margin-top: 2px; font-size: 11.5px; color: var(--ss-text-faint); }
+    .ss_panel_sub { margin-top: 2px; font-size: 12px; color: var(--ss-text-faint); }
     .ss_health_block { display: grid; grid-template-columns: 128px 1fr; gap: 16px; align-items: center; }
     .ss_health_ring { --health: 0%; width: 116px; height: 116px; border-radius: 50%; display: grid; place-items: center; background: radial-gradient(circle at center, var(--ss-surface) 0 58%, transparent 59%), conic-gradient(var(--ss-success) var(--health), var(--ss-border) 0); }
     .ss_health_ring strong { display: block; font-size: 24px; line-height: 1; color: var(--ss-text); text-align: center; }
-    .ss_health_ring span { display: block; margin-top: 4px; font-size: 11px; color: var(--ss-text-muted); text-align: center; text-transform: uppercase; letter-spacing: .06em; }
+    .ss_health_ring span { display: block; margin-top: 4px; font-size: 12px; color: var(--ss-text-muted); text-align: center; text-transform: uppercase; letter-spacing: .06em; }
     .ss_health_stats, .ss_status_list { display: grid; gap: 8px; }
     .ss_health_row, .ss_status_item { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--ss-border); color: var(--ss-text-muted); font-size: 12px; }
     .ss_health_row:last-child, .ss_status_item:last-child { border-bottom: none; }
@@ -173,21 +173,25 @@
     strong.danger { color: var(--ss-danger) !important; }
     .ss_status_metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
     .ss_status_metric { min-width: 0; background: var(--ss-surface-2); border: 1px solid var(--ss-border); border-radius: var(--ss-radius-sm); padding: 10px 12px; }
-    .ss_status_metric span { display: block; color: var(--ss-text-faint); font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ss_status_metric span { display: block; color: var(--ss-text-faint); font-size: 12px; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .ss_status_metric strong { display: flex; align-items: baseline; gap: 4px; color: var(--ss-text); font-size: 18px; line-height: 1.1; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .ss_status_metric small { color: var(--ss-text-muted); font-size: 11px; font-weight: 700; }
+    .ss_status_metric small { color: var(--ss-text-muted); font-size: 12px; font-weight: 700; }
     .ss_lifetime_grid { display: grid; grid-template-columns: repeat(5, minmax(120px, 1fr)); margin-bottom: 14px; overflow: hidden; }
     .ss_lifetime_meta { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: -6px 0 14px; color: var(--ss-text-faint); font-size: 12px; }
     .ss_lifetime_item { padding: 12px 14px; border-right: 1px solid var(--ss-border); min-width: 0; }
     .ss_lifetime_item:last-child { border-right: none; }
     .ss_lifetime_item.clickable { cursor: pointer; }
-    .ss_lifetime_item span { display: block; color: var(--ss-text-faint); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ss_lifetime_item span { display: block; color: var(--ss-text-faint); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .ss_lifetime_item strong { display: block; color: var(--ss-text); font-size: 14px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .ss_time_bar { background: var(--ss-surface); border: 1px solid var(--ss-border); border-radius: var(--ss-radius); padding: 10px 14px; display: flex; align-items: center; gap: 14px; margin-bottom: 16px; box-shadow: var(--ss-shadow-sm); flex-wrap: wrap; }
+    .ss_time_bar { position: sticky; top: 0; z-index: 20; background: var(--ss-surface); border: 1px solid var(--ss-border); border-radius: var(--ss-radius); padding: 10px 14px; display: flex; align-items: center; gap: 14px; margin-bottom: 16px; box-shadow: var(--ss-shadow-sm); flex-wrap: wrap; }
+    .ss_charts_section { min-width: 0; }
+    .ss_chart_period { font-weight: 700; color: var(--ss-text); }
+    .ss_chart_update { color: var(--ss-text-muted); }
+    .ss_time_meta { flex-wrap: wrap; }
     .ss_time_label { font-size: 12px; color: var(--ss-text-muted); font-weight: 500; }
     .ss_time_buttons { display: inline-flex; gap: 4px; background: var(--ss-surface-2); padding: 4px; border-radius: var(--ss-radius-sm); }
     .ss_time_btn { background: transparent; border: none; color: var(--ss-text-muted); padding: 6px 14px; border-radius: 6px; font-size: 12px; font-weight: 500; cursor: pointer; }
-    .ss_time_btn.active { background: var(--ss-primary); color: #fff; }
+    .ss_time_btn.active { background: var(--ss-primary); color: #0F172A; }
     .ss_time_meta { margin-left: auto; font-size: 12px; color: var(--ss-text-faint); display: flex; align-items: center; gap: 8px; }
     .ss_charts_grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 16px; }
     .ss_col_4 { grid-column: span 4; }
@@ -198,7 +202,7 @@
     .ss_chart_header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
     .ss_chart_title { font-size: 14px; font-weight: 600; color: var(--ss-text); display: flex; align-items: center; gap: 8px; }
     .ss_chart_title i { color: var(--ss-primary); }
-    .ss_chart_sub { font-size: 11.5px; color: var(--ss-text-faint); margin-top: 2px; }
+    .ss_chart_sub { font-size: 12px; color: var(--ss-text-faint); margin-top: 2px; }
     .ss_chart_body { height: 280px; position: relative; }
     .ss_chart_body_large { height: 340px; }
     .ss_chart_body_donut { height: 240px; }
@@ -215,11 +219,11 @@
     .ss_device_dot.online { background: var(--ss-success); }
     .ss_device_dot.warning { background: var(--ss-warning); }
     .ss_device_name { min-width: 0; flex: 1; font-size: 12px; font-weight: 600; color: var(--ss-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .ss_device_meta { flex-shrink: 0; padding: 2px 4px; border-radius: 4px; color: var(--ss-text-faint); background: var(--ss-surface); font-size: 10px; white-space: nowrap; }
+    .ss_device_meta { flex-shrink: 0; padding: 2px 4px; border-radius: 4px; color: var(--ss-text-faint); background: var(--ss-surface); font-size: 12px; white-space: nowrap; }
     .ss_device_metric, .ss_device_sync { display: flex; align-items: center; justify-content: flex-end; gap: 5px; min-width: 0; white-space: nowrap; }
-    .ss_device_sync i { color: var(--ss-text-faint); font-size: 10px; }
+    .ss_device_sync i { color: var(--ss-text-faint); font-size: 12px; }
     .ss_device_row:hover, .ss_device_row:focus-visible { border-color: var(--ss-primary); outline: none; }
-    .ss_device_metric span, .ss_device_sync span { color: var(--ss-text-faint); font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; }
+    .ss_device_metric span, .ss_device_sync span { color: var(--ss-text-faint); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
     .ss_device_metric strong, .ss_device_sync strong { color: var(--ss-text); font-size: 12px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .ss_device_metric.alert strong { color: var(--ss-danger); }
     .ss_empty, .ss_empty_state { text-align: center; color: var(--ss-text-muted); }
@@ -231,8 +235,8 @@
     .ss_heatmap_btn { padding: 6px 12px; border: 0; border-radius: 6px; background: transparent; color: var(--ss-text-muted); font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; }
     .ss_heatmap_btn:hover { color: var(--ss-primary); }
     .ss_heatmap_btn.active { background: var(--ss-primary); color: #fff; }
-    .ss_heatmap_tooltip { position: absolute; z-index: 2; transform: translate(-50%, -100%); pointer-events: none; display: grid; gap: 2px; min-width: 170px; padding: 8px 10px; border: 1px solid var(--ss-border); border-radius: 7px; background: var(--ss-surface); color: var(--ss-text); box-shadow: var(--ss-shadow); font-size: 11px; }
-    .ss_heatmap_tooltip strong { font-size: 11px; font-weight: 700; }
+    .ss_heatmap_tooltip { position: absolute; z-index: 2; transform: translate(-50%, -100%); pointer-events: none; display: grid; gap: 2px; min-width: 170px; padding: 8px 10px; border: 1px solid var(--ss-border); border-radius: 7px; background: var(--ss-surface); color: var(--ss-text); box-shadow: var(--ss-shadow); font-size: 12px; }
+    .ss_heatmap_tooltip strong { font-size: 12px; font-weight: 700; }
     .ss_heatmap_tooltip span { color: var(--ss-text-muted); }
     .ss_heatmap_tooltip b { margin-top: 2px; color: var(--ss-primary); font-size: 14px; }
     .ss_col_12 { grid-column: span 12; }
@@ -258,7 +262,7 @@
     .ss_offline_list { display: grid; gap: 6px; }
     .ss_offline_item { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; background: rgba(239,68,68,.08); border: 1px solid rgba(239,68,68,.2); border-radius: var(--ss-radius-sm); font-size: 12px; }
     .ss_offline_name { color: var(--ss-text); font-weight: 600; }
-    .ss_offline_time { color: var(--ss-danger); font-weight: 700; font-size: 11px; }
+    .ss_offline_time { color: var(--ss-danger); font-weight: 700; font-size: 12px; }
 
     /* --- Weather / Environment widget --- */
     .ss_weather_panel { background: var(--ss-surface); border: 1px solid var(--ss-border); border-radius: var(--ss-radius); box-shadow: var(--ss-shadow-sm); padding: 16px 18px; margin-bottom: 14px; }
@@ -269,10 +273,10 @@
     .ss_weather_desc { font-size: 13px; color: var(--ss-text-faint); margin-top: 4px; }
     .ss_weather_meta { text-align: right; }
     .ss_weather_title { font-size: 14px; font-weight: 700; color: var(--ss-text); }
-    .ss_weather_sub { font-size: 11px; color: var(--ss-text-faint); margin-top: 3px; }
+    .ss_weather_sub { font-size: 12px; color: var(--ss-text-faint); margin-top: 3px; }
     .ss_weather_grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
     .ss_weather_item { background: var(--ss-bg); border: 1px solid var(--ss-border); border-radius: var(--ss-radius-sm); padding: 10px 12px; min-width: 0; }
-    .ss_weather_k { display: block; color: var(--ss-text-faint); font-size: 11px; margin-bottom: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ss_weather_k { display: block; color: var(--ss-text-faint); font-size: 12px; margin-bottom: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .ss_weather_k i { margin-right: 5px; opacity: .7; }
     .ss_weather_item strong { display: block; color: var(--ss-text); font-size: 15px; font-weight: 700; white-space: nowrap; }
 
@@ -308,8 +312,8 @@
         .ss_device_row { grid-template-columns: minmax(130px, 1fr) 100px 58px 74px; }
         .ss_device_row { min-height: 44px; }
         .ss_time_bar { padding: 10px; gap: 8px; }
-        .ss_time_buttons { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); width: 100%; }
-        .ss_time_btn { min-height: 44px; padding: 6px; }
+        .ss_time_buttons { display: flex; width: 100%; min-width: 0; overflow-x: auto; scrollbar-width: thin; scrollbar-color: var(--ss-text-faint) var(--ss-surface-2); }
+        .ss_time_btn { flex: 0 0 auto; min-height: 44px; padding: 6px 12px; }
         .ss_time_meta { margin-left: 0; }
         .ss_charts_grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }
         .ss_col_4, .ss_col_6, .ss_col_8, .ss_col_12 { grid-column: 1; }
@@ -319,7 +323,7 @@
         .ss_chart_body_heatmap { height: 320px; }
         .ss_chart_header { align-items: flex-start; gap: 10px; flex-wrap: wrap; }
         .ss_heatmap_buttons { width: 100%; }
-        .ss_heatmap_btn { flex: 1; padding-inline: 4px; min-height: 44px; font-size: 11px; }
+        .ss_heatmap_btn { flex: 1; padding-inline: 4px; min-height: 44px; font-size: 12px; }
         .ss_weather_panel { padding: 12px; }
         .ss_weather_now { gap: 10px; min-width: 0; }
         .ss_weather_meta { text-align: left; }
