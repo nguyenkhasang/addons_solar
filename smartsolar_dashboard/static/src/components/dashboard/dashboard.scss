@@ -333,3 +333,41 @@
         .ss_energy_icon { flex-shrink: 0; }
     }
 }
+
+.o_smartsolar_dashboard {
+    .ss_instant_grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(260px, 1.4fr); gap: 12px; margin-bottom: 14px; }
+    .ss_instant_card { min-width: 0; padding: 14px 16px; border: 1px solid var(--ss-border); border-top: 3px solid var(--ss-accent); border-radius: var(--ss-radius); background: var(--ss-surface); }
+    .ss_instant_card.pv { border-top-color: var(--ss-primary); }
+    .ss_instant_card.grid { border-top-color: var(--ss-danger); }
+    .ss_instant_card > span { display: block; color: var(--ss-text-muted); font-size: 12px; }
+    .ss_instant_card strong { display: flex; align-items: baseline; gap: 6px; margin-top: 8px; font-size: 28px; font-variant-numeric: tabular-nums; }
+    .ss_instant_card small { font-size: 13px; font-weight: 500; color: var(--ss-text-muted); }
+    .ss_energy_summary { padding: 14px; }
+    .ss_energy_heading { margin-bottom: 10px; }
+    .ss_energy_card { padding: 12px; }
+    .ss_energy_card_head { margin-bottom: 6px; gap: 8px; }
+    .ss_energy_icon { width: 28px; height: 28px; font-size: 14px; }
+    .ss_energy_value { font-size: 28px; }
+    .ss_energy_month { margin-top: 8px; padding-top: 6px; }
+    .ss_energy_month strong { font-size: 16px; }
+    .ss_energy_peak { margin-top: 6px; }
+    .ss_energy_finance > div { padding: 8px 12px; }
+    .ss_energy_finance_icon { width: 30px; height: 30px; font-size: 15px; }
+    .ss_energy_finance strong { font-size: 22px; }
+    .ss_energy_data_note { margin-top: 8px; }
+    .ss_weather_primary { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .ss_weather_details { margin-top: 12px; }
+    .ss_weather_details summary { cursor: pointer; color: var(--ss-text-muted); font-size: 12px; width: fit-content; }
+    .ss_weather_details[open] summary { margin-bottom: 10px; }
+    @media (max-width: 1000px) {
+        .ss_instant_grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 480px) {
+        .ss_instant_grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+        .ss_instant_card { padding: 10px; }
+        .ss_instant_card strong { font-size: 24px; }
+        .ss_instant_grid .ss_bms_compact { grid-column: 1 / -1; }
+        .ss_weather_primary { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+        .ss_weather_primary .ss_weather_item { padding: 8px; }
+    }
+}

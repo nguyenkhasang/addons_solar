@@ -17,6 +17,10 @@ const b={id:1,name:'Pin test',timestamp:new Date().toISOString(),stale_seconds:1
  const app=new w.owl.App(w.SystemOverview,{props:{batteries:[b],theme:'light'},templates:fs.readFileSync(root+'/smartsolar_dashboard/static/src/components/system_overview/system_overview.xml','utf8')});
  const card=await app.mount(w.document.getElementById('root'));
  assert.equal(w.document.querySelectorAll('.ss_ov_bms_cells > div').length,16);
+ assert.equal(w.document.querySelector('.ss_ov_bms_cell_details').open,false);
+ assert(w.document.querySelector('.ss_ov_bms_extremes').textContent.includes('4.0 mV'));
+ assert(w.document.querySelector('.ss_ov_bms_flow_state').classList.contains('discharging'));
+ w.document.querySelector('.ss_ov_bms_cell_details').open=true;
  assert(w.document.body.textContent.includes('52.38 V'));
  assert(w.document.querySelector('.ss_ov_bms_temperatures').textContent.includes('Pin T1 34.7 °C'));
  assert(w.document.querySelector('.ss_ov_bms_temperatures').textContent.includes('Pin T2 34.3 °C'));
@@ -25,14 +29,16 @@ const b={id:1,name:'Pin test',timestamp:new Date().toISOString(),stale_seconds:1
  assert(!w.document.body.textContent.includes('MPPT:'));
  assert(!w.document.body.textContent.includes('Pin · JK BMS trực tiếp'));
 
- assert(w.document.body.textContent.includes('ONLINE'));
+ assert(w.document.body.textContent.includes('Đang kết nối'));
  assert.equal(w.document.querySelector('progress').value,34);
  assert.equal(w.document.querySelectorAll('.ss_ov_bms_cells .minimum').length,1);
  assert.equal(w.document.querySelectorAll('.ss_ov_bms_cells .maximum').length,1);
 
  card.state.now=Date.now()+11000; await new Promise(r=>w.requestAnimationFrame(()=>w.requestAnimationFrame(r)));
- assert(w.document.body.textContent.includes('STALE'));
+ assert(w.document.body.textContent.includes('Dữ liệu cũ'));
+ assert.equal(w.document.querySelector('.ss_ov_bms_cell_details').open,true);
+ assert(!w.document.querySelector('.ss_ov_bms_flow_state').classList.contains('discharging'));
  card.state.now=Date.now()+61000; await new Promise(r=>w.requestAnimationFrame(()=>w.requestAnimationFrame(r)));
- assert(w.document.body.textContent.includes('OFFLINE'));
+ assert(w.document.body.textContent.includes('Mất kết nối'));
  app.destroy();dom.window.close();console.log('PASS real OWL mount: 16 cells, signed values, SOC, min/max, ONLINE/STALE/OFFLINE');
 })().catch(e=>{console.error(e);dom.window.close();process.exit(1)});

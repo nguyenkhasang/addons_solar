@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <templates xml:space="preserve">
     <t t-name="smartsolar.SystemOverview">
-        <div class="ss_overview_wrap" t-att-class="{ dark: props.theme === 'dark', light: props.theme !== 'dark', ss_bms_panel: props.showDiagram === false }">
-            <div class="ss_overview_title" t-if="props.showDiagram !== false">SYSTEM OVERVIEW</div>
+        <div class="ss_overview_wrap" t-att-class="{ dark: props.theme === 'dark', light: props.theme !== 'dark', ss_bms_panel: props.showDiagram === false, ss_bms_compact: props.compact === true }">
+            <div class="ss_overview_title" t-if="props.showDiagram !== false">Sơ đồ hệ thống</div>
             <div class="ss_overview_diagram" t-if="props.showDiagram !== false">
                 <div class="ss_ov_node ss_ov_solar" t-att-class="{ active: solarActive }">
                     <div class="ss_ov_icon_wrap solar"><i class="fa fa-sun-o ss_ov_fallback_icon"/></div>
-                    <div class="ss_ov_label">SOLAR</div>
+                    <div class="ss_ov_label">PV</div>
                     <div class="ss_ov_value_box"><span class="ss_ov_big"><t t-esc="fmtW(state.solar_w)"/></span><span class="ss_ov_unit">W</span></div>
                     <div class="ss_ov_sub_box"><span><t t-esc="fmtV(state.solar_v)"/>V</span><span class="ss_ov_divider">|</span><span><t t-esc="fmtA(state.solar_a)"/>A</span></div>
                 </div>
@@ -14,48 +14,65 @@
                 <div class="ss_ov_center_row">
                     <div class="ss_ov_node ss_ov_grid" t-att-class="{ active: gridActive }">
                         <div class="ss_ov_icon_wrap grid"><i class="fa fa-plug ss_ov_fallback_icon"/></div>
-                        <div class="ss_ov_label">GRID</div>
+                        <div class="ss_ov_label">LƯỚI</div>
                         <div class="ss_ov_value_box"><span class="ss_ov_big cyan"><t t-esc="fmtW(state.grid_w)"/></span><span class="ss_ov_unit">W</span></div>
                     </div>
                     <div class="ss_ov_hline left" t-att-class="{ active: gridActive, reverse: gridReverse }" t-att-style="flowStyle(state.grid_w)"/>
                     <div class="ss_ov_inverter" t-att-class="{ active: inverterActive, solar_source: inverterSource === 'solar', grid_source: inverterSource === 'grid', battery_source: inverterSource === 'battery' }">
                         <div class="ss_ov_inverter_icon"><i class="fa fa-microchip"/></div>
-                        <div class="ss_ov_inverter_label">AC OUT</div>
+                        <div class="ss_ov_inverter_label">INVERTER</div>
                         <div class="ss_ov_inverter_value cyan"><t t-esc="fmtW(state.acout_w)"/> W</div>
                     </div>
                     <div class="ss_ov_hline right" t-att-class="{ active: homeActive }" t-att-style="flowStyle(state.home_w)"/>
                     <div class="ss_ov_node ss_ov_home" t-att-class="{ active: homeActive }">
                         <div class="ss_ov_icon_wrap home"><i class="fa fa-home ss_ov_fallback_icon"/></div>
-                        <div class="ss_ov_label">HOME</div>
+                        <div class="ss_ov_label">TẢI</div>
                         <div class="ss_ov_value_box"><span class="ss_ov_big purple"><t t-esc="fmtW(state.home_w)"/></span><span class="ss_ov_unit">W</span></div>
                     </div>
                 </div>
                 <div class="ss_ov_line ss_ov_line_bottom" t-att-class="{ active: batActive, reverse: batReverse }" t-att-style="flowStyle(state.bat_w)"/>
                 <div class="ss_ov_node ss_ov_battery" t-att-class="{ active: batActive }">
                     <div class="ss_ov_icon_wrap battery" t-att-class="{ active: batActive }"><i class="fa fa-battery-three-quarters ss_ov_fallback_icon"/></div>
-                    <div class="ss_ov_label">BATTERY</div>
+                    <div class="ss_ov_label">PIN</div>
                     <div class="ss_ov_estimate" t-att-title="batteryNote"><t t-esc="batteryLabel"/></div>
                     <div class="ss_ov_value_box" t-att-title="batteryNote"><span class="ss_ov_big"><t t-esc="fmtW(state.bat_flow_w)"/></span><span class="ss_ov_unit">W</span></div>
                     <div class="ss_ov_sub_box"><span><t t-esc="fmtV(state.bat_v)"/>V</span><span class="ss_ov_divider">|</span><span><t t-esc="fmtA(state.bat_a)"/>A</span></div>
                     <div class="ss_ov_estimate" t-if="state.charger_a !== null" t-att-title="batteryNote">Dòng MPPT: <t t-esc="fmtA(state.charger_a)"/> A</div>
                 </div>
             </div>
-            <div class="ss_ov_bms" t-if="props.showBms !== false and bmsCards.length">
+            <div class="ss_bms_quick" t-if="props.compact === true and props.showBms !== false and bmsCards.length">
+                <div class="ss_bms_quick_battery" t-foreach="bmsCards" t-as="b" t-key="b.id">
+                    <div class="ss_bms_quick_label"><span t-att-title="b.name"><t t-esc="bmsCards.length > 1 ? b.name : 'Mức pin JK BMS'"/></span><span t-att-class="'ss_ov_bms_status ' + b.status.toLowerCase()"><t t-esc="b.statusLabel"/></span></div>
+                    <div class="ss_bms_quick_values"><strong><t t-esc="fmtBms(b.soc, 0)"/><small>%</small></strong><span t-att-class="b.flowClass"><t t-esc="b.flow_status || 'Chưa có dữ liệu'"/> · <t t-esc="fmtBms(b.power, 0)"/> W</span></div>
+                    <small class="ss_bms_quick_age"><t t-esc="b.ageLabel"/></small>
+                </div>
+            </div>
+            <div class="ss_ov_bms" t-if="props.compact !== true and props.showBms !== false and bmsCards.length">
                 <t t-foreach="bmsCards" t-as="b" t-key="b.id">
                     <article class="ss_ov_bms_card">
                         <div class="ss_ov_bms_details">
-                            <div class="ss_ov_bms_header"><strong>JK BMS · <t t-esc="b.name"/></strong><span t-att-class="'ss_ov_bms_status ' + b.status.toLowerCase()"><t t-esc="b.status"/></span></div>
+                            <div class="ss_ov_bms_header"><strong>JK BMS · <t t-esc="b.name"/></strong><span t-att-class="'ss_ov_bms_status ' + b.status.toLowerCase()"><t t-esc="b.statusLabel"/></span></div>
                             <div class="ss_ov_bms_summary"><span><span>SOC</span><strong><t t-esc="fmtBms(b.soc, 0)"/>%</strong></span><span><span>Dung lượng còn</span><strong><t t-esc="fmtBms(b.remaining_capacity, 2)"/> Ah</strong></span><span><span>Điện áp pin</span><strong><t t-esc="fmtBms(b.voltage, 2)"/> V</strong></span></div>
                             <progress class="ss_ov_bms_soc" max="100" t-att-value="b.soc || 0" aria-label="SOC pin JK BMS"/>
                             <div class="ss_ov_bms_flow" title="Dữ liệu đo từ JK BMS: dương là sạc, âm là xả.">
-                                <span class="ss_ov_bms_flow_state" t-att-class="{ online: b.status === 'ONLINE' }"><i class="fa" aria-hidden="true" t-att-class="b.flow_status === 'Đang sạc' ? 'fa-arrow-down' : b.flow_status === 'Đang xả' ? 'fa-arrow-up' : 'fa-minus'"/><t t-esc="b.flow_status || 'Chưa có dữ liệu'"/></span>
+                                <span class="ss_ov_bms_flow_state" t-att-class="b.flowClass"><i class="fa" aria-hidden="true" t-att-class="b.flow_status === 'Đang sạc' ? 'fa-arrow-down' : b.flow_status === 'Đang xả' ? 'fa-arrow-up' : 'fa-minus'"/><t t-esc="b.flow_status || 'Chưa có dữ liệu'"/></span>
                                 <div><span>Công suất</span><strong><t t-esc="fmtBms(b.power, 1)"/> <small>W</small></strong></div>
                                 <div><span>Dòng điện</span><strong><t t-esc="fmtBms(b.current, 2)"/> <small>A</small></strong></div>
                             </div>
                             <div class="ss_ov_bms_balance"><span>Cân bằng <strong class="ss_ov_bms_balance_state" t-att-class="{ on: b.balancing === true, off: b.balancing === false }"><t t-esc="b.balancing == null ? '—' : b.balancing ? 'ON' : 'OFF'"/></strong></span><span>Dòng cân bằng <strong><t t-esc="fmtBms(b.balance_current, 3)"/> A</strong></span></div>
                             <div class="ss_ov_bms_temperatures"><span>Pin T1 <strong><t t-esc="fmtBms(b.battery_temperature_1, 1)"/> °C</strong></span><span>Pin T2 <strong><t t-esc="fmtBms(b.battery_temperature_2, 1)"/> °C</strong></span><span>MOS <strong><t t-esc="fmtBms(b.mos_temperature, 1)"/> °C</strong></span></div>
                         </div>
+                        <div class="ss_ov_bms_cell_panel">
+                            <div class="ss_ov_bms_extremes">
+                                <span>Cell thấp nhất<strong><t t-esc="fmtBms(b.cell_min_voltage)"/> V</strong><small t-if="b.cell_min_index">Cell <t t-esc="cellLabel(b.cell_min_index - 1)"/></small></span>
+                                <span>Cell cao nhất<strong><t t-esc="fmtBms(b.cell_max_voltage)"/> V</strong><small t-if="b.cell_max_index">Cell <t t-esc="cellLabel(b.cell_max_index - 1)"/></small></span>
+                                <span>Chênh lệch<strong><t t-esc="fmtBms(b.cell_delta_mv, 1)"/> mV</strong></span>
+                            </div>
+                            <details class="ss_ov_bms_cell_details">
+                                <summary>Điện áp từng cell (<t t-esc="(b.cells || []).length"/>)</summary>
                         <div class="ss_ov_bms_cells"><t t-foreach="b.cells || []" t-as="cell" t-key="cell_index"><div t-att-class="{ minimum: cell_index + 1 === b.cell_min_index, maximum: cell_index + 1 === b.cell_max_index }"><span>Cell <t t-esc="cellLabel(cell_index)"/></span><strong><t t-esc="fmtBms(cell)"/> V</strong></div></t></div>
+                            </details>
+                        </div>
                         <div class="ss_ov_bms_age"><t t-esc="b.ageLabel"/><t t-if="b.status !== 'ONLINE'"> · Dữ liệu cũ, chưa xác nhận pin hiện tại</t></div>
                     </article>
                 </t>

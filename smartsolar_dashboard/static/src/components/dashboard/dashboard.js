@@ -10,11 +10,11 @@ import { BmsHistory } from "../bms_history/bms_history";
 import { SystemOverview } from "../system_overview/system_overview";
 
 const TIME_RANGES = [
-    { key: "realtime", label: "⬤ Live" },
-    { key: "1h", label: "1H" },
-    { key: "6h", label: "6H" },
-    { key: "12h", label: "12H" },
-    { key: "24h", label: "24H" },
+    { key: "realtime", label: "Trực tiếp" },
+    { key: "1h", label: "1 giờ" },
+    { key: "6h", label: "6 giờ" },
+    { key: "12h", label: "12 giờ" },
+    { key: "24h", label: "24 giờ" },
     { key: "1week", label: "1 Tuần" },
     { key: "1month", label: "1 Tháng" },
     { key: "3month", label: "3 Tháng" },
@@ -900,8 +900,8 @@ export class SmartSolarDashboard extends Component {
         const devices = (this.state.data?.devices || []).filter(device => device.type === "grid_tie_inverter");
         const base = {labels:["Điện inverter cấp tải","Điện lấy lưới"],unit:"kWh",estimated:true,
             source:"realtime_power",time_range:"realtime",data:[null,null],percentages:[0,0],available:false,
-            note:"Ước tính từ công suất trong cửa sổ Live; chờ đủ cặp mẫu inverter."};
-        if (devices.length > 1) return {...base,note:"Chọn phạm vi một inverter để xem phân bổ Live."};
+            note:"Ước tính từ công suất trong khoảng trực tiếp; chờ đủ cặp mẫu inverter."};
+        if (devices.length > 1) return {...base,note:"Chọn phạm vi một inverter để xem phân bổ trực tiếp."};
         const buf = this._rtBuffer, observations = new Map();
         for (let index=0;index<buf.labels.length;index++) {
             const label = buf.gt_observed_at[index];
@@ -923,7 +923,7 @@ export class SmartSolarDashboard extends Component {
         return {...base,data:covered?[output,grid]:[null,null],available:covered>0,
             percentages:total>0?[output/total*100,grid/total*100]:[0,0],
             coverage_pct:duration?covered/duration*100:0,
-            note:covered ? `Ước tính từ công suất · cửa sổ Live ${Math.round(duration/60)} phút · độ phủ ${Math.round(covered/duration*100)}%`
+            note:covered ? `Ước tính từ công suất · khoảng trực tiếp ${Math.round(duration/60)} phút · độ phủ ${Math.round(covered/duration*100)}%`
                 : base.note};
     }
 
@@ -1093,7 +1093,7 @@ export class SmartSolarDashboard extends Component {
     }
 
     get heatmapTitle() {
-        return `Heatmap ${this.heatmapMetricInfo.title} (24h × 30 ngày)`;
+        return `Bản đồ nhiệt ${this.heatmapMetricInfo.title} (24 giờ × 30 ngày)`;
     }
 
     get heatmapDescription() {
@@ -1172,8 +1172,8 @@ export class SmartSolarDashboard extends Component {
     }
 
     deviceTypeLabel(type) {
-        if (type === "grid_tie_inverter") return "Grid Tie";
-        if (type === "charge_power") return "Charge";
+        if (type === "grid_tie_inverter") return "Hòa lưới";
+        if (type === "charge_power") return "Sạc MPPT";
         return type || "";
     }
 
@@ -1265,7 +1265,7 @@ export class SmartSolarDashboard extends Component {
     }
 
     get connectionLabel() {
-        return this.state.realtimeActive ? "TRỰC TIẾP" : "Offline";
+        return this.state.realtimeActive ? "TRỰC TIẾP" : "Mất kết nối";
     }
 
     get chartUpdateLabel() {

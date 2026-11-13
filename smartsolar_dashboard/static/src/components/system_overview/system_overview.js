@@ -12,6 +12,7 @@ export class SystemOverview extends Component {
         batteries: { type: Array, optional: true },
         showDiagram: { type: Boolean, optional: true },
         showBms: { type: Boolean, optional: true },
+        compact: { type: Boolean, optional: true },
         onUpdate: { type: Function, optional: true },
     };
 
@@ -107,7 +108,22 @@ export class SystemOverview extends Component {
         return (this.props.batteries || []).map(b => {
             const age = b.timestamp ? Math.max(0, (this.state.now - Date.parse(b.timestamp)) / 1000) : Infinity;
             const status = age > b.offline_seconds ? "OFFLINE" : age >= b.stale_seconds ? "STALE" : "ONLINE";
-            return { ...b, status, ageLabel: Number.isFinite(age) ? `${Math.floor(age)} giây trước` : "Chưa có mẫu" };
+            const readings = b.cells || [];
+            const cells = readings.filter(value => typeof value === "number" && Number.isFinite(value));
+            const min = b.cell_min_voltage ?? (cells.length ? Math.min(...cells) : null);
+            const max = b.cell_max_voltage ?? (cells.length ? Math.max(...cells) : null);
+            const delta = b.cell_delta_voltage ?? (min === null || max === null ? null : max - min);
+            const minIndex = readings.indexOf(min);
+            const maxIndex = readings.indexOf(max);
+            const flowClass = {"Đang sạc": "charging", "Đang xả": "discharging"}[b.flow_status] || "";
+            return { ...b, status,
+                statusLabel: {ONLINE: "Đang kết nối", STALE: "Dữ liệu cũ", OFFLINE: "Mất kết nối"}[status],
+                flowClass: status === "ONLINE" ? flowClass : "",
+                cell_min_voltage: min, cell_max_voltage: max,
+                cell_min_index: b.cell_min_index ?? (min === null || minIndex < 0 ? null : minIndex + 1),
+                cell_max_index: b.cell_max_index ?? (max === null || maxIndex < 0 ? null : maxIndex + 1),
+                cell_delta_mv: delta === null ? null : delta * 1000,
+                ageLabel: Number.isFinite(age) ? `${Math.floor(age)} giây trước` : "Chưa có mẫu" };
         });
     }
     fmtBms(value, digits = 3) {
@@ -122,7 +138,7 @@ export class SystemOverview extends Component {
     get batteryNote() {
         if (this.state.bat_flow_w === null) return "Cần dữ liệu của cả MPPT và inverter.";
         return this.state.charger_w === null
-            ? "Ước tính từ PV trừ AC OUT; chưa trừ tổn hao bộ sạc và inverter."
+            ? "Ước tính từ PV trừ đầu ra inverter; chưa trừ tổn hao bộ sạc và inverter."
             : "Ước tính từ điện áp × dòng MPPT do thiết bị gửi, trừ AC OUT. Chưa đối chiếu BMS hoặc xác minh độ chính xác dòng MPPT; chưa tính tổn hao inverter.";
     }
     get sampleTimesNote() {

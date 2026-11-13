@@ -111,7 +111,6 @@
     .ss_ov_bms_flow > div:last-child { text-align: right; }
     .ss_ov_bms_flow > div > span { display: block; color: var(--ov-title); font-size: 12px; }
     .ss_ov_bms_flow_state { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ov-title); }
-    .ss_ov_bms_flow_state.online { color: var(--ov-battery); }
     .ss_ov_bms_flow_state i { font-size: 12px; }
     .ss_ov_bms_flow strong { display: block; margin-top: 4px; font-size: 17px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
     .ss_ov_bms_flow small { font-size: 12px; font-weight: 500; color: var(--ov-title); }
@@ -169,5 +168,38 @@
     .ss_ov_bms_age { grid-column: 1 / -1; }
     @media (max-width: 760px) {
         .ss_ov_bms_card { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+    }
+}
+
+.ss_overview_wrap {
+    --ov-charge: #22c55e;
+    --ov-discharge: #fb923c;
+    &.light {
+        --ov-charge: #15803d;
+        --ov-discharge: #c2410c;
+        .ss_ov_bms_status.online { color: var(--ov-charge); }
+    }
+    .ss_ov_bms_flow_state.charging, .ss_bms_quick .charging { color: var(--ov-charge); }
+    .ss_ov_bms_flow_state.discharging, .ss_bms_quick .discharging { color: var(--ov-discharge); }
+    .ss_ov_bms_cell_panel { min-width: 0; }
+    .ss_ov_bms_extremes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 12px; border: 1px solid var(--ov-line); border-radius: 8px; }
+    .ss_ov_bms_extremes > span { color: var(--ov-title); font-size: 12px; }
+    .ss_ov_bms_extremes strong { display: block; color: var(--ov-value); font-size: 16px; margin-top: 6px; font-variant-numeric: tabular-nums; }
+    .ss_ov_bms_extremes small { display: block; font-size: 12px; margin-top: 4px; }
+    .ss_ov_bms_cell_details { margin-top: 12px; }
+    .ss_ov_bms_cell_details summary { cursor: pointer; font-size: 12px; color: var(--ov-title); width: fit-content; padding: 6px 0; }
+    .ss_ov_bms_cell_details[open] summary { margin-bottom: 6px; }
+    &.ss_bms_compact {
+        padding: 12px 14px;
+        border-top: 3px solid var(--ov-battery);
+        margin-bottom: 0;
+        .ss_bms_quick_battery + .ss_bms_quick_battery { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--ov-line); }
+        .ss_bms_quick_label { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 4px 8px; font-size: 12px; color: var(--ov-title); }
+        .ss_bms_quick_label > span:first-child { overflow-wrap: anywhere; }
+        .ss_bms_quick_values { display: flex; align-items: baseline; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; margin-top: 6px; }
+        .ss_bms_quick_values strong { font-size: 28px; font-variant-numeric: tabular-nums; }
+        .ss_bms_quick_values strong small { margin-left: 4px; font-size: 13px; color: var(--ov-title); }
+        .ss_bms_quick_values > span, .ss_bms_quick_age { font-size: 12px; }
+        .ss_bms_quick_age { display: block; color: var(--ov-title); margin-top: 4px; }
     }
 }

@@ -91,7 +91,7 @@ test('Live pie uses live inverter samples instead of old counter distribution',(
     assert.equal(c.distributionInfo.estimated,true);
     assert(Math.abs(c.distributionInfo.data[0]-200/60000)<1e-12);
     assert(Math.abs(c.distributionInfo.percentages[0]-200/205*100)<1e-8);
-    assert(c.distributionSubtitle.includes('Live'));
+    assert(c.distributionSubtitle.includes('trực tiếp'));
 });
 test('Live pie does not integrate repeated cached power over an outage',()=>{
     const c=dashboard();c.state.timeRange='realtime';c._fmtLabel=x=>x;

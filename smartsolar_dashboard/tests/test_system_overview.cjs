@@ -64,4 +64,36 @@ check('misaligned samples warn without inventing a calibration offset', () => {
     assert(c.samplesMisaligned);
     assert.equal(c.state.bat_flow_w, null);
 });
+
+check('cell summary uses snapshots and falls back to valid cell readings', () => {
+    const c = overview();
+    c.props.batteries = [{
+        id: 1, timestamp: new Date(c.state.now).toISOString(),
+        stale_seconds: 10, offline_seconds: 60,
+        cells: [null, 3.27, 3.28], flow_status: 'Đang xả',
+    }];
+    let b = c.bmsCards[0];
+    assert.equal(b.cell_min_voltage,3.27);
+    assert.equal(b.cell_max_voltage,3.28);
+    assert.equal(b.cell_min_index,2);
+    assert.equal(b.cell_max_index,3);
+    assert(Math.abs(b.cell_delta_mv-10)<1e-6);
+    assert.equal(b.flowClass,'discharging');
+    c.props.batteries[0].cells = [];
+    assert.equal(c.bmsCards[0].cell_delta_mv, null);
+    delete c.props.batteries[0].cells;
+    b=c.bmsCards[0];
+    assert.equal(b.cell_delta_mv,null);
+    assert.equal(b.cell_min_index,null);
+    c.props.batteries[0].cell_min_voltage=3.26;
+    c.props.batteries[0].cell_max_voltage=3.29;
+    c.props.batteries[0].cell_delta_voltage=.03;
+    c.props.batteries[0].flow_status='Đang sạc';
+    b=c.bmsCards[0];
+    assert.equal(b.cell_delta_mv,30);
+    assert.equal(b.flowClass,'charging');
+    c.state.now+=11000;
+    assert.equal(c.bmsCards[0].flowClass,'');
+});
+
 process.stdout.write(`${tested} overview regression cases passed\n`);
