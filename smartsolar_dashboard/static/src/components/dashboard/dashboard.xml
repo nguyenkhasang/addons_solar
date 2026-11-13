@@ -81,15 +81,6 @@
                     <!-- Sức khỏe thiết bị -->
                     <div class="ss_health_block"><div class="ss_health_ring" t-att-style="'--health:' + onlinePercent + '%'"><div><strong><t t-esc="onlinePercent"/>%</strong><span>kết nối</span></div></div><div class="ss_health_stats"><div class="ss_health_row"><span>Thiết bị đang kết nối</span><strong><t t-esc="state.data.kpi.online_devices"/> / <t t-esc="state.data.kpi.total_devices"/></strong></div><div class="ss_health_row"><span>Thiết bị mất kết nối</span><strong t-att-class="{ danger: state.data.kpi.offline_devices > 0 }"><t t-esc="offlineDeviceNames"/></strong></div><div class="ss_health_row"><span>Cảnh báo nhiệt</span><strong t-att-class="{ danger: hotDeviceCount > 0 }"><t t-esc="hotDeviceCount"/> thiết bị</strong></div></div></div>
 
-                    <!-- Công suất hiện tại -->
-                    <div class="ss_status_section_title">Công suất hiện tại</div>
-                    <div class="ss_status_metrics">
-                        <div class="ss_status_metric"><span>Hòa lưới</span><strong><t t-esc="fmtNumber(realtimeGridOutW, 0)"/><small>W</small></strong></div>
-                        <div class="ss_status_metric"><span>Lấy lưới</span><strong><t t-esc="fmtNumber(realtimeGridInW, 0)"/><small>W</small></strong></div>
-                        <div class="ss_status_metric"><span>Dàn PV</span><strong><t t-esc="fmtNumber(realtimePvW, 0)"/><small>W</small></strong></div>
-                        <div class="ss_status_metric"><span>Sạc/xả pin · ước tính</span><strong><t t-esc="fmtNumber(realtimeChargeW, 0)"/><small>W</small></strong></div>
-                    </div>
-
                     <div class="ss_device_panel" aria-label="Thiết bị hiện tại">
                         <div class="ss_device_list" tabindex="0" aria-label="Danh sách thiết bị và công suất hiện tại">
                             <div class="ss_empty" t-if="!state.data.devices.length">Chưa có thiết bị</div>

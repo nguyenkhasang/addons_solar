@@ -78,9 +78,11 @@ test('a newer server snapshot is not overwritten with an older bus cache',()=>{
     c.state.data.devices[0].power=800;c._updateDeviceFromRealtime(msg,true);
     assert.equal(c.state.data.devices[0].power,800);
 });
-test('rows sit below realtime power and above temperature with click preserved',()=>{
+test('rows sit below device health and above temperature with click preserved',()=>{
     const xml=fs.readFileSync(root+'/static/src/components/dashboard/dashboard.xml','utf8');
-    assert(xml.indexOf('Công suất realtime') < xml.indexOf('ss_device_panel'));
+    assert(xml.indexOf('ss_health_block') < xml.indexOf('ss_device_panel'));
+    assert(!xml.includes('fmtNumber(realtimeChargeW, 0)'));
+    assert(xml.includes('ss_instant_grid'));
     assert(xml.indexOf('ss_device_panel') < xml.indexOf('<!-- Nhiệt độ -->'));
     assert.equal((xml.match(/class="ss_device_panel"/g)||[]).length,1);
     assert(xml.includes('this.onDeviceClick(dev.id)'));assert(xml.includes('deviceSyncLabel(dev.last_sync)'));
