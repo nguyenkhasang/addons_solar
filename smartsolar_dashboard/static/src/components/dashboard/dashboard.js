@@ -1029,7 +1029,8 @@ export class SmartSolarDashboard extends Component {
         const availH = cssH - paddingTop - paddingBottom;
         const cellW = Math.floor((cssW - labelW) / 24);
         const cellH = Math.max(10, Math.floor(availH / Math.max(hm.days.length, 1)));
-        const maxVal = metricData.max_val || 1;
+        const minColorW = 5;
+        const maxVal = Math.max(metricData.max_val || 0, minColorW);
         this._heatmapLayout = {
             cssW, cssH, labelW, paddingTop, cellW, cellH,
             days: hm.days, hours: hm.hours, values,
@@ -1063,8 +1064,8 @@ export class SmartSolarDashboard extends Component {
 
             hm.hours.forEach((h, hi) => {
                 const val = (values[di] || [])[hi] || 0;
-                const intensity = Math.min(val / maxVal, 1);
-                ctx.fillStyle = val > 0
+                const intensity = Math.min((val - minColorW) / Math.max(maxVal - minColorW, 1), 1);
+                ctx.fillStyle = val >= minColorW
                     ? `rgba(${heatmapColor},${0.15 + intensity * 0.85})`
                     : (isDark ? "rgba(30,42,60,0.5)" : "rgba(226,232,240,0.5)");
                 ctx.fillRect(labelW + hi * cellW + 1, y + 1, cellW - 2, cellH - 2);
@@ -1082,7 +1083,7 @@ export class SmartSolarDashboard extends Component {
         ctx.fillStyle = textColor;
         ctx.font = "9px Inter";
         ctx.textAlign = "left";
-        ctx.fillText("0W", lgX - 2, lgY + 8);
+        ctx.fillText(`${minColorW}W`, lgX - 2, lgY + 8);
         ctx.textAlign = "right";
         ctx.fillText(`${maxVal}W`, lgX + 112, lgY + 8);
     }

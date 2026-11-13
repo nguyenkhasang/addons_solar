@@ -203,3 +203,29 @@ test('chart update status distinguishes historical polling from live connection'
     c.state.realtimeActive=false;
     assert.equal(c.chartUpdateLabel,'Mất kết nối trực tiếp');
 });
+
+test('heatmap starts coloring at 5 W across metrics and themes without changing readings',()=>{
+    context.window={devicePixelRatio:1};
+    for(const theme of ['dark','light']) {
+        for(const metric of ['grid_out','pv_input','total_load']) {
+            const c=dashboard();
+            c.state.theme=theme;c.state.heatmapMetric=metric;
+            const values=[[null,0,0.1,4.99,5,5.1,500]];
+            c.state.data.heatmap={days:['2026-11-13'],hours:Array.from({length:24},(_,i)=>i),
+                series:{[metric]:{values,max_val:500}}};
+            const fills=[],labels=[];
+            const ctx={scale(){},clearRect(){},fillRect(){fills.push(this.fillStyle);},
+                fillText(text){labels.push(text);}};
+            c.refs.heatmap={el:{parentElement:{getBoundingClientRect:()=>({width:800})},
+                style:{},getContext:()=>ctx}};
+            c._renderHeatmapChart();
+            const neutral=theme==='dark'?'rgba(30,42,60,0.5)':'rgba(226,232,240,0.5)';
+            const cells=fills.slice(1,8);
+            assert.deepEqual(cells.slice(0,4),Array(4).fill(neutral));
+            for(const color of cells.slice(4)) assert.notEqual(color,neutral);
+            assert(labels.includes('5W'));
+            assert.equal(c._heatmapLayout.values[0][2],0.1);
+            assert.equal(c._heatmapLayout.values[0][3],4.99);
+        }
+    }
+});
