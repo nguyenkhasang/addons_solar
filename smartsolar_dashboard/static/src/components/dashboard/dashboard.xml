@@ -26,7 +26,7 @@
             <section class="ss_instant_grid" t-if="hasData" aria-label="Công suất và mức pin hiện tại">
                 <div class="ss_instant_card pv"><span>Công suất PV</span><strong><t t-esc="fmtNumber(realtimePvW, 0)"/><small>W</small></strong></div>
                 <div class="ss_instant_card inverter"><span>Inverter cấp tải</span><strong><t t-esc="fmtNumber(realtimeGridOutW, 0)"/><small>W</small></strong></div>
-                <div class="ss_instant_card grid"><span>Công suất lấy lưới</span><strong><t t-esc="fmtNumber(realtimeGridInW, 0)"/><small>W</small></strong></div>
+                <div class="ss_instant_card grid"><span>Lấy lưới</span><strong><t t-esc="fmtNumber(realtimeGridInW, 0)"/><small>W</small></strong></div>
                 <SystemOverview showDiagram="false" compact="true" batteries="state.data.bms || []" theme="state.theme"/>
             </section>
             <div class="ss_energy_summary" t-if="hasData and state.data.kpi.energy_widgets">
