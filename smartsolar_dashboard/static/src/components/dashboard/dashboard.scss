@@ -338,8 +338,8 @@
     .ss_instant_grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(260px, 1.4fr); gap: 12px; margin-bottom: 14px; }
     .ss_instant_card { min-width: 0; padding: 14px 16px; border: 1px solid var(--ss-border); border-top: 3px solid var(--ss-accent); border-radius: var(--ss-radius); background: var(--ss-surface); }
     .ss_instant_card.pv { border-top-color: var(--ss-primary); }
-    .ss_instant_card.grid { border-top-color: var(--ss-danger); }
-    .ss_instant_card > span { display: block; color: var(--ss-text-muted); font-size: 12px; }
+    .ss_instant_card.grid_import { border-top-color: var(--ss-danger); }
+    .ss_instant_card > span { display: block; color: var(--ss-text-muted); font-size: 12px; white-space: nowrap; }
     .ss_instant_card strong { display: flex; align-items: baseline; gap: 6px; margin-top: 8px; font-size: 28px; font-variant-numeric: tabular-nums; }
     .ss_instant_card small { font-size: 13px; font-weight: 500; color: var(--ss-text-muted); }
     .ss_energy_summary { padding: 14px; }
