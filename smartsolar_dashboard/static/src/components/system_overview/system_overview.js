@@ -131,10 +131,6 @@ export class SystemOverview extends Component {
     }
     cellLabel(index) { return String(index + 1).padStart(2, "0"); }
 
-    get batteryLabel() {
-        if (this.state.bat_flow_w === null) return "Chờ dữ liệu pin";
-        return this.batReverse ? "Xả ròng · ước tính" : "Sạc ròng · ước tính";
-    }
     get batteryNote() {
         if (this.state.bat_flow_w === null) return "Cần dữ liệu của cả MPPT và inverter.";
         return this.state.charger_w === null
