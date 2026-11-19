@@ -833,7 +833,7 @@ export class SmartSolarDashboard extends Component {
             label: s.label, data: s.data,
             borderColor: palette[i % palette.length],
             backgroundColor: palette[i % palette.length] + "33",
-            borderWidth: 1.8, fill: false, tension: 0.35, pointRadius: 1.5, pointHoverRadius: 4,
+            borderWidth: 1.8, fill: false, tension: 0.35, pointRadius: 0, pointHoverRadius: 4,
         }));
         const ctx = canvas.getContext("2d");
         this.charts.temperature = new Chart(ctx, {
