@@ -765,7 +765,7 @@ export class SmartSolarDashboard extends Component {
                     {
                         label: "Công suất lấy lưới (W)", data: gt.limiter_power,
                         borderColor: COLORS.danger, backgroundColor: "rgba(239, 68, 68, 0.22)",
-                        borderWidth: 1.6, borderDash: [4, 4],
+                        borderWidth: 1.6, borderDash: [],
                         fill: "-1", stack: "house_load", order: 1, spanGaps: false,
                         pointRadius: 0, pointHoverRadius: 4, yAxisID: "y",
                     },
