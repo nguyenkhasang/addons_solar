@@ -770,7 +770,12 @@ export class SmartSolarDashboard extends Component {
                         pointRadius: 0, pointHoverRadius: 4, yAxisID: "y",
                     },
                     { label: "Công suất dàn PV (W)", data: gt.labels.map(label => {const i = cp?.labels?.indexOf(label) ?? -1; return i >= 0 ? (cp.pv_input_power?.[i] ?? null) : null;}), borderColor: COLORS.primary, stack: "pv", order: 0, borderWidth: 1.6, borderDash: [4, 2], fill: false, pointRadius: 0, pointHoverRadius: 4, yAxisID: "y" },
-                    { label: "Sạc/xả ròng ước tính (W)", data: this._alignBatteryFlow(gt.labels, "net_power"), borderColor: COLORS.success, stack: "battery", order: 0, borderWidth: 1.6, borderDash: [2, 4], fill: false, pointRadius: 2, pointHoverRadius: 4, yAxisID: "y" },
+                    {
+                        label: "Sạc/xả ròng ước tính (W)", data: this._alignBatteryFlow(gt.labels, "net_power"),
+                        borderColor: COLORS.success, stack: "battery", order: 0,
+                        borderWidth: 1.2, borderDash: [], fill: false,
+                        pointRadius: 0, pointHoverRadius: 3, yAxisID: "y",
+                    },
                 ],
             },
             options,
