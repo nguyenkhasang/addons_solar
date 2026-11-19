@@ -734,23 +734,46 @@ export class SmartSolarDashboard extends Component {
         gradient.addColorStop(0, "rgba(30, 136, 229, 0.40)");
         gradient.addColorStop(1, "rgba(30, 136, 229, 0.02)");
         const cp = this.state.data.charge_power;
+        const options = this._commonChartOptions();
+        options.scales.x.stacked = true;
+        options.scales.y.stacked = true;
+        options.scales.y.title = { display: true, text: "Công suất (W)", color: options.scales.y.ticks.color };
+        options.plugins.legend.labels.sort = (a, b) => a.datasetIndex - b.datasetIndex;
+        options.plugins.tooltip.callbacks = {
+            footer: items => {
+                const point = items[0];
+                if (!point) return "";
+                // Read chart data so the total also follows appended Live samples.
+                const datasets = point.chart.data.datasets;
+                const inverter = datasets[0].data[point.dataIndex];
+                const grid = datasets[1].data[point.dataIndex];
+                if (inverter == null || grid == null) return "Tổng tải: chưa đủ dữ liệu";
+                return `Tổng tải: ${this.fmtNumber(inverter + grid, 0)} W`;
+            },
+        };
         this.charts.gridTie = new Chart(ctx, {
             type: "line",
             data: {
                 labels: gt.labels.map(this._fmtLabel.bind(this)),
                 datasets: [
-                    { label: "Công suất hòa lưới (W)", data: gt.output_power, borderColor: COLORS.accent, backgroundColor: gradient, borderWidth: 2, fill: true, tension: 0.35, pointRadius: 0, pointHoverRadius: 4, yAxisID: "y" },
-                    { label: "Công suất lấy lưới (W)", data: gt.limiter_power, borderColor: COLORS.danger, borderWidth: 1.6, borderDash: [4, 4], fill: false, pointRadius: 0, pointHoverRadius: 4, yAxisID: "y" },
-                    { label: "Công suất dàn PV (W)", data: gt.labels.map(label => {const i = cp?.labels?.indexOf(label) ?? -1; return i >= 0 ? (cp.pv_input_power?.[i] ?? null) : null;}), borderColor: COLORS.primary, borderWidth: 1.6, borderDash: [4, 2], fill: false, pointRadius: 0, pointHoverRadius: 4, yAxisID: "y" },
-                    { label: "Sạc/xả ròng ước tính (W)", data: this._alignBatteryFlow(gt.labels, "net_power"), borderColor: COLORS.success, borderWidth: 1.6, borderDash: [2, 4], fill: false, pointRadius: 2, pointHoverRadius: 4, yAxisID: "y" },
+                    {
+                        label: "Công suất hòa lưới (W)", data: gt.output_power,
+                        borderColor: COLORS.accent, backgroundColor: gradient, borderWidth: 2,
+                        fill: "origin", stack: "house_load", order: 1, spanGaps: false,
+                        tension: 0.35, pointRadius: 0, pointHoverRadius: 4, yAxisID: "y",
+                    },
+                    {
+                        label: "Công suất lấy lưới (W)", data: gt.limiter_power,
+                        borderColor: COLORS.danger, backgroundColor: "rgba(239, 68, 68, 0.22)",
+                        borderWidth: 1.6, borderDash: [4, 4],
+                        fill: "-1", stack: "house_load", order: 1, spanGaps: false,
+                        pointRadius: 0, pointHoverRadius: 4, yAxisID: "y",
+                    },
+                    { label: "Công suất dàn PV (W)", data: gt.labels.map(label => {const i = cp?.labels?.indexOf(label) ?? -1; return i >= 0 ? (cp.pv_input_power?.[i] ?? null) : null;}), borderColor: COLORS.primary, stack: "pv", order: 0, borderWidth: 1.6, borderDash: [4, 2], fill: false, pointRadius: 0, pointHoverRadius: 4, yAxisID: "y" },
+                    { label: "Sạc/xả ròng ước tính (W)", data: this._alignBatteryFlow(gt.labels, "net_power"), borderColor: COLORS.success, stack: "battery", order: 0, borderWidth: 1.6, borderDash: [2, 4], fill: false, pointRadius: 2, pointHoverRadius: 4, yAxisID: "y" },
                 ],
             },
-            options: this._commonChartOptions({
-                scales: {
-                    x: this._commonChartOptions().scales.x,
-                    y: { ...this._commonChartOptions().scales.y, position: "left", title: { display: true, text: "Công suất (W)", color: this.state.theme === "dark" ? "#cbd5e1" : "#475569" } },
-                },
-            }),
+            options,
         });
     }
 

@@ -229,3 +229,42 @@ test('heatmap starts coloring at 5 W across metrics and themes without changing 
         }
     }
 });
+
+test('house load stacks inverter and grid power with independent PV and battery overlays',()=>{
+    const c=dashboard();
+    c.state.data.grid_tie={labels:['a','b','c','d'],output_power:[300,0,null,200],limiter_power:[50,0,20,null]};
+    c.state.data.charge_power={labels:['a','b','c','d'],pv_input_power:[600,0,100,100]};
+    c.state.data.battery_flow={labels:['a','b','c','d'],net_power:[-200,0,100,50]};
+    c.refs.gridTie={el:{getContext:()=>({createLinearGradient:()=>({addColorStop(){}})})}};
+    c._fmtLabel=value=>value;
+    context.Chart=class {
+        constructor(ctx,config){this.data=config.data;this.options=config.options;}
+        update(){}
+    };
+    c._renderGridTieChart();
+    const chart=c.charts.gridTie;
+    const [output,grid,pv,battery]=chart.data.datasets;
+    assert.equal(output.stack,grid.stack);
+    assert.notEqual(pv.stack,output.stack);
+    assert.notEqual(battery.stack,output.stack);
+    assert.notEqual(pv.stack,battery.stack);
+    assert.equal(output.fill,'origin');
+    assert.equal(grid.fill,'-1');
+    assert.equal(pv.fill,false);
+    assert.equal(battery.fill,false);
+    assert(output.order>pv.order && grid.order>battery.order);
+    assert.equal(chart.options.scales.y.stacked,true);
+    assert.deepEqual(Array.from(battery.data),[-200,0,100,50]);
+    const total=index=>chart.options.plugins.tooltip.callbacks.footer([{chart,dataIndex:index}]);
+    assert.equal(total(0),`Tổng tải: ${c.fmtNumber(350,0)} W`);
+    assert.equal(total(1),`Tổng tải: ${c.fmtNumber(0,0)} W`);
+    assert.equal(total(2),'Tổng tải: chưa đủ dữ liệu');
+    assert.equal(total(3),'Tổng tải: chưa đủ dữ liệu');
+    assert.equal(chart.options.plugins.tooltip.callbacks.footer([]),'');
+    c._renderDistributionChart=()=>{};
+    c.state.timeRange='realtime';
+    c._appendRealtimePoint({...inverter,output_power:400,limiter_power:75});
+    assert.equal(total(4),`Tổng tải: ${c.fmtNumber(475,0)} W`);
+    assert.equal(chart.data.datasets.length,4);
+    assert.equal(output.stack,grid.stack);
+});
