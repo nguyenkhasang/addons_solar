@@ -268,3 +268,31 @@ test('house load stacks inverter and grid power with independent PV and battery 
     assert.equal(chart.data.datasets.length,4);
     assert.equal(output.stack,grid.stack);
 });
+
+
+test('hourly energy labels keep the full day and live refresh reuses the chart',()=>{
+    const c=dashboard();
+    c.refs.energy={el:{getContext:()=>({})}};
+    const labels=Array.from({length:24},(_,hour)=>`2026-11-20 ${String(hour).padStart(2,'0')}:00`);
+    c.state.data.energy_comparison={labels,bucket:'hour',inverter_kwh:[0.6,0.3,...Array(22).fill(null)],
+        grid_kwh:[0.06,0.03,...Array(22).fill(null)],total_kwh:[0.66,0.33,...Array(22).fill(null)],
+        pv_kwh:[0.9,0.45,...Array(22).fill(null)]};
+    let created=0;
+    context.Chart=class {
+        constructor(ctx,config){this.data=config.data;this.options=config.options;this.updated=0;created++;}
+        update(mode){assert.equal(mode,'none');this.updated++;}
+    };
+    c._renderEnergyChart();
+    const chart=c.charts.energy;
+    assert.equal(chart.data.labels[0],'00:00');
+    assert.equal(chart.data.labels[23],'23:00');
+    assert.equal(chart.data.labels.length,24);
+    assert.equal(chart.options.scales.x.ticks.maxTicksLimit,24);
+    assert.equal(chart.data.datasets[0].data[2],null);
+    c.state.data.energy_comparison.inverter_kwh[1]=0.4;
+    c._renderEnergyChart();
+    assert.equal(c.charts.energy,chart);
+    assert.equal(created,1);
+    assert.equal(chart.updated,1);
+    assert.equal(chart.data.datasets[0].data[1],0.4);
+});

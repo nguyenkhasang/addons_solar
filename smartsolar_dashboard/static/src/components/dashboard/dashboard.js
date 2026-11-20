@@ -191,14 +191,20 @@ export class SmartSolarDashboard extends Component {
         const generation = this._dataGeneration;
         const range = this.state.timeRange;
         const systemId = this.state.systemId;
+        const cutoff = this.state.data?.cutoff;
         this.state.chartsLoading = true;
         try {
             const charts = await rpc("/smartsolar/dashboard/data", {
                 time_range: range === "realtime" ? "2min" : range,
-                system_id: systemId, end_at: this.state.data?.cutoff,
+                system_id: systemId, end_at: cutoff,
                 include_overview: false,
             });
             if (this._disposed || generation !== this._dataGeneration || range !== this.state.timeRange || systemId !== this.state.systemId) return;
+            const energy = this._energySnapshot;
+            if (range === "realtime" && energy?.systemId === systemId && energy.comparison
+                && cutoff && energy.cutoff > cutoff) {
+                charts.energy_comparison = energy.comparison;
+            }
             this.state.data = { ...this.state.data, ...charts };
             this._renderAllCharts();
         } catch (err) {
@@ -420,17 +426,23 @@ export class SmartSolarDashboard extends Component {
     async _loadEnergyWidgets() {
         if (this._disposed || !this._energyDirty || this._energyRequest) return;
         this._energyDirty = false;
-        const token = {systemId: this.state.systemId, generation: this._dataGeneration};
+        const token = {systemId: this.state.systemId, generation: this._dataGeneration, range: this.state.timeRange};
         this._energyRequest = token;
         this._energyLastRequestAt = Date.now();
         try {
-            const data = await rpc("/smartsolar/dashboard/energy_widgets", {system_id: token.systemId});
+            const args = {system_id: token.systemId};
+            if (token.range === "realtime") args.include_energy_chart = true;
+            const data = await rpc("/smartsolar/dashboard/energy_widgets", args);
             if (this._disposed || this._energyRequest !== token || token.systemId !== this.state.systemId
                 || token.generation !== this._dataGeneration || !this.state.data?.kpi
                 || !data?.energy_widgets || !data.cutoff) return;
             if (this._energySnapshot?.systemId === token.systemId && this._energySnapshot.cutoff > data.cutoff) return;
-            this._energySnapshot = {systemId: token.systemId, cutoff: data.cutoff, widgets: data.energy_widgets};
+            this._energySnapshot = {systemId: token.systemId, cutoff: data.cutoff, widgets: data.energy_widgets, comparison: data.energy_comparison};
             this.state.data.kpi.energy_widgets = data.energy_widgets;
+            if (token.range === "realtime" && this.state.timeRange === token.range && data.energy_comparison) {
+                this.state.data.energy_comparison = data.energy_comparison;
+                this._renderEnergyChart();
+            }
         } catch {
             // Keep the last confirmed values. A later bus event retries; no
             // polling loop or extrapolated kWh while the connection is down.
@@ -789,6 +801,7 @@ export class SmartSolarDashboard extends Component {
         if (!e || !e.labels.length) { this._showEmpty(canvas); return; }
         const options = this._commonChartOptions();
         options.scales.x.stacked = true;
+        if (e.bucket === "hour") options.scales.x.ticks.maxTicksLimit = 24;
         options.scales.y.stacked = true;
         options.scales.y.beginAtZero = true;
         options.scales.y.title = {display: true, text: "Điện năng (kWh)", color: options.scales.y.ticks.color};
@@ -799,29 +812,33 @@ export class SmartSolarDashboard extends Component {
                 const total = e.total_kwh?.[index];
                 return [total === null || total === undefined
                     ? "Tổng tiêu thụ: chưa có dữ liệu"
-                    : `Tổng tiêu thụ: ${this.fmtNumber(total, 3)} kWh`];
+                    : `Tổng tiêu thụ: ${this.fmtNumber(total, e.bucket && e.bucket !== "day" ? 6 : 3)} kWh`];
             },
         };
-        this.charts.energy = new Chart(canvas.getContext("2d"), {
-            type: "bar",
-            data: {
-                labels: e.labels,
-                datasets: [
-                    {label: "Điện inverter cấp tải (kWh)", data: e.inverter_kwh,
-                     backgroundColor: COLORS.accent, stack: "consumption", borderSkipped: false},
-                    {label: "Điện lấy lưới (kWh)", data: e.grid_kwh,
-                     backgroundColor: COLORS.danger, stack: "consumption", borderRadius: 6, borderSkipped: false},
-                    {type: "line", label: "Điện PV thu được (kWh)",
-                     data: e.pv_kwh || e.labels.map(() => null),
-                     borderColor: COLORS.primary, backgroundColor: COLORS.primary,
-                     stack: "pv", order: -1, borderWidth: 2.5,
-                     pointRadius: 3, pointHoverRadius: 5, tension: 0.2,
-                     fill: false, spanGaps: false},
-                ],
-            },
-            options,
-        });
+        const data = {
+            labels: e.bucket && e.bucket !== "day" ? e.labels.map(label => label.slice(11, 16)) : e.labels,
+            datasets: [
+                {label: "Điện inverter cấp tải (kWh)", data: e.inverter_kwh,
+                 backgroundColor: COLORS.accent, stack: "consumption", borderSkipped: false},
+                {label: "Điện lấy lưới (kWh)", data: e.grid_kwh,
+                 backgroundColor: COLORS.danger, stack: "consumption", borderRadius: 6, borderSkipped: false},
+                {type: "line", label: "Điện PV thu được (kWh)",
+                 data: e.pv_kwh || e.labels.map(() => null),
+                 borderColor: COLORS.primary, backgroundColor: COLORS.primary,
+                 stack: "pv", order: -1, borderWidth: 2.5,
+                 pointRadius: 3, pointHoverRadius: 5, tension: 0.2,
+                 fill: false, spanGaps: false},
+            ],
+        };
+        if (this.charts.energy?.data) {
+            this.charts.energy.data = data;
+            this.charts.energy.options = options;
+            this.charts.energy.update("none");
+        } else {
+            this.charts.energy = new Chart(canvas.getContext("2d"), {type: "bar", data, options});
+        }
     }
+
 
     _renderTemperatureChart() {
         const canvas = this.refs.temperature.el;

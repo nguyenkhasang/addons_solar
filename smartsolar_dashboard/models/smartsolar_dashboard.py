@@ -1257,6 +1257,60 @@ class SmartSolarDashboard(models.AbstractModel):
     # Energy comparison
     # ------------------------------------------------------------------
     @api.model
+    def _get_chart_energy_comparison(self, time_range, system_id=None, daily_cache=None, end_at=None):
+        """Chart-only buckets; billing and lifetime readers retain daily semantics."""
+        cfg, start, end = self._resolve_time_range(time_range, system_id)
+        if end_at is not None:
+            start += end_at - end
+            end = end_at
+        minutes = {'2min': 1, '1h': 5, '6h': 30, '12h': 60, '24h': 60}.get(time_range)
+        if minutes is None:
+            result = self.get_energy_comparison(time_range, system_id, daily_cache,
+                                                end_at=end, date_bounds=(start, end))
+            return dict(result, bucket='day', period_label='Mỗi cột 1 ngày')
+
+        tz = self._get_system_timezone(system_id)
+        local_start = _to_local(start, tz)
+        axis_end = end
+        if time_range == '24h':
+            local_start = _to_local(end, tz).replace(hour=0, minute=0, second=0, microsecond=0)
+            start = local_start.astimezone(timezone.utc).replace(tzinfo=None)
+            axis_end = (local_start + timedelta(days=1)).astimezone(timezone.utc).replace(tzinfo=None)
+        local_start = local_start.replace(minute=(local_start.minute // minutes) * minutes,
+                                          second=0, microsecond=0)
+        cursor = local_start.astimezone(timezone.utc).replace(tzinfo=None)
+        step = timedelta(minutes=minutes)
+        result = {key: [] for key in ('labels', 'inverter_kwh', 'grid_kwh', 'total_kwh',
+                                      'pv_kwh', 'estimated', 'notes', 'coverage_pct')}
+        while cursor < axis_end:
+            right = min(cursor + step, axis_end)
+            left, cutoff = max(cursor, start), min(right, end)
+            inverter = grid = pv = None
+            flow = {}
+            if left < cutoff:
+                bucket_cfg = dict(cfg, delta=(cutoff - left).total_seconds())
+                flow = self._energy_distribution_for_range(bucket_cfg, left, cutoff, system_id, time_range)
+                if flow['available']:
+                    inverter, grid = flow['data']
+                pv_days = self._get_daily_pv_energy(left, cutoff, system_id)
+                if pv_days and all(value is not None for value in pv_days.values()):
+                    pv = sum(pv_days.values())
+            result['labels'].append(_to_local(cursor, tz).strftime('%Y-%m-%d %H:%M'))
+            result['inverter_kwh'].append(round(inverter, 6) if inverter is not None else None)
+            result['grid_kwh'].append(round(grid, 6) if grid is not None else None)
+            result['total_kwh'].append(round(inverter + grid, 6)
+                                       if inverter is not None and grid is not None else None)
+            result['pv_kwh'].append(round(pv, 6) if pv is not None else None)
+            result['estimated'].append(flow.get('estimated', False))
+            result['notes'].append(flow.get('note'))
+            result['coverage_pct'].append(flow.get('coverage_pct'))
+            cursor = right
+        result.update(energy_kwh=result['inverter_kwh'], source='bucket_distribution',
+                      bucket='hour' if minutes == 60 else 'minute',
+                      period_label=('Hôm nay · 00:00–23:59 · Mỗi cột 1 giờ' if time_range == '24h'
+                                    else f'Mỗi cột {minutes} phút'))
+        return result
+
     def get_energy_comparison(self, time_range='1week', system_id=None, daily_cache=None, end_at=None, date_bounds=None):
         """Daily consumption with the same branch validation as the flow chart."""
         cfg, start, end = self._resolve_time_range(time_range, system_id)
@@ -1878,11 +1932,10 @@ class SmartSolarDashboard(models.AbstractModel):
             smartsolar_chart_rows={} if self.env.context.get('smartsolar_share_chart_reads', True) else None)
         reader = self.with_context(smartsolar_dashboard_read_ledger=True)
         balance = reader.get_battery_flow_series(time_range, system_id)
-        energy_range = '1week' if time_range in ('1h', '6h', '12h', '24h', '2min') else time_range
         result = {
             'charge_power': self.get_charge_power_series(time_range=time_range, system_id=system_id),
             'grid_tie': self.get_grid_tie_series(time_range=time_range, system_id=system_id),
-            'energy_comparison': reader.get_energy_comparison(time_range=energy_range, system_id=system_id, daily_cache=daily_cache, end_at=end_at),
+            'energy_comparison': reader._get_chart_energy_comparison(time_range, system_id, daily_cache, end_at),
             'temperature': self.get_temperature_series(time_range=time_range, system_id=system_id),
             'battery_flow': balance,
             'pv_efficiency': self.get_pv_efficiency_series(time_range=time_range, system_id=system_id, balance=balance),

@@ -108,15 +108,18 @@ class DashboardReaders(models.AbstractModel):
         return dict(cfg, delta=(cutoff-start).total_seconds()), start, cutoff
 
     @api.model
-    def get_energy_widgets_snapshot(self, system_id=None):
-        """Refresh only energy cards, using the same validation and tariff as overview."""
+    def get_energy_widgets_snapshot(self, system_id=None, include_energy_chart=False):
+        """Refresh energy cards and the optional Live chart at one cutoff."""
         cutoff = fields.Datetime.now()
         reader = self.with_context(smartsolar_dashboard_read_ledger=True,
                                    smartsolar_dashboard_end_at=cutoff)
-        return {
+        result = {
             'energy_widgets': reader.get_energy_widgets(system_id, daily_cache={}, end_at=cutoff),
             'cutoff': fields.Datetime.to_string(cutoff),
         }
+        if include_energy_chart:
+            result['energy_comparison'] = reader._get_chart_energy_comparison('2min', system_id, end_at=cutoff)
+        return result
 
     @api.model
     def get_dashboard_overview(self, system_id=None):

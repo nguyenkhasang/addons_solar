@@ -21,9 +21,10 @@ class SmartSolarDashboardController(http.Controller):
         return request.env['smartsolar.dashboard'].get_bms_history(time_range, sid)
 
     @http.route('/smartsolar/dashboard/energy_widgets', type='jsonrpc', auth='user', methods=['POST'])
-    def energy_widgets(self, system_id=None):
+    def energy_widgets(self, system_id=None, include_energy_chart=False):
         sid = int(system_id) if system_id else None
-        return request.env['smartsolar.dashboard'].get_energy_widgets_snapshot(sid)
+        return request.env['smartsolar.dashboard'].get_energy_widgets_snapshot(
+            sid, include_energy_chart=include_energy_chart is True)
 
     @http.route('/smartsolar/dashboard/data', type='json', auth='user', methods=['POST'])
     def dashboard_data(self, time_range='24h', system_id=None, end_at=None, include_overview=True, **kwargs):

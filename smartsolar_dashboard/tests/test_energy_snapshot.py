@@ -27,3 +27,14 @@ class TestEnergySnapshot(TestCase):
                     self.assertEqual(result['cutoff'], fields.Datetime.to_string(cutoff))
                     self.assertEqual(reader.method_calls, [
                         ('get_energy_widgets', (system_id,), {'daily_cache': {}, 'end_at': cutoff})])
+
+    def test_live_chart_is_optional_and_uses_the_same_cutoff(self):
+        cutoff = datetime(2026, 11, 20, 2)
+        reader = MagicMock()
+        reader.get_energy_widgets.return_value = {'metrics': []}
+        reader._get_chart_energy_comparison.return_value = {'labels': ['2026-11-20 09:00']}
+        dashboard = SimpleNamespace(with_context=MagicMock(return_value=reader))
+        with patch.object(fields.Datetime, 'now', return_value=cutoff):
+            result = DashboardReaders.get_energy_widgets_snapshot(dashboard, 12, include_energy_chart=True)
+        reader._get_chart_energy_comparison.assert_called_once_with('2min', 12, end_at=cutoff)
+        self.assertEqual(result['energy_comparison'], {'labels': ['2026-11-20 09:00']})
