@@ -773,7 +773,7 @@ export class SmartSolarDashboard extends Component {
                     {
                         label: "Sạc/xả ròng ước tính (W)", data: this._alignBatteryFlow(gt.labels, "net_power"),
                         borderColor: COLORS.success, stack: "battery", order: 0,
-                        borderWidth: 1.2, borderDash: [], fill: false,
+                        borderWidth: 1.2, borderDash: [3, 3], fill: false,
                         pointRadius: 0, pointHoverRadius: 3, yAxisID: "y",
                     },
                 ],
