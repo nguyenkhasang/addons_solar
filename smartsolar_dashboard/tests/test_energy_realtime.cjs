@@ -122,34 +122,28 @@ async function test(name, run) {await run(); passed++; console.log('PASS ' + nam
         pending.requests[0].resolve(snapshot()); await pending.settle();
         assert.equal(pending.c.state.data.kpi.energy_widgets, pending.initial);
     });
-    await test('live energy chart refresh uses the throttled authoritative snapshot', async () => {
+    await test('shared Live mode refreshes the cards without requesting the independent chart', async () => {
         const f = fixture();
         f.c.state.timeRange = 'realtime';
-        let renders = 0;
-        f.c._renderEnergyChart = () => {renders++;};
+        f.c.state.energyRange = '1week';
+        f.c._renderEnergyChart = () => {throw new Error('Energy widget request rendered the independent chart');};
         f.c._queueEnergyWidgets(); await f.advance(5000);
-        assert.equal(f.requests[0].args.include_energy_chart, true);
-        const data = {...snapshot(), energy_comparison: {labels: ['2026-11-20 09:36'], bucket: 'minute'}};
+        assert.equal(f.requests[0].args.include_energy_chart, undefined);
+        const data = snapshot();
         f.requests[0].resolve(data); await f.settle();
-        assert.equal(f.c.state.data.energy_comparison, data.energy_comparison);
-        assert.equal(renders, 1);
-        f.c._queueEnergyWidgets(); await f.advance(5000);
-        f.c.state.timeRange = '24h';
-        f.requests[1].resolve({...snapshot('2026-10-29 01:00:02'), energy_comparison: {labels: ['old']}});
-        await f.settle();
-        assert.equal(f.c.state.data.energy_comparison, data.energy_comparison);
-        assert.equal(renders, 1);
+        assert.equal(f.c.state.data.kpi.energy_widgets, data.energy_widgets);
     });
-    await test('an older chart request cannot replace a newer live energy snapshot', async () => {
+    await test('the shared chart request excludes the independent energy chart', async () => {
         const f = fixture();
         f.c.state.timeRange = 'realtime';
         f.c._renderAllCharts = () => {};
-        const pending = f.c._loadCharts();
         const comparison = {labels: ['new']};
-        f.c._energySnapshot = {systemId: 1, cutoff: '2026-10-29 01:00:05', comparison};
+        f.c.energyChartData = comparison;
+        const pending = f.c._loadCharts();
+        assert.equal(f.requests[0].args.include_energy_comparison, false);
         f.requests[0].resolve({energy_comparison: {labels: ['old']}});
         await pending;
-        assert.equal(f.c.state.data.energy_comparison, comparison);
+        assert.equal(f.c.energyChartData, comparison);
     });
     console.log(`${passed} energy realtime cases passed`);
 })().catch(error => {console.error(error); process.exitCode = 1;});

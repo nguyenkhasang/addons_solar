@@ -143,11 +143,11 @@ test('daily peaks show precise times, separate metrics, zero and missing data',(
 
 test('daily consumption stacks two branches and overlays PV independently',()=>{
     const c=dashboard();
-    c.refs.energy={el:{getContext:()=>({})}};
-    c.state.data.energy_comparison={labels:['2026-10-07','2026-10-08'],
+    c.refs.energy={el:{getContext:()=>({clearRect(){}})}};
+    c.energyChartData={labels:['2026-10-07','2026-10-08'],
         inverter_kwh:[1.8,0],grid_kwh:[0.03,0],total_kwh:[1.83,0],pv_kwh:[2.5,null],estimated:[true,false],coverage_pct:[75,100]};
     let config;
-    context.Chart=class {constructor(ctx,options){config=options;}};
+    context.Chart=class {constructor(ctx,options){config=options;} destroy(){}};
     c._renderEnergyChart();
     assert.equal(config.type,'bar');
     assert.equal(config.data.datasets.length,3);
@@ -168,10 +168,10 @@ test('daily consumption stacks two branches and overlays PV independently',()=>{
     const tooltip=config.options.plugins.tooltip.callbacks.footer;
     assert.deepEqual(Array.from(tooltip([{dataIndex:0}])),[`Tổng tiêu thụ: ${c.fmtNumber(1.83,3)} kWh`]);
     assert.deepEqual(Array.from(tooltip([{dataIndex:1}])),[`Tổng tiêu thụ: ${c.fmtNumber(0,3)} kWh`]);
-    c.state.data.energy_comparison.total_kwh[1]=null;
+    c.energyChartData.total_kwh[1]=null;
     assert.deepEqual(Array.from(tooltip([{dataIndex:1}])),['Tổng tiêu thụ: chưa có dữ liệu']);
     assert.equal(tooltip([]),'');
-    delete c.state.data.energy_comparison.pv_kwh;
+    delete c.energyChartData.pv_kwh;
     c._renderEnergyChart();
     assert.deepEqual(Array.from(config.data.datasets[2].data),[null,null]);
 });
@@ -273,8 +273,9 @@ test('house load stacks inverter and grid power with independent PV and battery 
 test('hourly energy labels keep the full day and live refresh reuses the chart',()=>{
     const c=dashboard();
     c.refs.energy={el:{getContext:()=>({})}};
-    const labels=Array.from({length:24},(_,hour)=>`2026-11-20 ${String(hour).padStart(2,'0')}:00`);
-    c.state.data.energy_comparison={labels,bucket:'hour',inverter_kwh:[0.6,0.3,...Array(22).fill(null)],
+    c.state.energyRange='day';
+    const labels=Array.from({length:24},(_,hour)=>`${String(hour).padStart(2,'0')}:00`);
+    c.energyChartData={labels,inverter_kwh:[0.6,0.3,...Array(22).fill(null)],
         grid_kwh:[0.06,0.03,...Array(22).fill(null)],total_kwh:[0.66,0.33,...Array(22).fill(null)],
         pv_kwh:[0.9,0.45,...Array(22).fill(null)]};
     let created=0;
@@ -289,7 +290,7 @@ test('hourly energy labels keep the full day and live refresh reuses the chart',
     assert.equal(chart.data.labels.length,24);
     assert.equal(chart.options.scales.x.ticks.maxTicksLimit,24);
     assert.equal(chart.data.datasets[0].data[2],null);
-    c.state.data.energy_comparison.inverter_kwh[1]=0.4;
+    c.energyChartData.inverter_kwh[1]=0.4;
     c._renderEnergyChart();
     assert.equal(c.charts.energy,chart);
     assert.equal(created,1);

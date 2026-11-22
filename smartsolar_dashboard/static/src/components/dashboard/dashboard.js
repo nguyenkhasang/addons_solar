@@ -23,6 +23,17 @@ const TIME_RANGES = [
     { key: "5year", label: "5 Năm" },
 ];
 
+const ENERGY_RANGES = [
+    { key: "realtime", label: "Trực tiếp", detail: "2 phút gần nhất · Mỗi cột 30 giây" },
+    { key: "1h", label: "1 giờ", detail: "1 giờ gần nhất · Mỗi cột 5 phút" },
+    { key: "6h", label: "6 giờ", detail: "6 giờ gần nhất · Mỗi cột 15 phút" },
+    { key: "12h", label: "12 giờ", detail: "12 giờ gần nhất · Mỗi cột 30 phút" },
+    { key: "day", label: "1 ngày", detail: "Hôm nay · 00:00–23:59:59 · Mỗi cột 1 giờ" },
+    { key: "1week", label: "1 tuần", detail: "6 ngày trước và hôm nay · Mỗi cột 1 ngày" },
+    { key: "1month", label: "1 tháng", detail: "Tháng hiện tại · Mỗi cột 1 ngày" },
+    { key: "1year", label: "1 năm", detail: "12 tháng gồm tháng hiện tại · Mỗi cột 1 tháng" },
+];
+
 const HEATMAP_METRICS = [
     {
         key: "grid_out",
@@ -70,6 +81,8 @@ export class SmartSolarDashboard extends Component {
             loading: true,
             chartsLoading: true,
             timeRange: "24h",
+            energyRange: "1week",
+            energyChartStatus: "",
             systemId: null,
             theme: localStorage.getItem("smartsolar_theme") || "light",
             data: null,
@@ -82,6 +95,7 @@ export class SmartSolarDashboard extends Component {
         });
 
         this.timeRanges = TIME_RANGES;
+        this.energyRanges = ENERGY_RANGES;
         this.heatmapMetrics = HEATMAP_METRICS;
         this.charts = {};
         this.refreshTimer = null;
@@ -119,6 +133,8 @@ export class SmartSolarDashboard extends Component {
         onMounted(() => {
             this._renderAllCharts();
             this._loadCharts();
+            this._loadEnergyChart();
+            this._startEnergyChartRefresh();
             this._startAutoRefresh();
             this._applyTheme();
             this._startRealtime();
@@ -127,6 +143,7 @@ export class SmartSolarDashboard extends Component {
         onWillUnmount(() => {
             this._disposed = true;
             this._stopAutoRefresh();
+            clearInterval(this._energyChartTimer);
             this._stopRealtime();
             this._destroyCharts();
         });
@@ -198,13 +215,9 @@ export class SmartSolarDashboard extends Component {
                 time_range: range === "realtime" ? "2min" : range,
                 system_id: systemId, end_at: cutoff,
                 include_overview: false,
+                include_energy_comparison: false,
             });
             if (this._disposed || generation !== this._dataGeneration || range !== this.state.timeRange || systemId !== this.state.systemId) return;
-            const energy = this._energySnapshot;
-            if (range === "realtime" && energy?.systemId === systemId && energy.comparison
-                && cutoff && energy.cutoff > cutoff) {
-                charts.energy_comparison = energy.comparison;
-            }
             this.state.data = { ...this.state.data, ...charts };
             this._renderAllCharts();
         } catch (err) {
@@ -216,6 +229,57 @@ export class SmartSolarDashboard extends Component {
 
     async _refresh() {
         if (await this._loadData() !== false) await this._loadCharts();
+    }
+
+    async _loadEnergyChart() {
+        const range = this.state.energyRange;
+        const systemId = this.state.systemId;
+        if (this._disposed || this._energyChartRequest) return;
+        const token = {};
+        this._energyChartRequest = token;
+        if (!this.energyChartData) this.state.energyChartStatus = "Đang tải điện năng…";
+        try {
+            const data = await rpc("/smartsolar/dashboard/energy_chart", {
+                time_range: range, system_id: systemId,
+            });
+            if (this._disposed || this._energyChartRequest !== token) return;
+            this.energyChartData = data;
+            this._renderEnergyChart();
+            this.state.energyChartStatus = "";
+        } catch {
+            if (!this._disposed && this._energyChartRequest === token) {
+                this.state.energyChartStatus = "Không thể cập nhật biểu đồ điện năng.";
+            }
+        } finally {
+            if (this._energyChartRequest === token) this._energyChartRequest = null;
+        }
+    }
+
+    _startEnergyChartRefresh() {
+        clearInterval(this._energyChartTimer);
+        const seconds = this.state.energyRange === "realtime"
+            ? 15 : (this.state.data?.kpi?.refresh_interval ?? 60);
+        if (this.state.autoRefresh && seconds > 0) {
+            this._energyChartTimer = setInterval(() => this._loadEnergyChart(), seconds * 1000);
+        }
+    }
+
+    _resetEnergyChart() {
+        this._energyChartRequest = null;
+        this.energyChartData = null;
+        this._clearEnergyChart();
+    }
+
+    onEnergyRangeChange(range) {
+        if (range === this.state.energyRange) return;
+        this.state.energyRange = range;
+        this._resetEnergyChart();
+        this._loadEnergyChart();
+        this._startEnergyChartRefresh();
+    }
+
+    get energyRangeDetail() {
+        return this.energyRanges.find(item => item.key === this.state.energyRange)?.detail;
     }
 
     // ------------------------------------------------------------------
@@ -238,6 +302,7 @@ export class SmartSolarDashboard extends Component {
 
     toggleAutoRefresh() {
         this.state.autoRefresh = !this.state.autoRefresh;
+        this._startEnergyChartRefresh();
         if (this.state.autoRefresh) {
             this._startAutoRefresh();
         } else {
@@ -253,6 +318,7 @@ export class SmartSolarDashboard extends Component {
         localStorage.setItem("smartsolar_theme", this.state.theme);
         this._applyTheme();
         this._renderAllCharts();
+        if (this.energyChartData) this._renderEnergyChart();
     }
 
     _applyTheme() {
@@ -278,6 +344,7 @@ export class SmartSolarDashboard extends Component {
                 const data = await rpc("/smartsolar/dashboard/data", {
                     time_range: "2min",
                     system_id: this.state.systemId,
+                    include_energy_comparison: false,
                 });
                 if (data) {
                     this.state.data = data;
@@ -294,6 +361,7 @@ export class SmartSolarDashboard extends Component {
     async onSystemChange(ev) {
         const val = ev.target.value;
         this.state.systemId = val ? parseInt(val, 10) : null;
+        this._resetEnergyChart();
         this._stopRealtime();
         this._deviceRealtime?.clear();
         for (const key of Object.keys(this._rt)) delete this._rt[key];
@@ -307,11 +375,13 @@ export class SmartSolarDashboard extends Component {
             }
             this._overviewComponent._updateBatteryFlow();
         }
-        await this._refresh();
+        await Promise.all([this._refresh(), this._loadEnergyChart()]);
+        this._startEnergyChartRefresh();
         await this._startRealtime();
     }
 
     onManualRefresh() {
+        this._loadEnergyChart();
         if (this.state.timeRange === "realtime") return;
         this._refresh();
     }
@@ -426,23 +496,17 @@ export class SmartSolarDashboard extends Component {
     async _loadEnergyWidgets() {
         if (this._disposed || !this._energyDirty || this._energyRequest) return;
         this._energyDirty = false;
-        const token = {systemId: this.state.systemId, generation: this._dataGeneration, range: this.state.timeRange};
+        const token = {systemId: this.state.systemId, generation: this._dataGeneration};
         this._energyRequest = token;
         this._energyLastRequestAt = Date.now();
         try {
-            const args = {system_id: token.systemId};
-            if (token.range === "realtime") args.include_energy_chart = true;
-            const data = await rpc("/smartsolar/dashboard/energy_widgets", args);
+            const data = await rpc("/smartsolar/dashboard/energy_widgets", {system_id: token.systemId});
             if (this._disposed || this._energyRequest !== token || token.systemId !== this.state.systemId
                 || token.generation !== this._dataGeneration || !this.state.data?.kpi
                 || !data?.energy_widgets || !data.cutoff) return;
             if (this._energySnapshot?.systemId === token.systemId && this._energySnapshot.cutoff > data.cutoff) return;
-            this._energySnapshot = {systemId: token.systemId, cutoff: data.cutoff, widgets: data.energy_widgets, comparison: data.energy_comparison};
+            this._energySnapshot = {systemId: token.systemId, cutoff: data.cutoff, widgets: data.energy_widgets};
             this.state.data.kpi.energy_widgets = data.energy_widgets;
-            if (token.range === "realtime" && this.state.timeRange === token.range && data.energy_comparison) {
-                this.state.data.energy_comparison = data.energy_comparison;
-                this._renderEnergyChart();
-            }
         } catch {
             // Keep the last confirmed values. A later bus event retries; no
             // polling loop or extrapolated kWh while the connection is down.
@@ -594,17 +658,19 @@ export class SmartSolarDashboard extends Component {
     // ------------------------------------------------------------------
     // Chart rendering
     // ------------------------------------------------------------------
-    _destroyCharts() {
-        Object.values(this.charts).forEach((c) => c && c.destroy && c.destroy());
-        this.charts = {};
+    _destroyCharts(keepEnergy = false) {
+        for (const [key, chart] of Object.entries(this.charts)) {
+            if (keepEnergy && key === "energy") continue;
+            chart?.destroy();
+            delete this.charts[key];
+        }
     }
 
     _renderAllCharts() {
         if (!this.state.data) return;
-        this._destroyCharts();
+        this._destroyCharts(true);
         this._renderChargePowerChart();
         this._renderGridTieChart();
-        this._renderEnergyChart();
         this._renderTemperatureChart();
         this._renderBatteryChart();
         this._renderPvEfficiencyChart();
@@ -618,7 +684,7 @@ export class SmartSolarDashboard extends Component {
 
         // Tạo data giả cho state.data để _render* methods có thể dùng
         // Thay vì gọi _render*, inject trực tiếp vào chart sau khi render
-        this._destroyCharts();
+        this._destroyCharts(true);
 
         // Inject data từ buffer vào state.data tạm để render
         const saved = this.state.data;
@@ -665,7 +731,6 @@ export class SmartSolarDashboard extends Component {
         this._renderTemperatureChart();
         this._renderBatteryChart();
         this._renderPvEfficiencyChart();
-        this._renderEnergyChart();
         this._renderDistributionChart();
 
         this.state.data = saved;
@@ -794,14 +859,25 @@ export class SmartSolarDashboard extends Component {
         });
     }
 
+    _clearEnergyChart() {
+        this.charts.energy?.destroy();
+        delete this.charts.energy;
+        const canvas = this.refs.energy.el;
+        canvas?.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
+    }
+
     _renderEnergyChart() {
         const canvas = this.refs.energy.el;
         if (!canvas) return;
-        const e = this.state.data.energy_comparison;
-        if (!e || !e.labels.length) { this._showEmpty(canvas); return; }
+        const e = this.energyChartData;
+        if (!e || !e.labels.length) {
+            this._clearEnergyChart();
+            this._showEmpty(canvas);
+            return;
+        }
         const options = this._commonChartOptions();
         options.scales.x.stacked = true;
-        if (e.bucket === "hour") options.scales.x.ticks.maxTicksLimit = 24;
+        if (this.state.energyRange === "day") options.scales.x.ticks.maxTicksLimit = 24;
         options.scales.y.stacked = true;
         options.scales.y.beginAtZero = true;
         options.scales.y.title = {display: true, text: "Điện năng (kWh)", color: options.scales.y.ticks.color};
@@ -812,11 +888,11 @@ export class SmartSolarDashboard extends Component {
                 const total = e.total_kwh?.[index];
                 return [total === null || total === undefined
                     ? "Tổng tiêu thụ: chưa có dữ liệu"
-                    : `Tổng tiêu thụ: ${this.fmtNumber(total, e.bucket && e.bucket !== "day" ? 6 : 3)} kWh`];
+                    : `Tổng tiêu thụ: ${this.fmtNumber(total, this.state.energyRange === "realtime" ? 6 : 3)} kWh`];
             },
         };
         const data = {
-            labels: e.bucket && e.bucket !== "day" ? e.labels.map(label => label.slice(11, 16)) : e.labels,
+            labels: e.labels,
             datasets: [
                 {label: "Điện inverter cấp tải (kWh)", data: e.inverter_kwh,
                  backgroundColor: COLORS.accent, stack: "consumption", borderSkipped: false},

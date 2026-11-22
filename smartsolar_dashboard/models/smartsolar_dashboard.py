@@ -1311,6 +1311,87 @@ class SmartSolarDashboard(models.AbstractModel):
                                     else f'Mỗi cột {minutes} phút'))
         return result
 
+    @api.model
+    def get_energy_chart(self, time_range='day', system_id=None):
+        """Return the independently selected energy chart in local calendar time."""
+        short_ranges = {
+            'realtime': (120, 30), '1h': (3600, 300),
+            '6h': (21600, 900), '12h': (43200, 1800),
+        }
+        if time_range not in (*short_ranges, 'day', '1week', '1month', '1year'):
+            raise ValueError('Unsupported energy chart range')
+
+        end = fields.Datetime.now()
+        local_now = _to_local(end, self._get_system_timezone(system_id))
+        midnight = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+        def utc(local):
+            return local.astimezone(timezone.utc).replace(tzinfo=None)
+
+        keys = ('inverter_kwh', 'grid_kwh', 'pv_kwh')
+        result = {key: [] for key in ('labels', *keys, 'total_kwh')}
+
+        def append(label, inverter=None, grid=None, pv=None):
+            result['labels'].append(label)
+            for key, value in zip(keys, (inverter, grid, pv)):
+                result[key].append(value)
+            total = round(inverter + grid, 6) if inverter is not None and grid is not None else None
+            result['total_kwh'].append(total)
+
+        if time_range == 'day' or time_range in short_ranges:
+            if time_range == 'day':
+                start = utc(midnight)
+                stop = utc(midnight + timedelta(days=1))
+                step = timedelta(hours=1)
+            else:
+                duration, seconds = short_ranges[time_range]
+                start = end - timedelta(seconds=duration)
+                stop = end
+                step = timedelta(seconds=seconds)
+            while start < stop:
+                right = min(start + step, stop)
+                label = _to_local(start, str(local_now.tzinfo)).strftime(
+                    '%H:%M:%S' if time_range == 'realtime' else '%H:%M')
+                if start >= end:
+                    append(label)
+                else:
+                    cutoff = min(right, end)
+                    cfg = {'delta': (cutoff - start).total_seconds()}
+                    flow = self._energy_distribution_for_range(cfg, start, cutoff, system_id, time_range)
+                    pv = list(self._get_daily_pv_energy(start, cutoff, system_id).values())
+                    append(label, *flow['data'],
+                           round(sum(pv), 6) if pv and all(v is not None for v in pv) else None)
+                start = right
+            return result
+
+        first_month = midnight.replace(day=1)
+        months = [first_month]
+        if time_range == '1year':
+            for _index in range(11):
+                months.append((months[-1] - timedelta(days=1)).replace(day=1))
+            months.reverse()
+        start = midnight - timedelta(days=6) if time_range == '1week' else months[0]
+        reader = self.with_context(smartsolar_dashboard_read_ledger=True)
+        daily = reader.get_energy_comparison(time_range, system_id, date_bounds=(utc(start), end))
+        by_day = dict(zip(daily['labels'], zip(*(daily[key] for key in keys))))
+        if time_range == '1year':
+            by_month = defaultdict(list)
+            for day, values in by_day.items():
+                by_month[day[:7]].append(values)
+            for month in months:
+                rows = by_month[month.strftime('%Y-%m')]
+                known = [[row[i] for row in rows if row[i] is not None] for i in range(len(keys))]
+                append(month.strftime('%m/%Y'), *(round(sum(values), 6) if values else None for values in known))
+        else:
+            stop = midnight + timedelta(days=1)
+            if time_range == '1month':
+                stop = (first_month + timedelta(days=32)).replace(day=1)
+            while start < stop:
+                append(start.strftime('%d/%m'), *by_day.get(start.date().isoformat(), (None,) * len(keys)))
+                start += timedelta(days=1)
+        return result
+
+    @api.model
     def get_energy_comparison(self, time_range='1week', system_id=None, daily_cache=None, end_at=None, date_bounds=None):
         """Daily consumption with the same branch validation as the flow chart."""
         cfg, start, end = self._resolve_time_range(time_range, system_id)
@@ -1926,7 +2007,8 @@ class SmartSolarDashboard(models.AbstractModel):
     # All-in-one fetch
     # ------------------------------------------------------------------
     @api.model
-    def get_dashboard_data(self, time_range='24h', system_id=None, end_at=None, include_overview=True):
+    def get_dashboard_data(self, time_range='24h', system_id=None, end_at=None, include_overview=True,
+                           include_energy_comparison=True):
         daily_cache, end_at = {}, fields.Datetime.to_datetime(end_at) if end_at else fields.Datetime.now()
         self = self.with_context(smartsolar_dashboard_end_at=end_at,
             smartsolar_chart_rows={} if self.env.context.get('smartsolar_share_chart_reads', True) else None)
@@ -1935,7 +2017,6 @@ class SmartSolarDashboard(models.AbstractModel):
         result = {
             'charge_power': self.get_charge_power_series(time_range=time_range, system_id=system_id),
             'grid_tie': self.get_grid_tie_series(time_range=time_range, system_id=system_id),
-            'energy_comparison': reader._get_chart_energy_comparison(time_range, system_id, daily_cache, end_at),
             'temperature': self.get_temperature_series(time_range=time_range, system_id=system_id),
             'battery_flow': balance,
             'pv_efficiency': self.get_pv_efficiency_series(time_range=time_range, system_id=system_id, balance=balance),
@@ -1945,6 +2026,9 @@ class SmartSolarDashboard(models.AbstractModel):
             'time_range': time_range,
             'system_id': system_id,
         }
+        if include_energy_comparison:
+            result['energy_comparison'] = reader._get_chart_energy_comparison(
+                time_range, system_id, daily_cache, end_at)
         if include_overview:
             result.update({
                 'kpi': reader._get_dashboard_overview(system_id, daily_cache, end_at),

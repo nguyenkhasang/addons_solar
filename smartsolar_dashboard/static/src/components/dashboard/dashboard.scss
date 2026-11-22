@@ -192,6 +192,8 @@
     .ss_time_buttons { display: inline-flex; gap: 4px; background: var(--ss-surface-2); padding: 4px; border-radius: var(--ss-radius-sm); }
     .ss_time_btn { background: transparent; border: none; color: var(--ss-text-muted); padding: 6px 14px; border-radius: 6px; font-size: 12px; font-weight: 500; cursor: pointer; }
     .ss_time_btn.active { background: var(--ss-primary); color: #0F172A; }
+    .ss_energy_time_buttons { max-width: 100%; flex-wrap: wrap; margin-bottom: 8px; }
+    .ss_energy_time_buttons .ss_time_btn { white-space: nowrap; }
     .ss_time_meta { margin-left: auto; font-size: 12px; color: var(--ss-text-faint); display: flex; align-items: center; gap: 8px; }
     .ss_charts_grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 16px; }
     .ss_col_4 { grid-column: span 4; }

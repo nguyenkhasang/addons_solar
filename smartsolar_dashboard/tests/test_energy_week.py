@@ -179,3 +179,47 @@ class TestChartEnergyComparison(TestCase):
                     dashboard, period, 12, end_at=cutoff, include_overview=False)
                 dashboard._get_chart_energy_comparison.assert_called_once_with(period, 12, {}, cutoff)
                 self.assertEqual(result['energy_comparison'], {'source': 'selected_range'})
+
+
+class TestIndependentEnergyChart(TestCase):
+    reader = TestEnergyWeek.reader
+
+    def test_chart_day_has_full_hour_axis_and_stops_reading_at_now(self):
+        end = datetime(2026, 10, 16, 6, 38)
+        fake = self.reader()
+        with patch.object(fields.Datetime, 'now', return_value=end):
+            result = SmartSolarDashboard.get_energy_chart(fake, 'day', 12)
+        self.assertEqual(result['labels'], [f'{hour:02d}:00' for hour in range(24)])
+        self.assertEqual(result['total_kwh'], [3] * 14 + [None] * 10)
+        calls = fake._energy_distribution_for_range.call_args_list
+        self.assertEqual(calls[0].args[1:3], (datetime(2026, 10, 15, 17), datetime(2026, 10, 15, 18)))
+        self.assertEqual(calls[-1].args[1:3], (datetime(2026, 10, 16, 6), end))
+
+    def test_chart_week_keeps_today_even_at_midnight(self):
+        end = datetime(2026, 10, 15, 17)
+        fake = self.reader()
+        fake.with_context = MagicMock(return_value=fake)
+        fake.get_energy_comparison = MagicMock(return_value={
+            'labels': ['2026-10-10'], 'inverter_kwh': [2], 'grid_kwh': [1], 'pv_kwh': [3]})
+        with patch.object(fields.Datetime, 'now', return_value=end):
+            result = SmartSolarDashboard.get_energy_chart(fake, '1week', 12)
+        self.assertEqual(result['labels'], [f'{day}/10' for day in range(10, 17)])
+        self.assertEqual(result['total_kwh'], [3] + [None] * 6)
+        fake.get_energy_comparison.assert_called_once_with(
+            '1week', 12, date_bounds=(datetime(2026, 10, 9, 17), end))
+
+    def test_chart_year_sums_12_calendar_months_with_missing_data(self):
+        end = datetime(2026, 10, 16, 6)
+        fake = self.reader()
+        fake.with_context = MagicMock(return_value=fake)
+        fake.get_energy_comparison = MagicMock(return_value={
+            'labels': ['2025-11-01', '2025-11-02', '2026-10-16'],
+            'inverter_kwh': [2, 4, 0], 'grid_kwh': [1, 3, 0], 'pv_kwh': [5, 6, None]})
+        with patch.object(fields.Datetime, 'now', return_value=end):
+            result = SmartSolarDashboard.get_energy_chart(fake, '1year', 12)
+        self.assertEqual(len(result['labels']), 12)
+        self.assertEqual((result['labels'][0], result['labels'][-1]), ('11/2025', '10/2026'))
+        self.assertEqual(result['total_kwh'], [10] + [None] * 10 + [0])
+        self.assertEqual(result['pv_kwh'], [11] + [None] * 11)
+        fake.get_energy_comparison.assert_called_once_with(
+            '1year', 12, date_bounds=(datetime(2025, 10, 31, 17), end))
