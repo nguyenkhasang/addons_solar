@@ -62,8 +62,13 @@ test('missing or invalid measurements keep their last known values',()=>{
 });
 test('out-of-order frames cannot roll device readings back',()=>{
     const c=fixture();c._updateDeviceFromRealtime(msg);
+    assert.equal(c.deviceDotClass(c.state.data.devices[0]),'online pulse-a');
+    assert.equal(c.deviceDotClass(c.state.data.devices[1]),'offline');
     c._updateDeviceFromRealtime({...msg,pv_input_power:1,label:'2026-10-14 11:59:59'});
     assert.equal(c.state.data.devices[0].power,600);assert.equal(c.state.data.devices[0].last_sync,msg.label);
+    assert.equal(c.deviceDotClass(c.state.data.devices[0]),'online pulse-a');
+    c._updateDeviceFromRealtime(msg);
+    assert.equal(c.deviceDotClass(c.state.data.devices[0]),'online pulse-b');
 });
 test('guid fallback rejects ambiguous devices and uses the system scope',()=>{
     const c=fixture();const payload={...msg,device_id:undefined};c._updateDeviceFromRealtime(payload);
@@ -94,6 +99,7 @@ test('one silent device expires after 10 seconds and recovers on its next frame'
         c._refreshDeviceHealth();
         assert.equal(c.onlinePercent,50);
         assert.equal(c.offlineDeviceNames,'MPPT');
+        assert.equal(c.deviceDotClass(c.state.data.devices[0]),'offline');
         assert.equal(c.state.data.devices[0].power,600);
 
         // Replacing the overview with saved rows must not renew the old frame.

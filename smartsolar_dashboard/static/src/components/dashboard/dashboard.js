@@ -553,7 +553,10 @@ export class SmartSolarDashboard extends Component {
         next.status = next.temperature >= (data.kpi?.temperature_alert ?? 60) ? 'warning' : 'online';
         data.devices = data.devices.map(item => item.id === dev.id ? next : item);
         if (!snapshot) {
-            this._deviceRealtime.set(dev.id, { ...previous, ...msg, receivedAt: Date.now() });
+            this._deviceRealtime.set(dev.id, {
+                ...previous, ...msg, receivedAt: Date.now(),
+                pulse: previous?.pulse === "a" ? "b" : "a",
+            });
             this._refreshDeviceHealth();
         }
     }
@@ -584,6 +587,11 @@ export class SmartSolarDashboard extends Component {
         if (data.kpi.online_devices !== online) data.kpi.online_devices = online;
         const offline = devices.length - online;
         if (data.kpi.offline_devices !== offline) data.kpi.offline_devices = offline;
+    }
+
+    deviceDotClass(dev) {
+        const pulse = this._deviceRealtime?.get(dev.id)?.pulse;
+        return pulse && dev.is_online ? `${dev.status} pulse-${pulse}` : dev.status;
     }
 
     deviceSyncLabel(value) {

@@ -86,7 +86,7 @@
                             <div class="ss_empty" t-if="!state.data.devices.length">Chưa có thiết bị</div>
                             <t t-foreach="state.data.devices" t-as="dev" t-key="dev.id">
                                 <button type="button" class="ss_device_row" t-att-class="'status_' + dev.status" t-on-click="() => this.onDeviceClick(dev.id)" t-att-title="dev.name + ' · ' + dev.system_name">
-                                    <div class="ss_device_identity"><span class="ss_device_dot" t-att-class="dev.status"/><span class="ss_device_name" t-esc="dev.name"/><span class="ss_device_meta" t-esc="deviceTypeLabel(dev.type)"/></div>
+                                    <div class="ss_device_identity"><span class="ss_device_dot" t-att-class="deviceDotClass(dev)"/><span class="ss_device_name" t-esc="dev.name"/><span class="ss_device_meta" t-esc="deviceTypeLabel(dev.type)"/></div>
                                     <div class="ss_device_metric"><span t-esc="dev.type === 'charge_power' ? 'PV' : 'AC'"/><strong><t t-esc="fmtNumber(dev.power, 1)"/> W</strong></div>
                                     <div class="ss_device_metric" t-att-class="{ alert: dev.temperature >= state.data.kpi.temperature_alert }"><strong><t t-esc="fmtNumber(dev.temperature, 1)"/>°C</strong></div>
                                     <div class="ss_device_sync" t-att-title="dev.last_sync || 'Chưa đồng bộ'"><i class="fa fa-clock-o"/><strong t-esc="deviceSyncLabel(dev.last_sync)"/></div>
