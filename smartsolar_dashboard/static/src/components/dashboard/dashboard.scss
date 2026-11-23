@@ -200,7 +200,6 @@
     .ss_energy_time_buttons .ss_time_btn { white-space: nowrap; }
     .ss_time_meta { margin-left: auto; font-size: 12px; color: var(--ss-text-faint); display: flex; align-items: center; gap: 8px; }
     .ss_charts_grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 16px; }
-    .ss_charts_section > .ss_charts_grid { margin-bottom: 14px; }
     .ss_col_4 { grid-column: span 4; }
     .ss_col_6 { grid-column: span 6; }
     .ss_col_8 { grid-column: span 8; }

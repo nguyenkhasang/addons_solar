@@ -73,13 +73,6 @@
                     </div>
                 </details>
             </div>
-            <section class="ss_charts_section" t-if="hasData">
-            <div class="ss_time_bar" t-if="hasData"><div class="ss_time_label">Khoảng biểu đồ công suất</div><div class="ss_time_buttons" role="group" aria-label="Khoảng biểu đồ công suất"><t t-foreach="timeRanges" t-as="r" t-key="r.key"><button class="ss_time_btn" t-att-class="{ active: state.timeRange === r.key, 'ss_live_btn': r.key === 'realtime' }" t-att-aria-pressed="state.timeRange === r.key ? 'true' : 'false'" t-on-click="() => this.onTimeRangeChange(r.key)"><t t-esc="r.label"/></button></t></div><div class="ss_time_meta"><span class="ss_chart_period"><t t-esc="currentRangeLabel"/></span><span class="ss_chart_update" role="status"><t t-esc="chartUpdateLabel"/></span><span><i class="fa fa-clock-o"/> Cập nhật: <t t-esc="refreshLabel"/></span></div></div>
-            <div class="ss_chart_sub" role="status" t-if="hasData and state.chartsLoading">Đang tải biểu đồ…</div>
-            <div class="ss_charts_grid" t-if="hasData">
-                <div class="ss_chart_card ss_col_8 ss_chart_primary"><div class="ss_chart_header"><div><div class="ss_chart_title"><i class="fa fa-plug"/> Công suất tải và nguồn điện</div><div class="ss_chart_sub">Tổng tải = inverter cấp tải + lấy lưới</div></div></div><div class="ss_chart_body ss_chart_body_large"><canvas t-ref="gridTieChart"/></div></div>
-                <div class="ss_chart_card ss_col_4"><div class="ss_chart_header"><div><div class="ss_chart_title"><i class="fa fa-pie-chart"/> Phân bổ điện cấp tải</div><div class="ss_chart_sub"><t t-esc="distributionSubtitle"/></div></div></div><div class="ss_chart_body ss_chart_body_donut"><canvas t-ref="distributionChart"/></div></div>
-            </div>
             <div class="ss_ops_grid" t-if="hasData">
                 <div class="ss_overview_container"><SystemOverview kpi="state.data.kpi" showBms="false" chargerLive="!!liveCharger" inverterLive="!!liveInverter" devices="state.data.devices" theme="state.theme" onUpdate.bind="_onOverviewUpdate"/></div>
                 <div class="ss_status_panel">
@@ -135,7 +128,64 @@
 
                 </div>
             </div>
-            <div class="ss_charts_grid">
+            <SystemOverview t-if="hasData" showDiagram="false" batteries="state.data.bms || []" theme="state.theme"/>
+            <div class="ss_weather_panel" t-if="hasData and hasEnvironment">
+                <div class="ss_weather_header">
+                    <div class="ss_weather_now">
+                        <span class="ss_weather_icon"><i class="fa" t-att-class="weatherIcon"/></span>
+                        <div>
+                            <div class="ss_weather_temp"><t t-esc="fmtNumber(weather.temperature, 1)"/>°C</div>
+                            <div class="ss_weather_desc"><t t-esc="weather.weather_description"/></div>
+                        </div>
+                    </div>
+                    <div class="ss_weather_meta">
+                        <div class="ss_weather_title"><i class="fa fa-cloud"/> Thời tiết môi trường</div>
+                        <div class="ss_weather_sub"><t t-esc="weather.system_name"/> · Cập nhật <t t-esc="weather.record_date"/></div>
+                    </div>
+                </div>
+                <div class="ss_weather_grid ss_weather_primary">
+                    <div class="ss_weather_item"><span class="ss_weather_k"><i class="fa fa-cloud"/> Mây che</span><strong><t t-esc="fmtNumber(weather.cloud_cover, 0)"/>%</strong></div>
+                    <div class="ss_weather_item"><span class="ss_weather_k"><i class="fa fa-umbrella"/> Mưa</span><strong><t t-esc="fmtNumber(weather.rain, 1)"/> mm</strong></div>
+                    <div class="ss_weather_item"><span class="ss_weather_k"><i class="fa fa-sun-o"/> Bức xạ</span><strong><t t-esc="fmtNumber(weather.radiation, 2)"/> MJ/m²</strong></div>
+                </div>
+                <details class="ss_weather_details">
+                    <summary>Chi tiết thời tiết</summary>
+                    <div class="ss_weather_grid">
+                    <div class="ss_weather_item"><span class="ss_weather_k"><i class="fa fa-tint"/> Độ ẩm</span><strong><t t-esc="fmtNumber(weather.humidity, 0)"/>%</strong></div>
+                    <div class="ss_weather_item"><span class="ss_weather_k"><i class="fa fa-flag"/> Gió</span><strong><t t-esc="fmtNumber(weather.wind_speed, 1)"/> km/h</strong></div>
+                    <div class="ss_weather_item"><span class="ss_weather_k"><i class="fa fa-tachometer"/> Áp suất</span><strong><t t-esc="fmtNumber(weather.pressure, 0)"/> hPa</strong></div>
+                    <div class="ss_weather_item"><span class="ss_weather_k"><i class="fa fa-sun-o"/> UV cao nhất</span><strong><t t-esc="fmtNumber(weather.uv_index_max, 1)"/></strong></div>
+                    <div class="ss_weather_item"><span class="ss_weather_k"><i class="fa fa-clock-o"/> Giờ nắng</span><strong><t t-esc="fmtNumber(weather.sunshine_hours, 1)"/> h</strong></div>
+                    <div class="ss_weather_item"><span class="ss_weather_k"><i class="fa fa-arrow-up"/> Bình minh</span><strong><t t-esc="weather.sunrise"/></strong></div>
+                    <div class="ss_weather_item"><span class="ss_weather_k"><i class="fa fa-arrow-down"/> Hoàng hôn</span><strong><t t-esc="weather.sunset"/></strong></div>
+                    <div class="ss_weather_item"><span class="ss_weather_k"><i class="fa fa-thermometer-full"/> Nhiệt độ cao nhất</span><strong><t t-esc="fmtNumber(weather.temp_max, 1)"/>°C</strong></div>
+                    <div class="ss_weather_item"><span class="ss_weather_k"><i class="fa fa-umbrella"/> Xác suất mưa</span><strong><t t-esc="fmtNumber(weather.rain_probability, 0)"/>%</strong></div>
+                    </div>
+                </details>
+            </div>
+            <div class="ss_lifetime_grid" t-if="hasData">
+                <div class="ss_lifetime_item"><span>Tổng điện cấp tải</span><strong><t t-esc="fmtNumber(state.data.kpi.total_kwh, 1)"/> kWh</strong></div>
+                <div class="ss_lifetime_item"><span>Tổng thu PV</span><strong><t t-esc="fmtNumber(state.data.kpi.total_pv_kwh, 1)"/> kWh</strong></div>
+                <div class="ss_lifetime_item"><span>Tổng lấy lưới</span><strong><t t-esc="fmtNumber(state.data.kpi.total_limiter_kwh, 1)"/> kWh</strong></div>
+                <div class="ss_lifetime_item"><span>Tổng tiết kiệm</span><strong><t t-esc="fmtMoney(state.data.kpi.revenue_total)"/> <t t-esc="state.data.kpi.currency_symbol"/></strong></div>
+                <div class="ss_lifetime_item clickable" t-on-click="onOpenSystems"><span>Hệ thống</span><strong><t t-esc="state.data.kpi.total_systems"/></strong></div>
+            </div>
+            <div class="ss_lifetime_meta" t-if="hasData and state.data.kpi.lifetime">
+                <strong>Tích luỹ hệ thống</strong>
+                <span t-if="state.data.kpi.lifetime.first_day">Từ <t t-esc="state.data.kpi.lifetime.first_day"/></span>
+                <span t-if="!state.data.kpi.lifetime.initialized">Đang tổng hợp lịch sử</span>
+                <span t-if="state.data.kpi.lifetime.missing_days">Thiếu <t t-esc="state.data.kpi.lifetime.missing_days"/> ngày dữ liệu</span>
+                <span t-if="state.data.kpi.lifetime.partial_days"><t t-esc="state.data.kpi.lifetime.partial_days"/> ngày có dữ liệu một phần</span>
+                <span t-if="state.data.kpi.lifetime.estimated_days">Điện năng có phần ước tính từ công suất</span>
+                <span title="Lịch sử chưa có biểu giá theo từng kỳ; các kỳ khởi tạo dùng biểu giá cấu hình lúc tổng hợp">Tiết kiệm ước tính · chưa trừ bảo trì/đầu tư</span>
+                <span t-if="state.data.kpi.lifetime.updated_at">Cập nhật: <t t-esc="state.data.kpi.lifetime.updated_at"/></span>
+            </div>
+            <section class="ss_charts_section" t-if="hasData">
+            <div class="ss_time_bar" t-if="hasData"><div class="ss_time_label">Khoảng biểu đồ công suất</div><div class="ss_time_buttons" role="group" aria-label="Khoảng biểu đồ công suất"><t t-foreach="timeRanges" t-as="r" t-key="r.key"><button class="ss_time_btn" t-att-class="{ active: state.timeRange === r.key, 'ss_live_btn': r.key === 'realtime' }" t-att-aria-pressed="state.timeRange === r.key ? 'true' : 'false'" t-on-click="() => this.onTimeRangeChange(r.key)"><t t-esc="r.label"/></button></t></div><div class="ss_time_meta"><span class="ss_chart_period"><t t-esc="currentRangeLabel"/></span><span class="ss_chart_update" role="status"><t t-esc="chartUpdateLabel"/></span><span><i class="fa fa-clock-o"/> Cập nhật: <t t-esc="refreshLabel"/></span></div></div>
+            <div class="ss_chart_sub" role="status" t-if="hasData and state.chartsLoading">Đang tải biểu đồ…</div>
+            <div class="ss_charts_grid" t-if="hasData">
+                <div class="ss_chart_card ss_col_8 ss_chart_primary"><div class="ss_chart_header"><div><div class="ss_chart_title"><i class="fa fa-plug"/> Công suất tải và nguồn điện</div><div class="ss_chart_sub">Tổng tải = inverter cấp tải + lấy lưới</div></div></div><div class="ss_chart_body ss_chart_body_large"><canvas t-ref="gridTieChart"/></div></div>
+                <div class="ss_chart_card ss_col_4"><div class="ss_chart_header"><div><div class="ss_chart_title"><i class="fa fa-pie-chart"/> Phân bổ điện cấp tải</div><div class="ss_chart_sub"><t t-esc="distributionSubtitle"/></div></div></div><div class="ss_chart_body ss_chart_body_donut"><canvas t-ref="distributionChart"/></div></div>
                 <div class="ss_chart_card ss_col_6"><div class="ss_chart_header"><div><div class="ss_chart_title"><i class="fa fa-battery-full"/> PV &amp; MPPT</div><div class="ss_chart_sub">Công suất PV vào và điện áp PV</div></div></div><div class="ss_chart_body"><canvas t-ref="chargePowerChart"/></div></div>
                 <div class="ss_chart_card ss_col_6">
                     <div class="ss_chart_header">
@@ -196,58 +246,6 @@
 
             </div>
             </section>
-            <SystemOverview t-if="hasData" showDiagram="false" batteries="state.data.bms || []" theme="state.theme"/>
-            <div class="ss_weather_panel" t-if="hasData and hasEnvironment">
-                <div class="ss_weather_header">
-                    <div class="ss_weather_now">
-                        <span class="ss_weather_icon"><i class="fa" t-att-class="weatherIcon"/></span>
-                        <div>
-                            <div class="ss_weather_temp"><t t-esc="fmtNumber(weather.temperature, 1)"/>°C</div>
-                            <div class="ss_weather_desc"><t t-esc="weather.weather_description"/></div>
-                        </div>
-                    </div>
-                    <div class="ss_weather_meta">
-                        <div class="ss_weather_title"><i class="fa fa-cloud"/> Thời tiết môi trường</div>
-                        <div class="ss_weather_sub"><t t-esc="weather.system_name"/> · Cập nhật <t t-esc="weather.record_date"/></div>
-                    </div>
-                </div>
-                <div class="ss_weather_grid ss_weather_primary">
-                    <div class="ss_weather_item"><span class="ss_weather_k"><i class="fa fa-cloud"/> Mây che</span><strong><t t-esc="fmtNumber(weather.cloud_cover, 0)"/>%</strong></div>
-                    <div class="ss_weather_item"><span class="ss_weather_k"><i class="fa fa-umbrella"/> Mưa</span><strong><t t-esc="fmtNumber(weather.rain, 1)"/> mm</strong></div>
-                    <div class="ss_weather_item"><span class="ss_weather_k"><i class="fa fa-sun-o"/> Bức xạ</span><strong><t t-esc="fmtNumber(weather.radiation, 2)"/> MJ/m²</strong></div>
-                </div>
-                <details class="ss_weather_details">
-                    <summary>Chi tiết thời tiết</summary>
-                    <div class="ss_weather_grid">
-                    <div class="ss_weather_item"><span class="ss_weather_k"><i class="fa fa-tint"/> Độ ẩm</span><strong><t t-esc="fmtNumber(weather.humidity, 0)"/>%</strong></div>
-                    <div class="ss_weather_item"><span class="ss_weather_k"><i class="fa fa-flag"/> Gió</span><strong><t t-esc="fmtNumber(weather.wind_speed, 1)"/> km/h</strong></div>
-                    <div class="ss_weather_item"><span class="ss_weather_k"><i class="fa fa-tachometer"/> Áp suất</span><strong><t t-esc="fmtNumber(weather.pressure, 0)"/> hPa</strong></div>
-                    <div class="ss_weather_item"><span class="ss_weather_k"><i class="fa fa-sun-o"/> UV cao nhất</span><strong><t t-esc="fmtNumber(weather.uv_index_max, 1)"/></strong></div>
-                    <div class="ss_weather_item"><span class="ss_weather_k"><i class="fa fa-clock-o"/> Giờ nắng</span><strong><t t-esc="fmtNumber(weather.sunshine_hours, 1)"/> h</strong></div>
-                    <div class="ss_weather_item"><span class="ss_weather_k"><i class="fa fa-arrow-up"/> Bình minh</span><strong><t t-esc="weather.sunrise"/></strong></div>
-                    <div class="ss_weather_item"><span class="ss_weather_k"><i class="fa fa-arrow-down"/> Hoàng hôn</span><strong><t t-esc="weather.sunset"/></strong></div>
-                    <div class="ss_weather_item"><span class="ss_weather_k"><i class="fa fa-thermometer-full"/> Nhiệt độ cao nhất</span><strong><t t-esc="fmtNumber(weather.temp_max, 1)"/>°C</strong></div>
-                    <div class="ss_weather_item"><span class="ss_weather_k"><i class="fa fa-umbrella"/> Xác suất mưa</span><strong><t t-esc="fmtNumber(weather.rain_probability, 0)"/>%</strong></div>
-                    </div>
-                </details>
-            </div>
-            <div class="ss_lifetime_grid" t-if="hasData">
-                <div class="ss_lifetime_item"><span>Tổng điện cấp tải</span><strong><t t-esc="fmtNumber(state.data.kpi.total_kwh, 1)"/> kWh</strong></div>
-                <div class="ss_lifetime_item"><span>Tổng thu PV</span><strong><t t-esc="fmtNumber(state.data.kpi.total_pv_kwh, 1)"/> kWh</strong></div>
-                <div class="ss_lifetime_item"><span>Tổng lấy lưới</span><strong><t t-esc="fmtNumber(state.data.kpi.total_limiter_kwh, 1)"/> kWh</strong></div>
-                <div class="ss_lifetime_item"><span>Tổng tiết kiệm</span><strong><t t-esc="fmtMoney(state.data.kpi.revenue_total)"/> <t t-esc="state.data.kpi.currency_symbol"/></strong></div>
-                <div class="ss_lifetime_item clickable" t-on-click="onOpenSystems"><span>Hệ thống</span><strong><t t-esc="state.data.kpi.total_systems"/></strong></div>
-            </div>
-            <div class="ss_lifetime_meta" t-if="hasData and state.data.kpi.lifetime">
-                <strong>Tích luỹ hệ thống</strong>
-                <span t-if="state.data.kpi.lifetime.first_day">Từ <t t-esc="state.data.kpi.lifetime.first_day"/></span>
-                <span t-if="!state.data.kpi.lifetime.initialized">Đang tổng hợp lịch sử</span>
-                <span t-if="state.data.kpi.lifetime.missing_days">Thiếu <t t-esc="state.data.kpi.lifetime.missing_days"/> ngày dữ liệu</span>
-                <span t-if="state.data.kpi.lifetime.partial_days"><t t-esc="state.data.kpi.lifetime.partial_days"/> ngày có dữ liệu một phần</span>
-                <span t-if="state.data.kpi.lifetime.estimated_days">Điện năng có phần ước tính từ công suất</span>
-                <span title="Lịch sử chưa có biểu giá theo từng kỳ; các kỳ khởi tạo dùng biểu giá cấu hình lúc tổng hợp">Tiết kiệm ước tính · chưa trừ bảo trì/đầu tư</span>
-                <span t-if="state.data.kpi.lifetime.updated_at">Cập nhật: <t t-esc="state.data.kpi.lifetime.updated_at"/></span>
-            </div>
             <div class="ss_empty_state" t-if="!hasData and !state.loading"><i class="fa fa-database"/><h3>Chưa có dữ liệu</h3><p>Hãy kiểm tra kết nối và đồng bộ thiết bị.</p></div>
         </div>
     </t>
