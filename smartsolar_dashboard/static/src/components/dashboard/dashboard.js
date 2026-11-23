@@ -1,6 +1,6 @@
 /** @odoo-module **/
 
-import { Component, useState, useRef, onWillStart, onMounted, onWillUnmount } from "@odoo/owl";
+import { Component, useState, useRef, onWillStart, onMounted, onPatched, onWillUnmount } from "@odoo/owl";
 import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
 import { rpc } from "@web/core/network/rpc";
@@ -37,8 +37,8 @@ const ENERGY_RANGES = [
 const HEATMAP_METRICS = [
     {
         key: "grid_out",
-        label: "Hòa lưới",
-        title: "Công suất hòa lưới",
+        label: "Inverter cấp tải",
+        title: "Công suất inverter cấp tải",
         description: "Công suất AC trung bình inverter cấp vào hệ thống theo từng giờ",
     },
     {
@@ -51,7 +51,7 @@ const HEATMAP_METRICS = [
         key: "total_load",
         label: "Tổng tải",
         title: "Công suất tổng tải",
-        description: "Tổng công suất tải trung bình (hòa lưới + lấy lưới) theo từng giờ",
+        description: "Tổng công suất tải trung bình (inverter cấp tải + lấy lưới) theo từng giờ",
     },
 ];
 
@@ -68,6 +68,7 @@ const COLORS = {
 };
 
 const DEVICE_TIMEOUT_MS = 10_000;
+const HEATMAP_REFRESH_MS = 5 * 60_000;
 
 export class SmartSolarDashboard extends Component {
     static template = "smartsolar.Dashboard";
@@ -89,11 +90,14 @@ export class SmartSolarDashboard extends Component {
             theme: localStorage.getItem("smartsolar_theme") || "light",
             data: null,
             lastRefresh: null,
+            lastLiveAt: null,
+            chartsUpdatedAt: null,
             snapshotRefresh: null,
             autoRefresh: true,
             realtimeActive: false,
             heatmapMetric: "grid_out",
             heatmapTooltip: null,
+            heatmapStatus: "idle",
         });
 
         this.timeRanges = TIME_RANGES;
@@ -104,6 +108,7 @@ export class SmartSolarDashboard extends Component {
         this._realtimeChannel = null;
         this._realtimeCallback = null;
         this._deviceRealtime = new Map();
+        this._deviceHealthStartedAt = Date.now();
         this._overviewComponent = null;
         this._rt = useState({});
         // Buffer realtime chạy nền — luôn tích lũy dù không ở chế độ Live
@@ -141,13 +146,21 @@ export class SmartSolarDashboard extends Component {
             this._applyTheme();
             this._startRealtime();
             this._deviceHealthTimer = setInterval(() => this._refreshDeviceHealth(), 250);
+            this._observeHeatmap();
+            this._heatmapTimer = setInterval(() => {
+                if (this.state.autoRefresh) this._loadHeatmap();
+            }, HEATMAP_REFRESH_MS);
         });
+        onPatched(() => this._observeHeatmap());
 
         onWillUnmount(() => {
             this._disposed = true;
             this._stopAutoRefresh();
             clearInterval(this._energyChartTimer);
             clearInterval(this._deviceHealthTimer);
+            clearInterval(this._heatmapTimer);
+            this._heatmapObserver?.disconnect();
+            this._heatmapResizeObserver?.disconnect();
             this._stopRealtime();
             this._destroyCharts();
         });
@@ -218,9 +231,11 @@ export class SmartSolarDashboard extends Component {
                 system_id: systemId, end_at: cutoff,
                 include_overview: false,
                 include_energy_comparison: false,
+                include_heatmap: false,
             });
             if (this._disposed || generation !== this._dataGeneration || range !== this.state.timeRange || systemId !== this.state.systemId) return;
             this.state.data = { ...this.state.data, ...charts };
+            this.state.chartsUpdatedAt = new Date();
             this._renderAllCharts();
         } catch (err) {
             if (!this._disposed && generation === this._dataGeneration) this.notification.add(_t("Không thể tải biểu đồ dashboard."), {type: "warning"});
@@ -320,6 +335,7 @@ export class SmartSolarDashboard extends Component {
         localStorage.setItem("smartsolar_theme", this.state.theme);
         this._applyTheme();
         this._renderAllCharts();
+        this._renderHeatmapChart();
         if (this.energyChartData) this._renderEnergyChart();
     }
 
@@ -349,6 +365,7 @@ export class SmartSolarDashboard extends Component {
                     time_range: "2min",
                     system_id: systemId,
                     include_energy_comparison: false,
+                    include_heatmap: false,
                 });
                 if (data && !this._disposed && generation === this._dataGeneration
                     && systemId === this.state.systemId && this.state.timeRange === key) {
@@ -367,9 +384,19 @@ export class SmartSolarDashboard extends Component {
     async onSystemChange(ev) {
         const val = ev.target.value;
         this.state.systemId = val ? parseInt(val, 10) : null;
+        this._heatmapRequest = null;
+        this._heatmapData = null;
+        this._heatmapLoadedAt = null;
+        this._heatmapLayout = null;
+        this.state.heatmapTooltip = null;
+        this.state.heatmapStatus = "idle";
+        this._renderHeatmapChart();
+        this._loadHeatmap();
         this._resetEnergyChart();
         this._stopRealtime();
         this._deviceRealtime?.clear();
+        this.state.lastLiveAt = null;
+        this._deviceHealthStartedAt = Date.now();
         for (const key of Object.keys(this._rt)) delete this._rt[key];
         for (const value of Object.values(this._rtBuffer)) {
             if (Array.isArray(value)) value.length = 0;
@@ -388,9 +415,50 @@ export class SmartSolarDashboard extends Component {
 
     onManualRefresh() {
         this._loadEnergyChart();
+        this._loadHeatmap(true);
         if (this.state.timeRange === "realtime") return;
         this._refresh();
     }
+
+    _observeHeatmap() {
+        const canvas = this.refs.heatmap?.el;
+        if (canvas === this._heatmapCanvas) return;
+        this._heatmapCanvas = canvas;
+        this._heatmapVisible = false;
+        this._heatmapObserver?.disconnect();
+        this._heatmapResizeObserver?.disconnect();
+        if (!canvas) return;
+        this._heatmapObserver = new IntersectionObserver(([entry]) => {
+            if (this._disposed || canvas !== this._heatmapCanvas) return;
+            this._heatmapVisible = entry.isIntersecting;
+            if (this.state.autoRefresh || this.state.heatmapStatus === "idle") this._loadHeatmap();
+        });
+        this._heatmapObserver.observe(canvas.parentElement);
+        this._heatmapResizeObserver = new ResizeObserver(() => this._renderHeatmapChart());
+        this._heatmapResizeObserver.observe(canvas.parentElement);
+    }
+
+    async _loadHeatmap(force = false) {
+        if (this._disposed || !this._heatmapVisible || this._heatmapRequest) return;
+        if (!force && this._heatmapLoadedAt != null && Date.now() - this._heatmapLoadedAt < HEATMAP_REFRESH_MS) return;
+        const token = {};
+        this._heatmapRequest = token;
+        if (!this._heatmapData) this.state.heatmapStatus = "loading";
+        try {
+            const data = await rpc("/smartsolar/dashboard/heatmap", {system_id: this.state.systemId});
+            if (this._disposed || this._heatmapRequest !== token) return;
+            this._heatmapData = data;
+            this._heatmapLoadedAt = Date.now();
+            this.state.heatmapStatus = "ready";
+            this._renderHeatmapChart();
+        } catch {
+            if (!this._disposed && this._heatmapRequest === token) this.state.heatmapStatus = "error";
+        } finally {
+            if (this._heatmapRequest === token) this._heatmapRequest = null;
+        }
+    }
+
+    onRetryHeatmap() { this._loadHeatmap(true); }
 
     onHeatmapMetricChange(key) {
         if (this.state.heatmapMetric === key) return;
@@ -553,12 +621,15 @@ export class SmartSolarDashboard extends Component {
         next.status = next.temperature >= (data.kpi?.temperature_alert ?? 60) ? 'warning' : 'online';
         data.devices = data.devices.map(item => item.id === dev.id ? next : item);
         if (!snapshot) {
+            const receivedAt = Date.now();
             this._deviceRealtime.set(dev.id, {
-                ...previous, ...msg, receivedAt: Date.now(),
+                ...previous, ...msg, receivedAt,
                 pulse: previous?.pulse === "a" ? "b" : "a",
             });
-            this._refreshDeviceHealth();
+            this.state.lastLiveAt = receivedAt;
+            this._refreshDeviceHealth(receivedAt);
         }
+        return true;
     }
 
     _refreshDeviceHealth(now = Date.now()) {
@@ -566,17 +637,28 @@ export class SmartSolarDashboard extends Component {
         if (!data?.devices || !data.kpi) return;
         let changed = false;
         let online = 0;
+        let offline = 0;
         const devices = data.devices.map(dev => {
             // Server snapshot labels are UTC+7. Live frames can be newer than
             // the most recently persisted sample for this device.
             const syncedAt = dev.last_sync ? Date.parse(dev.last_sync.replace(" ", "T") + "+07:00") : NaN;
             const receivedAt = this._deviceRealtime?.get(dev.id)?.receivedAt;
-            const lastSeen = Math.max(syncedAt || 0, receivedAt ?? 0);
+            const lastSeen = receivedAt ?? (syncedAt || 0);
             const age = lastSeen ? now - lastSeen : Infinity;
-            if (dev.is_online && age <= DEVICE_TIMEOUT_MS) {
+            const waiting = this._deviceHealthStartedAt != null && receivedAt == null;
+            if (!waiting && (receivedAt != null || dev.is_online) && age <= DEVICE_TIMEOUT_MS) {
                 online++;
-                return dev;
+                if (dev.is_online) return dev;
+                changed = true;
+                return { ...dev, is_online: true, offline_minutes: null,
+                    status: dev.temperature >= (data.kpi.temperature_alert ?? 60) ? "warning" : "online" };
             }
+            if (waiting && now - this._deviceHealthStartedAt <= DEVICE_TIMEOUT_MS) {
+                if (dev.status === "waiting") return dev;
+                changed = true;
+                return { ...dev, is_online: false, status: "waiting", offline_minutes: null };
+            }
+            offline++;
             const minutes = lastSeen ? Math.max(0, Math.floor(age / 60_000)) : null;
             if (!dev.is_online && dev.status === "offline" && dev.offline_minutes === minutes) return dev;
             changed = true;
@@ -585,7 +667,6 @@ export class SmartSolarDashboard extends Component {
         if (changed) data.devices = devices;
         if (data.kpi.total_devices !== devices.length) data.kpi.total_devices = devices.length;
         if (data.kpi.online_devices !== online) data.kpi.online_devices = online;
-        const offline = devices.length - online;
         if (data.kpi.offline_devices !== offline) data.kpi.offline_devices = offline;
     }
 
@@ -599,7 +680,7 @@ export class SmartSolarDashboard extends Component {
     }
 
     _appendRealtimePoint(msg) {
-        this._updateDeviceFromRealtime(msg);
+        const acceptedDevice = this._updateDeviceFromRealtime(msg);
         const MAX = this._RT_MAX;
         const label = msg.label || "";
         const buf = this._rtBuffer;
@@ -655,7 +736,7 @@ export class SmartSolarDashboard extends Component {
         }
 
         // Cập nhật SystemOverview luôn
-        if (this._overviewComponent) {
+        if (this._overviewComponent && acceptedDevice) {
             this._overviewComponent.updateFromRealtime(msg);
         }
     }
@@ -723,7 +804,6 @@ export class SmartSolarDashboard extends Component {
         this._renderBatteryChart();
         this._renderPvEfficiencyChart();
         this._renderDistributionChart();
-        this._renderHeatmapChart();
     }
 
     _renderRealtimeFromBuffer() {
@@ -882,13 +962,13 @@ export class SmartSolarDashboard extends Component {
                 labels: gt.labels.map(this._fmtLabel.bind(this)),
                 datasets: [
                     {
-                        label: "Công suất hòa lưới (W)", data: gt.output_power,
+                        label: "Inverter cấp tải (W)", data: gt.output_power,
                         borderColor: COLORS.accent, backgroundColor: gradient, borderWidth: 2,
                         fill: "origin", stack: "house_load", order: 1, spanGaps: false,
                         tension: 0.35, pointRadius: 0, pointHoverRadius: 4, yAxisID: "y",
                     },
                     {
-                        label: "Công suất lấy lưới (W)", data: gt.limiter_power,
+                        label: "Lấy lưới (W)", data: gt.limiter_power,
                         borderColor: COLORS.danger, backgroundColor: "rgba(239, 68, 68, 0.22)",
                         borderWidth: 1.6, borderDash: [],
                         fill: "-1", stack: "house_load", order: 1, spanGaps: false,
@@ -1171,16 +1251,19 @@ export class SmartSolarDashboard extends Component {
     _renderHeatmapChart() {
         const canvas = this.refs.heatmap?.el;
         if (!canvas) return;
-        const hm = this.state.data.heatmap;
-        if (!hm || !hm.days.length) { this._showEmpty(canvas); return; }
+        const hm = this._heatmapData;
+        canvas.hidden = !hm;
+        if (!hm) return;
+        if (!hm.days.length) { this._showEmpty(canvas); return; }
         const metricData = hm.series?.[this.state.heatmapMetric] || hm;
         const values = metricData.values || [];
 
         // Set canvas resolution to match CSS size (fix blurry/small rendering)
         const rect = canvas.parentElement.getBoundingClientRect();
         const dpr = window.devicePixelRatio || 1;
-        const cssW = rect.width || 800;
-        const cssH = 360;
+        if (rect.width <= 0 || rect.height <= 0) return;
+        const cssW = rect.width;
+        const cssH = rect.height;
         canvas.width = Math.floor(cssW * dpr);
         canvas.height = Math.floor(cssH * dpr);
         canvas.style.width = cssW + "px";
@@ -1197,7 +1280,7 @@ export class SmartSolarDashboard extends Component {
         const paddingBottom = 24;
         const availH = cssH - paddingTop - paddingBottom;
         const cellW = Math.floor((cssW - labelW) / 24);
-        const cellH = Math.max(10, Math.floor(availH / Math.max(hm.days.length, 1)));
+        const cellH = availH / hm.days.length;
         const minColorW = 5;
         const maxVal = Math.max(metricData.max_val || 0, minColorW);
         this._heatmapLayout = {
@@ -1307,24 +1390,16 @@ export class SmartSolarDashboard extends Component {
     }
 
     get refreshLabel() {
-        if (!this.state.lastRefresh) return "—";
-        return this.state.lastRefresh.toLocaleTimeString("vi-VN");
+        if (this.state.timeRange === "realtime") return this.liveRefreshLabel;
+        return this.state.chartsUpdatedAt?.toLocaleTimeString("vi-VN") ?? "—";
     }
 
     get hasData() {
         return !!this.state.data;
     }
 
-    get dataFreshClass() {
-        if (!this.state.lastRefresh) return "stale";
-        const ageSec = (new Date() - this.state.lastRefresh) / 1000;
-        return ageSec < 120 ? "fresh" : "stale";
-    }
-
-    get dataFreshLabel() {
-        if (!this.state.lastRefresh) return "Chưa tải";
-        const ageSec = (new Date() - this.state.lastRefresh) / 1000;
-        return ageSec < 120 ? "Mới nhất" : "Cũ";
+    get liveRefreshLabel() {
+        return this.state.lastLiveAt == null ? "—" : new Date(this.state.lastLiveAt).toLocaleTimeString("vi-VN");
     }
 
     onDeviceClick(deviceId) {
@@ -1342,7 +1417,7 @@ export class SmartSolarDashboard extends Component {
     }
 
     deviceTypeLabel(type) {
-        if (type === "grid_tie_inverter") return "Hòa lưới";
+        if (type === "grid_tie_inverter") return "Inverter";
         if (type === "charge_power") return "Sạc MPPT";
         return type || "";
     }
@@ -1404,43 +1479,55 @@ export class SmartSolarDashboard extends Component {
 
     get hotDeviceCount() {
         const alert = this.state.data?.kpi?.temperature_alert || 60;
-        return (this.state.data?.devices || []).filter(d => d.temperature >= alert).length;
+        return this.liveTemperatureDevices.filter(d => d.temperature >= alert).length;
     }
 
     get totalDevicePowerW() {
         return (this.state.data?.devices || []).reduce((s, d) => s + (d.power || 0), 0);
     }
 
+    get liveTemperatureDevices() {
+        return (this.state.data?.devices || []).filter(d => d.is_online && Number.isFinite(d.temperature));
+    }
+
     get maxDeviceTemp() {
-        const temps = (this.state.data?.devices || []).map(d => d.temperature || 0);
-        return temps.length ? Math.max(...temps) : 0;
+        const temps = this.liveTemperatureDevices.map(d => d.temperature);
+        return temps.length ? Math.max(...temps) : null;
     }
 
     get avgDeviceTemp() {
-        const devs = (this.state.data?.devices || []).filter(d => d.temperature > 0);
-        if (!devs.length) return 0;
+        const devs = this.liveTemperatureDevices;
+        if (!devs.length) return null;
         return devs.reduce((s, d) => s + d.temperature, 0) / devs.length;
     }
 
     get hottestDeviceName() {
-        const devs = this.state.data?.devices || [];
+        const devs = this.liveTemperatureDevices;
         if (!devs.length) return "—";
         return devs.reduce((a, b) => (a.temperature || 0) >= (b.temperature || 0) ? a : b).name || "—";
     }
 
     get offlineDeviceNames() {
         const offline = (this.state.data?.devices || []).filter(d => d.status === "offline");
-        if (!offline.length) return "Không có";
+        if (!offline.length) return this.connectionState === "waiting" ? "Đang chờ dữ liệu" : "Không có";
         return offline.map(d => d.name).join(", ");
     }
 
+    get connectionState() {
+        const kpi = this.state.data?.kpi;
+        if (kpi?.online_devices) return kpi.offline_devices ? "partial" : "online";
+        if (kpi?.offline_devices && kpi.offline_devices === kpi.total_devices) return "offline";
+        return "waiting";
+    }
+
     get connectionLabel() {
-        return this.state.realtimeActive ? "TRỰC TIẾP" : "Mất kết nối";
+        return {online: "Đang nhận dữ liệu", partial: "Một phần mất kết nối",
+            offline: "Mất kết nối", waiting: "Đang chờ dữ liệu"}[this.connectionState];
     }
 
     get chartUpdateLabel() {
         if (this.state.timeRange === "realtime") {
-            return this.state.realtimeActive ? "Trực tiếp" : "Mất kết nối trực tiếp";
+            return this.connectionLabel;
         }
         return this.state.autoRefresh ? "Tự cập nhật" : "Đã tạm dừng tự cập nhật";
     }
@@ -1457,9 +1544,21 @@ export class SmartSolarDashboard extends Component {
     }
 
     // Realtime energy values (cập nhật từ bus)
-    get realtimeGridOutW() { return this._rt?.grid_out_w ?? null; }
-    get realtimeGridInW() { return this._rt?.grid_in_w ?? null; }
-    get realtimePvW() { return this._rt?.pv_w ?? null; }
+    _latestLiveReading(type) {
+        let latest;
+        for (const device of this.state.data?.devices || []) {
+            if (device.type !== type || !device.is_online) continue;
+            const frame = this._deviceRealtime?.get(device.id);
+            if (frame && (!latest || frame.receivedAt >= latest.receivedAt)) latest = frame;
+        }
+        return latest;
+    }
+
+    get liveInverter() { return this._latestLiveReading("grid_tie_inverter"); }
+    get liveCharger() { return this._latestLiveReading("charge_power"); }
+    get realtimeGridOutW() { return this.liveInverter?.output_power ?? null; }
+    get realtimeGridInW() { return this.liveInverter?.limiter_power ?? null; }
+    get realtimePvW() { return this.liveCharger?.pv_input_power ?? this.liveCharger?.charge_power ?? null; }
     get realtimeBatteryFlow() {
         const counts = type => (this.state.data?.devices || []).filter(device => device.type === type).length;
         const sameSystem = !this._rt.inverter_system || !this._rt.charger_system

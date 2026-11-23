@@ -28,7 +28,7 @@ class SmartSolarDashboardController(http.Controller):
 
     @http.route('/smartsolar/dashboard/data', type='json', auth='user', methods=['POST'])
     def dashboard_data(self, time_range='24h', system_id=None, end_at=None, include_overview=True,
-                       include_energy_comparison=True, **kwargs):
+                       include_energy_comparison=True, include_heatmap=True, **kwargs):
         try:
             sid = int(system_id) if system_id else None
         except (TypeError, ValueError):
@@ -36,7 +36,14 @@ class SmartSolarDashboardController(http.Controller):
         return request.env['smartsolar.dashboard'].get_dashboard_data(
             time_range=time_range, system_id=sid, end_at=end_at,
             include_overview=include_overview is not False,
-            include_energy_comparison=include_energy_comparison is not False)
+            include_energy_comparison=include_energy_comparison is not False,
+            include_heatmap=include_heatmap is not False)
+
+    @http.route('/smartsolar/dashboard/heatmap', type='jsonrpc', auth='user', methods=['POST'])
+    def dashboard_heatmap(self, system_id=None):
+        sid = int(system_id) if system_id else None
+        return request.env['smartsolar.dashboard'].with_context(
+            smartsolar_dashboard_read_ledger=True).get_heatmap_data(sid)
 
     @http.route('/smartsolar/dashboard/energy_chart', type='jsonrpc', auth='user', methods=['POST'])
     def energy_chart(self, time_range='day', system_id=None):

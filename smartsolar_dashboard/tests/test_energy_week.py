@@ -180,6 +180,15 @@ class TestChartEnergyComparison(TestCase):
                 dashboard._get_chart_energy_comparison.assert_called_once_with(period, 12, {}, cutoff)
                 self.assertEqual(result['energy_comparison'], {'source': 'selected_range'})
 
+    def test_dashboard_can_skip_the_independent_heatmap(self):
+        dashboard = MagicMock()
+        dashboard.with_context.return_value = dashboard
+        result = SmartSolarDashboard.get_dashboard_data(
+            dashboard, '24h', 12, include_overview=False, include_energy_comparison=False,
+            include_heatmap=False)
+        self.assertNotIn('heatmap', result)
+        dashboard.get_heatmap_data.assert_not_called()
+
 
 class TestIndependentEnergyChart(TestCase):
     reader = TestEnergyWeek.reader

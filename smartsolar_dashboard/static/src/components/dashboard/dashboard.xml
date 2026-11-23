@@ -7,7 +7,7 @@
                     <span class="ss_brand_icon"><i class="fa fa-sun-o"/></span>
                     <div>
                         <div class="ss_brand_title">Smart Solar Dashboard</div>
-                        <div class="ss_brand_sub"><span t-att-class="'ss_status_pill ' + dataFreshClass"><span class="ss_status_dot"/><t t-esc="dataFreshLabel"/></span><span t-if="state.lastRefresh">Cập nhật <t t-esc="refreshLabel"/></span></div>
+                        <div class="ss_brand_sub"><span t-att-class="'ss_status_pill ' + connectionState"><span class="ss_status_dot"/><t t-esc="connectionLabel"/></span><span t-if="state.lastLiveAt !== null">Nhận lúc <t t-esc="liveRefreshLabel"/></span></div>
                     </div>
                 </div>
                 <div class="ss_topbar_right">
@@ -73,10 +73,17 @@
                     </div>
                 </details>
             </div>
+            <section class="ss_charts_section" t-if="hasData">
+            <div class="ss_time_bar" t-if="hasData"><div class="ss_time_label">Khoảng biểu đồ công suất</div><div class="ss_time_buttons" role="group" aria-label="Khoảng biểu đồ công suất"><t t-foreach="timeRanges" t-as="r" t-key="r.key"><button class="ss_time_btn" t-att-class="{ active: state.timeRange === r.key, 'ss_live_btn': r.key === 'realtime' }" t-att-aria-pressed="state.timeRange === r.key ? 'true' : 'false'" t-on-click="() => this.onTimeRangeChange(r.key)"><t t-esc="r.label"/></button></t></div><div class="ss_time_meta"><span class="ss_chart_period"><t t-esc="currentRangeLabel"/></span><span class="ss_chart_update" role="status"><t t-esc="chartUpdateLabel"/></span><span><i class="fa fa-clock-o"/> Cập nhật: <t t-esc="refreshLabel"/></span></div></div>
+            <div class="ss_chart_sub" role="status" t-if="hasData and state.chartsLoading">Đang tải biểu đồ…</div>
+            <div class="ss_charts_grid" t-if="hasData">
+                <div class="ss_chart_card ss_col_8 ss_chart_primary"><div class="ss_chart_header"><div><div class="ss_chart_title"><i class="fa fa-plug"/> Công suất tải và nguồn điện</div><div class="ss_chart_sub">Tổng tải = inverter cấp tải + lấy lưới</div></div></div><div class="ss_chart_body ss_chart_body_large"><canvas t-ref="gridTieChart"/></div></div>
+                <div class="ss_chart_card ss_col_4"><div class="ss_chart_header"><div><div class="ss_chart_title"><i class="fa fa-pie-chart"/> Phân bổ điện cấp tải</div><div class="ss_chart_sub"><t t-esc="distributionSubtitle"/></div></div></div><div class="ss_chart_body ss_chart_body_donut"><canvas t-ref="distributionChart"/></div></div>
+            </div>
             <div class="ss_ops_grid" t-if="hasData">
-                <div class="ss_overview_container"><SystemOverview kpi="state.data.kpi" showBms="false" devices="state.data.devices" theme="state.theme" onUpdate.bind="_onOverviewUpdate"/></div>
+                <div class="ss_overview_container"><SystemOverview kpi="state.data.kpi" showBms="false" chargerLive="!!liveCharger" inverterLive="!!liveInverter" devices="state.data.devices" theme="state.theme" onUpdate.bind="_onOverviewUpdate"/></div>
                 <div class="ss_status_panel">
-                    <div class="ss_panel_header"><div><div class="ss_panel_title"><i class="fa fa-heartbeat"/> Trạng thái vận hành</div><div class="ss_panel_sub">Thiết bị và công suất hiện tại</div></div><span t-att-class="'ss_live_badge ' + (state.realtimeActive ? 'online' : 'offline')"><span class="ss_live_dot"/><t t-esc="connectionLabel"/></span></div>
+                    <div class="ss_panel_header"><div><div class="ss_panel_title"><i class="fa fa-heartbeat"/> Trạng thái vận hành</div><div class="ss_panel_sub">Thiết bị và công suất hiện tại</div></div><span t-att-class="'ss_live_badge ' + connectionState"><span class="ss_live_dot"/><t t-esc="connectionLabel"/></span></div>
 
                     <!-- Sức khỏe thiết bị -->
                     <div class="ss_health_block"><div class="ss_health_ring" t-att-style="'--health:' + onlinePercent + '%'"><div><strong><t t-esc="onlinePercent"/>%</strong><span>kết nối</span></div></div><div class="ss_health_stats"><div class="ss_health_row"><span>Thiết bị đang kết nối</span><strong><t t-esc="state.data.kpi.online_devices"/> / <t t-esc="state.data.kpi.total_devices"/></strong></div><div class="ss_health_row"><span>Thiết bị mất kết nối</span><strong t-att-class="{ danger: state.data.kpi.offline_devices > 0 }"><t t-esc="offlineDeviceNames"/></strong></div><div class="ss_health_row"><span>Cảnh báo nhiệt</span><strong t-att-class="{ danger: hotDeviceCount > 0 }"><t t-esc="hotDeviceCount"/> thiết bị</strong></div></div></div>
@@ -87,8 +94,8 @@
                             <t t-foreach="state.data.devices" t-as="dev" t-key="dev.id">
                                 <button type="button" class="ss_device_row" t-att-class="'status_' + dev.status" t-on-click="() => this.onDeviceClick(dev.id)" t-att-title="dev.name + ' · ' + dev.system_name">
                                     <div class="ss_device_identity"><span class="ss_device_dot" t-att-class="deviceDotClass(dev)"/><span class="ss_device_name" t-esc="dev.name"/><span class="ss_device_meta" t-esc="deviceTypeLabel(dev.type)"/></div>
-                                    <div class="ss_device_metric"><span t-esc="dev.type === 'charge_power' ? 'PV' : 'AC'"/><strong><t t-esc="fmtNumber(dev.power, 1)"/> W</strong></div>
-                                    <div class="ss_device_metric" t-att-class="{ alert: dev.temperature >= state.data.kpi.temperature_alert }"><strong><t t-esc="fmtNumber(dev.temperature, 1)"/>°C</strong></div>
+                                    <div class="ss_device_metric"><span t-esc="dev.type === 'charge_power' ? 'PV' : 'AC'"/><strong><t t-esc="fmtNumber(dev.is_online ? dev.power : null, 1)"/> W</strong></div>
+                                    <div class="ss_device_metric" t-att-class="{ alert: dev.is_online and dev.temperature >= state.data.kpi.temperature_alert }"><strong><t t-esc="fmtNumber(dev.is_online ? dev.temperature : null, 1)"/>°C</strong></div>
                                     <div class="ss_device_sync" t-att-title="dev.last_sync || 'Chưa đồng bộ'"><i class="fa fa-clock-o"/><strong t-esc="deviceSyncLabel(dev.last_sync)"/></div>
                                 </button>
                             </t>
@@ -117,13 +124,78 @@
                         <t t-foreach="state.data.devices.filter(d => d.status === 'offline')" t-as="dev" t-key="dev.id">
                             <div class="ss_offline_item">
                                 <span class="ss_offline_name"><t t-esc="dev.name"/></span>
-                                <span class="ss_offline_time" t-if="dev.offline_minutes !== null"><t t-esc="dev.offline_minutes"/> phút</span>
+                                <span class="ss_offline_time">
+                                    <t t-if="dev.offline_minutes === null">Chưa nhận dữ liệu</t>
+                                    <t t-elif="dev.offline_minutes === 0">Quá 10 giây</t>
+                                    <t t-else=""><t t-esc="dev.offline_minutes"/> phút</t>
+                                </span>
                             </div>
                         </t>
                     </div>
 
                 </div>
             </div>
+            <div class="ss_charts_grid">
+                <div class="ss_chart_card ss_col_6"><div class="ss_chart_header"><div><div class="ss_chart_title"><i class="fa fa-battery-full"/> PV &amp; MPPT</div><div class="ss_chart_sub">Công suất PV vào và điện áp PV</div></div></div><div class="ss_chart_body"><canvas t-ref="chargePowerChart"/></div></div>
+                <div class="ss_chart_card ss_col_6">
+                    <div class="ss_chart_header">
+                        <div>
+                            <div class="ss_chart_title"><i class="fa fa-bar-chart"/> Điện năng PV và tiêu thụ</div>
+                            <div class="ss_chart_sub"><t t-esc="energyRangeDetail"/></div>
+                        </div>
+                    </div>
+                    <div class="ss_time_label">Khoảng biểu đồ điện năng</div>
+                    <div class="ss_time_buttons ss_energy_time_buttons" role="group" aria-label="Khoảng thời gian biểu đồ điện năng">
+                        <button t-foreach="energyRanges" t-as="r" t-key="r.key" type="button"
+                                class="ss_time_btn" t-att-class="{ active: state.energyRange === r.key }"
+                                t-att-aria-pressed="state.energyRange === r.key ? 'true' : 'false'"
+                                t-on-click="() => this.onEnergyRangeChange(r.key)">
+                            <t t-esc="r.label"/>
+                        </button>
+                    </div>
+                    <div class="ss_chart_sub" role="status" t-if="state.energyChartStatus" t-esc="state.energyChartStatus"/>
+                    <div class="ss_chart_body"><canvas t-ref="energyChart"/></div>
+                </div>
+                <div class="ss_chart_card ss_col_6"><div class="ss_chart_header"><div><div class="ss_chart_title"><i class="fa fa-thermometer-three-quarters"/> Nhiệt độ thiết bị</div><div class="ss_chart_sub">Cảnh báo khi vượt ngưỡng</div></div></div><div class="ss_chart_body"><canvas t-ref="temperatureChart"/></div></div>
+                <div class="ss_chart_card ss_col_6"><div class="ss_chart_header"><div><div class="ss_chart_title"><i class="fa fa-sun-o"/> Tỷ lệ đầu ra MPPT / PV</div><div class="ss_chart_sub">So sánh số liệu PV và đầu ra MPPT; không phải công suất sạc ròng</div></div></div><div class="ss_chart_body"><canvas t-ref="pvEfficiencyChart"/></div></div>
+                <BmsHistory systemId="state.systemId" theme="state.theme" refreshToken="state.snapshotRefresh" autoRefresh="state.autoRefresh"/>
+
+                <!-- Heatmap 24h x 30 ngày -->
+                <div class="ss_chart_card ss_col_12">
+                    <div class="ss_chart_header">
+                        <div>
+                            <div class="ss_chart_title"><i class="fa fa-th"/> <t t-esc="heatmapTitle"/></div>
+                            <div class="ss_chart_sub"><t t-esc="heatmapDescription"/> — đậm = cao, nhạt = thấp</div>
+                        </div>
+                        <div class="ss_heatmap_buttons">
+                            <t t-foreach="heatmapMetrics" t-as="metric" t-key="metric.key">
+                                <button type="button" class="ss_heatmap_btn" t-att-class="{ active: state.heatmapMetric === metric.key }" t-on-click="() => this.onHeatmapMetricChange(metric.key)">
+                                    <t t-esc="metric.label"/>
+                                </button>
+                            </t>
+                        </div>
+                    </div>
+                    <div class="ss_chart_body ss_chart_body_heatmap">
+                        <canvas t-att-hidden="!_heatmapData" t-ref="heatmapChart" t-on-mousemove="onHeatmapMouseMove" t-on-mouseleave="onHeatmapMouseLeave"/>
+                        <div class="ss_heatmap_status" t-if="state.heatmapStatus !== 'ready'" role="status">
+                            <span t-if="state.heatmapStatus === 'idle'">Đang chờ tải bản đồ nhiệt</span>
+                            <span t-elif="state.heatmapStatus === 'loading'">Đang tải bản đồ nhiệt…</span>
+                            <t t-else="">
+                                <span>Không thể cập nhật bản đồ nhiệt.</span>
+                                <button type="button" class="ss_time_btn" t-on-click="onRetryHeatmap">Thử lại</button>
+                            </t>
+                        </div>
+                        <div t-if="state.heatmapTooltip" class="ss_heatmap_tooltip" t-att-style="heatmapTooltipStyle">
+                            <strong><t t-esc="heatmapMetricInfo.title"/></strong>
+                            <span><t t-esc="state.heatmapTooltip.day"/> · <t t-esc="state.heatmapTooltip.time"/></span>
+                            <b><t t-esc="fmtNumber(state.heatmapTooltip.value, 1)"/> W</b>
+                        </div>
+                    </div>
+                </div>
+
+
+            </div>
+            </section>
             <SystemOverview t-if="hasData" showDiagram="false" batteries="state.data.bms || []" theme="state.theme"/>
             <div class="ss_weather_panel" t-if="hasData and hasEnvironment">
                 <div class="ss_weather_header">
@@ -176,63 +248,6 @@
                 <span title="Lịch sử chưa có biểu giá theo từng kỳ; các kỳ khởi tạo dùng biểu giá cấu hình lúc tổng hợp">Tiết kiệm ước tính · chưa trừ bảo trì/đầu tư</span>
                 <span t-if="state.data.kpi.lifetime.updated_at">Cập nhật: <t t-esc="state.data.kpi.lifetime.updated_at"/></span>
             </div>
-            <section class="ss_charts_section" t-if="hasData">
-            <div class="ss_time_bar" t-if="hasData"><div class="ss_time_label">Khoảng thời gian</div><div class="ss_time_buttons"><t t-foreach="timeRanges" t-as="r" t-key="r.key"><button class="ss_time_btn" t-att-class="{ active: state.timeRange === r.key, 'ss_live_btn': r.key === 'realtime' }" t-on-click="() => this.onTimeRangeChange(r.key)"><t t-esc="r.label"/></button></t></div><div class="ss_time_meta"><span class="ss_chart_period"><t t-esc="currentRangeLabel"/></span><span class="ss_chart_update" role="status"><t t-esc="chartUpdateLabel"/></span><span><i class="fa fa-clock-o"/> Cập nhật: <t t-esc="refreshLabel"/></span></div></div>
-            <div class="ss_chart_sub" role="status" t-if="hasData and state.chartsLoading">Đang tải biểu đồ…</div>
-            <div class="ss_charts_grid" t-if="hasData">
-                <div class="ss_chart_card ss_col_8 ss_chart_primary"><div class="ss_chart_header"><div><div class="ss_chart_title"><i class="fa fa-plug"/> Công suất tải và nguồn điện</div><div class="ss_chart_sub">Tổng tải = hòa lưới + lấy lưới · Hai vùng màu xếp chồng · PV và pin hiển thị riêng</div></div></div><div class="ss_chart_body ss_chart_body_large"><canvas t-ref="gridTieChart"/></div></div>
-                <div class="ss_chart_card ss_col_4"><div class="ss_chart_header"><div><div class="ss_chart_title"><i class="fa fa-pie-chart"/> Phân bổ điện cấp tải</div><div class="ss_chart_sub"><t t-esc="distributionSubtitle"/></div></div></div><div class="ss_chart_body ss_chart_body_donut"><canvas t-ref="distributionChart"/></div></div>
-                <div class="ss_chart_card ss_col_6"><div class="ss_chart_header"><div><div class="ss_chart_title"><i class="fa fa-battery-full"/> PV &amp; MPPT</div><div class="ss_chart_sub">Công suất PV vào và điện áp PV</div></div></div><div class="ss_chart_body"><canvas t-ref="chargePowerChart"/></div></div>
-                <div class="ss_chart_card ss_col_6">
-                    <div class="ss_chart_header">
-                        <div>
-                            <div class="ss_chart_title"><i class="fa fa-bar-chart"/> Điện năng PV và tiêu thụ</div>
-                            <div class="ss_chart_sub"><t t-esc="energyRangeDetail"/></div>
-                        </div>
-                    </div>
-                    <div class="ss_time_buttons ss_energy_time_buttons" role="group" aria-label="Khoảng thời gian biểu đồ điện năng">
-                        <button t-foreach="energyRanges" t-as="r" t-key="r.key" type="button"
-                                class="ss_time_btn" t-att-class="{ active: state.energyRange === r.key }"
-                                t-att-aria-pressed="state.energyRange === r.key ? 'true' : 'false'"
-                                t-on-click="() => this.onEnergyRangeChange(r.key)">
-                            <t t-esc="r.label"/>
-                        </button>
-                    </div>
-                    <div class="ss_chart_sub" role="status" t-if="state.energyChartStatus" t-esc="state.energyChartStatus"/>
-                    <div class="ss_chart_body"><canvas t-ref="energyChart"/></div>
-                </div>
-                <div class="ss_chart_card ss_col_6"><div class="ss_chart_header"><div><div class="ss_chart_title"><i class="fa fa-thermometer-three-quarters"/> Nhiệt độ thiết bị</div><div class="ss_chart_sub">Cảnh báo khi vượt ngưỡng</div></div></div><div class="ss_chart_body"><canvas t-ref="temperatureChart"/></div></div>
-                <div class="ss_chart_card ss_col_6"><div class="ss_chart_header"><div><div class="ss_chart_title"><i class="fa fa-sun-o"/> Tỷ lệ đầu ra MPPT / PV</div><div class="ss_chart_sub">So sánh số liệu PV và đầu ra MPPT; không phải công suất sạc ròng</div></div></div><div class="ss_chart_body"><canvas t-ref="pvEfficiencyChart"/></div></div>
-                <BmsHistory systemId="state.systemId" theme="state.theme" refreshToken="state.snapshotRefresh" autoRefresh="state.autoRefresh"/>
-
-                <!-- Heatmap 24h x 30 ngày -->
-                <div class="ss_chart_card ss_col_12">
-                    <div class="ss_chart_header">
-                        <div>
-                            <div class="ss_chart_title"><i class="fa fa-th"/> <t t-esc="heatmapTitle"/></div>
-                            <div class="ss_chart_sub"><t t-esc="heatmapDescription"/> — đậm = cao, nhạt = thấp</div>
-                        </div>
-                        <div class="ss_heatmap_buttons">
-                            <t t-foreach="heatmapMetrics" t-as="metric" t-key="metric.key">
-                                <button type="button" class="ss_heatmap_btn" t-att-class="{ active: state.heatmapMetric === metric.key }" t-on-click="() => this.onHeatmapMetricChange(metric.key)">
-                                    <t t-esc="metric.label"/>
-                                </button>
-                            </t>
-                        </div>
-                    </div>
-                    <div class="ss_chart_body ss_chart_body_heatmap">
-                        <canvas t-ref="heatmapChart" t-on-mousemove="onHeatmapMouseMove" t-on-mouseleave="onHeatmapMouseLeave"/>
-                        <div t-if="state.heatmapTooltip" class="ss_heatmap_tooltip" t-att-style="heatmapTooltipStyle">
-                            <strong><t t-esc="heatmapMetricInfo.title"/></strong>
-                            <span><t t-esc="state.heatmapTooltip.day"/> · <t t-esc="state.heatmapTooltip.time"/></span>
-                            <b><t t-esc="fmtNumber(state.heatmapTooltip.value, 1)"/> W</b>
-                        </div>
-                    </div>
-                </div>
-
-
-            </div>
-            </section>
             <div class="ss_empty_state" t-if="!hasData and !state.loading"><i class="fa fa-database"/><h3>Chưa có dữ liệu</h3><p>Hãy kiểm tra kết nối và đồng bộ thiết bị.</p></div>
         </div>
     </t>

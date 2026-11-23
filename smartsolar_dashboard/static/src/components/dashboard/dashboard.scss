@@ -53,10 +53,14 @@
     .ss_loading_bar { height: 3px; background: linear-gradient(90deg, transparent, var(--ss-primary), transparent); background-size: 200% 100%; border-radius: 999px; margin-bottom: 14px; animation: ss_loading 1.4s ease-in-out infinite; }
     @keyframes ss_loading { from { background-position: 200% 0; } to { background-position: -200% 0; } }
     .ss_status_pill, .ss_live_badge { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; border: 1px solid var(--ss-border); }
-    .ss_status_pill.fresh, .ss_live_badge.online { color: var(--ss-success); background: var(--ss-success-soft); border-color: rgba(34,197,94,.28); }
-    .ss_status_pill.stale, .ss_live_badge.offline { color: var(--ss-warning); background: var(--ss-warning-soft); border-color: rgba(245,158,11,.28); }
+    .ss_status_pill.online, .ss_live_badge.online { color: var(--ss-success); background: var(--ss-success-soft); border-color: rgba(34,197,94,.28); }
+    .ss_status_pill.partial, .ss_live_badge.partial { color: var(--ss-warning); background: var(--ss-warning-soft); border-color: rgba(245,158,11,.28); }
+    .ss_status_pill.offline, .ss_live_badge.offline { color: var(--ss-danger); background: var(--ss-danger-soft); border-color: rgba(239,68,68,.28); }
+    .ss_status_pill.waiting, .ss_live_badge.waiting { color: var(--ss-text-muted); background: var(--ss-surface-2); }
     .ss_status_dot, .ss_live_dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-    .ss_live_dot { animation: ss_pulse 1s ease-in-out infinite; }
+    @media (prefers-reduced-motion: no-preference) {
+        .ss_live_badge.online .ss_live_dot, .ss_live_badge.partial .ss_live_dot { animation: ss_pulse 1s ease-in-out infinite; }
+    }
     @keyframes ss_pulse { 0%, 100% { box-shadow: 0 0 0 0 currentColor; opacity: 1; } 50% { box-shadow: 0 0 0 5px transparent; opacity: .65; } }
     .ss_kpi_grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 14px; }
     .ss_energy_summary { margin-bottom: 14px; padding: 18px; background: var(--ss-surface); border: 1px solid var(--ss-border); border-radius: var(--ss-radius); box-shadow: var(--ss-shadow-sm); }
@@ -196,6 +200,7 @@
     .ss_energy_time_buttons .ss_time_btn { white-space: nowrap; }
     .ss_time_meta { margin-left: auto; font-size: 12px; color: var(--ss-text-faint); display: flex; align-items: center; gap: 8px; }
     .ss_charts_grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 16px; }
+    .ss_charts_section > .ss_charts_grid { margin-bottom: 14px; }
     .ss_col_4 { grid-column: span 4; }
     .ss_col_6 { grid-column: span 6; }
     .ss_col_8 { grid-column: span 8; }
@@ -244,6 +249,10 @@
     .ss_empty_state { padding: 80px 20px; }
     .ss_empty_state i { font-size: 48px; opacity: .35; margin-bottom: 14px; }
     .ss_chart_body_heatmap { height: 360px; position: relative; }
+    .ss_chart_body_heatmap canvas[hidden] { display: none; }
+    .ss_heatmap_status { display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; padding: 8px; color: var(--ss-text-muted); font-size: 13px; }
+    .ss_chart_body_heatmap:has(canvas[hidden]) .ss_heatmap_status { position: absolute; inset: 0; }
+    .ss_heatmap_status button { background: var(--ss-surface-2); }
     .ss_heatmap_buttons { display: inline-flex; gap: 4px; padding: 4px; background: var(--ss-surface-2); border: 1px solid var(--ss-border); border-radius: var(--ss-radius-sm); }
     .ss_heatmap_btn { padding: 6px 12px; border: 0; border-radius: 6px; background: transparent; color: var(--ss-text-muted); font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; }
     .ss_heatmap_btn:hover { color: var(--ss-primary); }
@@ -322,8 +331,11 @@
         .ss_health_row strong, .ss_status_item strong { overflow-wrap: anywhere; }
         .ss_lifetime_grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .ss_weather_grid { grid-template-columns: repeat(2, 1fr); }
-        .ss_device_row { grid-template-columns: minmax(130px, 1fr) 100px 58px 74px; }
-        .ss_device_row { min-height: 44px; }
+        .ss_device_row { grid-template-columns: repeat(3, minmax(0, auto)); gap: 7px 6px; min-width: 0; min-height: 44px; }
+        .ss_device_identity { grid-column: 1 / -1; }
+        .ss_device_row > .ss_device_metric:nth-child(2) { justify-content: flex-start; }
+        .ss_device_row > .ss_device_metric:nth-child(3) { justify-content: center; }
+        .ss_device_metric, .ss_device_sync { gap: 3px; }
         .ss_time_bar { padding: 10px; gap: 8px; }
         .ss_time_buttons { display: flex; width: 100%; min-width: 0; overflow-x: auto; scrollbar-width: thin; scrollbar-color: var(--ss-text-faint) var(--ss-surface-2); }
         .ss_time_btn { flex: 0 0 auto; min-height: 44px; padding: 6px 12px; }

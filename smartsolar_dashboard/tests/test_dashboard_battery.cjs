@@ -199,9 +199,13 @@ test('chart update status distinguishes historical polling from live connection'
     c.state.autoRefresh=false;
     assert.equal(c.chartUpdateLabel,'Đã tạm dừng tự cập nhật');
     c.state.timeRange='realtime';
-    assert.equal(c.chartUpdateLabel,'Trực tiếp');
-    c.state.realtimeActive=false;
-    assert.equal(c.chartUpdateLabel,'Mất kết nối trực tiếp');
+    assert.equal(c.chartUpdateLabel,'Đang chờ dữ liệu');
+    c.state.data.kpi={total_devices:2,online_devices:2,offline_devices:0};
+    assert.equal(c.chartUpdateLabel,'Đang nhận dữ liệu');
+    c.state.data.kpi={total_devices:2,online_devices:1,offline_devices:1};
+    assert.equal(c.chartUpdateLabel,'Một phần mất kết nối');
+    c.state.data.kpi={total_devices:2,online_devices:0,offline_devices:2};
+    assert.equal(c.chartUpdateLabel,'Mất kết nối');
 });
 
 test('heatmap starts coloring at 5 W across metrics and themes without changing readings',()=>{
@@ -211,12 +215,12 @@ test('heatmap starts coloring at 5 W across metrics and themes without changing 
             const c=dashboard();
             c.state.theme=theme;c.state.heatmapMetric=metric;
             const values=[[null,0,0.1,4.99,5,5.1,500]];
-            c.state.data.heatmap={days:['2026-11-13'],hours:Array.from({length:24},(_,i)=>i),
+            c._heatmapData={days:['2026-11-13'],hours:Array.from({length:24},(_,i)=>i),
                 series:{[metric]:{values,max_val:500}}};
             const fills=[],labels=[];
             const ctx={scale(){},clearRect(){},fillRect(){fills.push(this.fillStyle);},
                 fillText(text){labels.push(text);}};
-            c.refs.heatmap={el:{parentElement:{getBoundingClientRect:()=>({width:800})},
+            c.refs.heatmap={el:{parentElement:{getBoundingClientRect:()=>({width:800,height:360})},
                 style:{},getContext:()=>ctx}};
             c._renderHeatmapChart();
             const neutral=theme==='dark'?'rgba(30,42,60,0.5)':'rgba(226,232,240,0.5)';

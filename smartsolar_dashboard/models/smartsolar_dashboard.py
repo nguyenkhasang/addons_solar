@@ -287,8 +287,8 @@ class SmartSolarDashboard(models.AbstractModel):
         """Aggregate daily branches without counting PV charging twice as load."""
         metrics = []
         for key, label, color in (
-                ('grid_kwh', 'Bù lưới', 'import'),
-                ('inverter_kwh', 'Hòa lưới', 'inverter'),
+                ('grid_kwh', 'Lấy lưới', 'import'),
+                ('inverter_kwh', 'Inverter cấp tải', 'inverter'),
                 ('total_kwh', 'Tiêu thụ', 'load'),
                 ('pv_kwh', 'Thu PV', 'pv')):
             values = pv_daily if key == 'pv_kwh' else daily[key]
@@ -2008,7 +2008,7 @@ class SmartSolarDashboard(models.AbstractModel):
     # ------------------------------------------------------------------
     @api.model
     def get_dashboard_data(self, time_range='24h', system_id=None, end_at=None, include_overview=True,
-                           include_energy_comparison=True):
+                           include_energy_comparison=True, include_heatmap=True):
         daily_cache, end_at = {}, fields.Datetime.to_datetime(end_at) if end_at else fields.Datetime.now()
         self = self.with_context(smartsolar_dashboard_end_at=end_at,
             smartsolar_chart_rows={} if self.env.context.get('smartsolar_share_chart_reads', True) else None)
@@ -2022,10 +2022,11 @@ class SmartSolarDashboard(models.AbstractModel):
             'pv_efficiency': self.get_pv_efficiency_series(time_range=time_range, system_id=system_id, balance=balance),
             'distribution': self.get_energy_distribution(
                 time_range=time_range, system_id=system_id),
-            'heatmap': reader.get_heatmap_data(system_id=system_id),
             'time_range': time_range,
             'system_id': system_id,
         }
+        if include_heatmap:
+            result['heatmap'] = reader.get_heatmap_data(system_id=system_id)
         if include_energy_comparison:
             result['energy_comparison'] = reader._get_chart_energy_comparison(
                 time_range, system_id, daily_cache, end_at)

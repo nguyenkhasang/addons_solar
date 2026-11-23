@@ -13,6 +13,8 @@ export class SystemOverview extends Component {
         showDiagram: { type: Boolean, optional: true },
         showBms: { type: Boolean, optional: true },
         compact: { type: Boolean, optional: true },
+        chargerLive: { type: Boolean, optional: true },
+        inverterLive: { type: Boolean, optional: true },
         onUpdate: { type: Function, optional: true },
     };
 
@@ -59,19 +61,20 @@ export class SystemOverview extends Component {
         if (msg.device_type === "grid_tie_inverter") {
             this.state.inverter_seen = true;
             this.state.inverter_at = msg.label || "";
-            this.state.acout_w = msg.output_power || 0;
-            this.state.grid_w = msg.limiter_power || 0;
-            this.state.home_w = (msg.output_power || 0) + (msg.limiter_power || 0);
+            this.state.acout_w = msg.output_power ?? null;
+            this.state.grid_w = msg.limiter_power ?? null;
+            this.state.home_w = this.state.acout_w == null || this.state.grid_w == null
+                ? null : this.state.acout_w + this.state.grid_w;
             this._updateBatteryFlow();
         }
         if (msg.device_type === "charge_power") {
             this.state.charger_seen = true;
             this.state.charger_at = msg.label || "";
             // charge_power is PV input (Vpv * Ipv), not MPPT DC output.
-            this.state.solar_w = msg.pv_input_power ?? msg.charge_power ?? 0;
-            this.state.solar_v = msg.pv_voltage || 0;
-            this.state.solar_a = msg.pv_current || 0;
-            this.state.bat_v = msg.bat_voltage || 0;
+            this.state.solar_w = msg.pv_input_power ?? msg.charge_power ?? null;
+            this.state.solar_v = msg.pv_voltage ?? null;
+            this.state.solar_a = msg.pv_current ?? null;
+            this.state.bat_v = msg.bat_voltage ?? null;
             const current = msg.bat_current;
             this.state.charger_a = current == null || !Number.isFinite(Number(current))
                 ? null : Number(current);
@@ -132,7 +135,7 @@ export class SystemOverview extends Component {
     cellLabel(index) { return String(index + 1).padStart(2, "0"); }
 
     get batteryNote() {
-        if (this.state.bat_flow_w === null) return "Cần dữ liệu của cả MPPT và inverter.";
+        if (this.diagram.bat_flow_w === null) return "Cần dữ liệu của cả MPPT và inverter.";
         return this.state.charger_w === null
             ? "Ước tính từ PV trừ đầu ra inverter; chưa trừ tổn hao bộ sạc và inverter."
             : "Ước tính từ điện áp × dòng MPPT do thiết bị gửi, trừ AC OUT. Chưa đối chiếu BMS hoặc xác minh độ chính xác dòng MPPT; chưa tính tổn hao inverter.";
@@ -195,17 +198,37 @@ export class SystemOverview extends Component {
         ].join("; ");
     }
 
-    get solarActive() { return this.isPowerActive(this.state.solar_w); }
-    get gridActive() { return this.isPowerActive(this.state.grid_w); }
-    get batActive() { return this.isPowerActive(this.state.bat_w); }
-    get homeActive() { return this.isPowerActive(this.state.home_w); }
-    get gridReverse() { return (this.state.grid_w || 0) < 0; }
-    get batReverse() { return (this.state.bat_flow_w || 0) < 0; }
+    get diagram() {
+        const charger = this.props?.chargerLive !== false;
+        const inverter = this.props?.inverterLive !== false;
+        const power = this.state;
+        return {
+            solar_w: charger ? power.solar_w : null,
+            solar_v: charger ? power.solar_v : null,
+            solar_a: charger ? power.solar_a : null,
+            bat_v: charger ? power.bat_v : null,
+            charger_a: charger ? power.charger_a : null,
+            grid_w: inverter ? power.grid_w : null,
+            home_w: inverter ? power.home_w : null,
+            acout_w: inverter ? power.acout_w : null,
+            bat_w: charger && inverter ? power.bat_w : null,
+            bat_a: charger && inverter ? power.bat_a : null,
+            bat_flow_w: charger && inverter ? power.bat_flow_w : null,
+        };
+    }
+
+    get solarActive() { return this.isPowerActive(this.diagram.solar_w); }
+    get gridActive() { return this.isPowerActive(this.diagram.grid_w); }
+    get batActive() { return this.isPowerActive(this.diagram.bat_w); }
+    get homeActive() { return this.isPowerActive(this.diagram.home_w); }
+    get gridReverse() { return (this.diagram.grid_w || 0) < 0; }
+    get batReverse() { return (this.diagram.bat_flow_w || 0) < 0; }
     get inverterSource() {
+        const diagram = this.diagram;
         const flows = [
-            { source: "solar", watts: Math.abs(this.state.solar_w || 0) },
-            { source: "grid", watts: Math.abs(this.state.grid_w || 0) },
-            { source: "battery", watts: Math.max(0, -(this.state.bat_flow_w || 0)) },
+            { source: "solar", watts: Math.abs(diagram.solar_w || 0) },
+            { source: "grid", watts: Math.abs(diagram.grid_w || 0) },
+            { source: "battery", watts: Math.max(0, -(diagram.bat_flow_w || 0)) },
         ].filter((flow) => flow.watts >= SystemOverview.FLOW_THRESHOLD_W);
         if (!flows.length) return "";
         flows.sort((a, b) => b.watts - a.watts);

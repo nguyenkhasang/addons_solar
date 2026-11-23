@@ -121,6 +121,20 @@ test('an old saved online flag does not keep a device online on opening the dash
     assert.equal(c.onlinePercent,50);
     assert.equal(c.offlineDeviceNames,'MPPT');
 });
+test('saved values stay unknown while waiting for the first live frame',()=>{
+    const c=fixture();
+    const start=Date.parse('2026-10-14T12:00:01+07:00');
+    c._deviceHealthStartedAt=start;
+    c._refreshDeviceHealth(start);
+    assert.equal(c.connectionLabel,'Đang chờ dữ liệu');
+    assert.equal(c.state.data.kpi.offline_devices,0);
+    assert.equal(c.realtimePvW,null);
+    c._updateDeviceFromRealtime({...msg,pv_input_power:0});
+    assert.equal(c.realtimePvW,0);
+    c._refreshDeviceHealth(c.state.lastLiveAt+10_001);
+    assert.equal(c.connectionLabel,'Mất kết nối');
+    assert.equal(c.realtimePvW,null);
+});
 test('rows sit below device health and above temperature with click preserved',()=>{
     const xml=fs.readFileSync(root+'/static/src/components/dashboard/dashboard.xml','utf8');
     assert(xml.indexOf('ss_health_block') < xml.indexOf('ss_device_panel'));

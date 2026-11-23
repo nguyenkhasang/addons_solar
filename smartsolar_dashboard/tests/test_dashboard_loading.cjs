@@ -33,7 +33,8 @@ class Parent extends w.owl.Component {
         w.owl.onWillUnmount(()=>{this._disposed=true;this._stopRealtime();});
     }
 }
-for(const name of ['_loadData','_loadCharts','_refresh','_startRealtime','_stopRealtime']) Parent.prototype[name]=w.Dashboard.prototype[name];
+for(const name of ['_loadData','_loadCharts','_refresh','_startRealtime','_stopRealtime',
+    '_restoreDeviceRealtime','_refreshDeviceHealth']) Parent.prototype[name]=w.Dashboard.prototype[name];
 (async()=>{
     const template='<t t-name="Parent"><strong id="kpi" t-if="state.data"><t t-esc="state.data.kpi.total_kwh"/></strong><BmsHistory systemId="state.systemId" theme="\'dark\'" refreshToken="state.snapshotRefresh" autoRefresh="state.autoRefresh"/></t>';
     const bmsXml=fs.readFileSync(root+'/smartsolar_dashboard/static/src/components/bms_history/bms_history.xml','utf8').replace(/<\?xml.*?\?>/,'').replace(/<templates[^>]*>/,'').replace(/<\/templates>\s*$/,'');

@@ -7,36 +7,36 @@
                 <div class="ss_ov_node ss_ov_solar" t-att-class="{ active: solarActive }">
                     <div class="ss_ov_icon_wrap solar"><i class="fa fa-sun-o ss_ov_fallback_icon"/></div>
                     <div class="ss_ov_label">PV</div>
-                    <div class="ss_ov_value_box"><span class="ss_ov_big"><t t-esc="fmtW(state.solar_w)"/></span><span class="ss_ov_unit">W</span></div>
-                    <div class="ss_ov_sub_box"><span><t t-esc="fmtV(state.solar_v)"/>V</span><span class="ss_ov_divider">|</span><span><t t-esc="fmtA(state.solar_a)"/>A</span></div>
+                    <div class="ss_ov_value_box"><span class="ss_ov_big"><t t-esc="fmtW(diagram.solar_w)"/></span><span class="ss_ov_unit">W</span></div>
+                    <div class="ss_ov_sub_box"><span><t t-esc="fmtV(diagram.solar_v)"/>V</span><span class="ss_ov_divider">|</span><span><t t-esc="fmtA(diagram.solar_a)"/>A</span></div>
                 </div>
-                <div class="ss_ov_line ss_ov_line_top" t-att-class="{ active: solarActive }" t-att-style="flowStyle(state.solar_w)"/>
+                <div class="ss_ov_line ss_ov_line_top" t-att-class="{ active: solarActive }" t-att-style="flowStyle(diagram.solar_w)"/>
                 <div class="ss_ov_center_row">
                     <div class="ss_ov_node ss_ov_grid" t-att-class="{ active: gridActive }">
                         <div class="ss_ov_icon_wrap grid"><i class="fa fa-plug ss_ov_fallback_icon"/></div>
-                        <div class="ss_ov_label">LƯỚI</div>
-                        <div class="ss_ov_value_box"><span class="ss_ov_big cyan"><t t-esc="fmtW(state.grid_w)"/></span><span class="ss_ov_unit">W</span></div>
+                        <div class="ss_ov_label">LẤY LƯỚI</div>
+                        <div class="ss_ov_value_box"><span class="ss_ov_big cyan"><t t-esc="fmtW(diagram.grid_w)"/></span><span class="ss_ov_unit">W</span></div>
                     </div>
-                    <div class="ss_ov_hline left" t-att-class="{ active: gridActive, reverse: gridReverse }" t-att-style="flowStyle(state.grid_w)"/>
+                    <div class="ss_ov_hline left" t-att-class="{ active: gridActive, reverse: gridReverse }" t-att-style="flowStyle(diagram.grid_w)"/>
                     <div class="ss_ov_inverter" t-att-class="{ active: inverterActive, solar_source: inverterSource === 'solar', grid_source: inverterSource === 'grid', battery_source: inverterSource === 'battery' }">
                         <div class="ss_ov_inverter_icon"><i class="fa fa-microchip"/></div>
                         <div class="ss_ov_inverter_label">INVERTER</div>
-                        <div class="ss_ov_inverter_value cyan"><t t-esc="fmtW(state.acout_w)"/> W</div>
+                        <div class="ss_ov_inverter_value cyan"><t t-esc="fmtW(diagram.acout_w)"/> W</div>
                     </div>
-                    <div class="ss_ov_hline right" t-att-class="{ active: homeActive }" t-att-style="flowStyle(state.home_w)"/>
+                    <div class="ss_ov_hline right" t-att-class="{ active: homeActive }" t-att-style="flowStyle(diagram.home_w)"/>
                     <div class="ss_ov_node ss_ov_home" t-att-class="{ active: homeActive }">
                         <div class="ss_ov_icon_wrap home"><i class="fa fa-home ss_ov_fallback_icon"/></div>
                         <div class="ss_ov_label">TẢI</div>
-                        <div class="ss_ov_value_box"><span class="ss_ov_big purple"><t t-esc="fmtW(state.home_w)"/></span><span class="ss_ov_unit">W</span></div>
+                        <div class="ss_ov_value_box"><span class="ss_ov_big purple"><t t-esc="fmtW(diagram.home_w)"/></span><span class="ss_ov_unit">W</span></div>
                     </div>
                 </div>
-                <div class="ss_ov_line ss_ov_line_bottom" t-att-class="{ active: batActive, reverse: batReverse }" t-att-style="flowStyle(state.bat_w)"/>
+                <div class="ss_ov_line ss_ov_line_bottom" t-att-class="{ active: batActive, reverse: batReverse }" t-att-style="flowStyle(diagram.bat_w)"/>
                 <div class="ss_ov_node ss_ov_battery" t-att-class="{ active: batActive }">
                     <div class="ss_ov_icon_wrap battery" t-att-class="{ active: batActive }"><i class="fa fa-battery-three-quarters ss_ov_fallback_icon"/></div>
                     <div class="ss_ov_label">PIN</div>
-                    <div class="ss_ov_value_box" t-att-title="batteryNote"><span class="ss_ov_big"><t t-esc="fmtW(state.bat_flow_w)"/></span><span class="ss_ov_unit">W</span></div>
-                    <div class="ss_ov_sub_box"><span><t t-esc="fmtV(state.bat_v)"/>V</span><span class="ss_ov_divider">|</span><span><t t-esc="fmtA(state.bat_a)"/>A</span></div>
-                    <div class="ss_ov_estimate" t-if="state.charger_a !== null" t-att-title="batteryNote">Dòng MPPT: <t t-esc="fmtA(state.charger_a)"/> A</div>
+                    <div class="ss_ov_value_box" t-att-title="batteryNote"><span class="ss_ov_big"><t t-esc="fmtW(diagram.bat_flow_w)"/></span><span class="ss_ov_unit">W</span></div>
+                    <div class="ss_ov_sub_box"><span><t t-esc="fmtV(diagram.bat_v)"/>V</span><span class="ss_ov_divider">|</span><span><t t-esc="fmtA(diagram.bat_a)"/>A</span></div>
+                    <div class="ss_ov_estimate" t-if="diagram.charger_a !== null" t-att-title="batteryNote">Dòng MPPT: <t t-esc="fmtA(diagram.charger_a)"/> A</div>
                 </div>
             </div>
             <div class="ss_bms_quick" t-if="props.compact === true and props.showBms !== false and bmsCards.length">
