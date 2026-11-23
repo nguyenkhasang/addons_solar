@@ -213,13 +213,14 @@
     .ss_device_row { display: grid; grid-template-columns: minmax(130px, 1fr) 100px 58px 74px; min-width: 420px; width: 100%; text-align: left; gap: 10px; align-items: center; background: var(--ss-surface-2); border: 1px solid var(--ss-border); border-left: 3px solid var(--ss-text-faint); border-radius: var(--ss-radius-sm); padding: 6px 10px; min-height: 34px; cursor: pointer; }
     .ss_device_row.status_online { border-left-color: var(--ss-success); }
     .ss_device_row.status_warning { border-left-color: var(--ss-warning); }
-    .ss_device_row.status_offline { opacity: .78; }
+    .ss_device_row.status_offline { border-left-color: var(--ss-danger); }
     .ss_device_identity, .ss_device_sync { grid-column: auto; }
     .ss_device_identity > div { min-width: 0; }
     .ss_device_identity { display: flex; align-items: center; gap: 9px; min-width: 0; }
     .ss_device_dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ss-text-faint); flex-shrink: 0; }
     .ss_device_dot.online { background: var(--ss-success); }
     .ss_device_dot.warning { background: var(--ss-warning); }
+    .ss_device_dot.offline { background: var(--ss-danger); }
     .ss_device_name { min-width: 0; flex: 1; font-size: 12px; font-weight: 600; color: var(--ss-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .ss_device_meta { flex-shrink: 0; padding: 2px 4px; border-radius: 4px; color: var(--ss-text-faint); background: var(--ss-surface); font-size: 12px; white-space: nowrap; }
     .ss_device_metric, .ss_device_sync { display: flex; align-items: center; justify-content: flex-end; gap: 5px; min-width: 0; white-space: nowrap; }

@@ -78,6 +78,43 @@ test('a newer server snapshot is not overwritten with an older bus cache',()=>{
     c.state.data.devices[0].power=800;c._updateDeviceFromRealtime(msg,true);
     assert.equal(c.state.data.devices[0].power,800);
 });
+test('one silent device expires after 10 seconds and recovers on its next frame',()=>{
+    const c=fixture();
+    let now=Date.parse('2026-10-14T12:00:01+07:00');
+    context.Date=class extends Date { static now(){return now;} };
+    try {
+        c._updateDeviceFromRealtime(msg);
+        now+=9_000;
+        c._updateDeviceFromRealtime({...msg,device_id:2,device_type:'grid_tie_inverter',
+            label:'2026-10-14 12:00:10'});
+        now+=1_000;
+        c._refreshDeviceHealth();
+        assert.equal(c.onlinePercent,100);
+        now+=1;
+        c._refreshDeviceHealth();
+        assert.equal(c.onlinePercent,50);
+        assert.equal(c.offlineDeviceNames,'MPPT');
+        assert.equal(c.state.data.devices[0].power,600);
+
+        // Replacing the overview with saved rows must not renew the old frame.
+        c.state.data.devices=devices();
+        c._restoreDeviceRealtime();
+        assert.equal(c.onlinePercent,50);
+        c._updateDeviceFromRealtime({...msg,label:'2026-10-14 12:00:11'});
+        assert.equal(c.onlinePercent,100);
+        assert.equal(c.offlineDeviceNames,'Không có');
+    } finally {
+        delete context.Date;
+    }
+});
+test('an old saved online flag does not keep a device online on opening the dashboard',()=>{
+    const c=fixture();
+    c.state.data.devices=c.state.data.devices.map(dev=>({...dev,is_online:true,status:'online'}));
+    c.state.data.devices[1].last_sync='2026-10-14 12:00:09';
+    c._refreshDeviceHealth(Date.parse('2026-10-14T12:00:11+07:00'));
+    assert.equal(c.onlinePercent,50);
+    assert.equal(c.offlineDeviceNames,'MPPT');
+});
 test('rows sit below device health and above temperature with click preserved',()=>{
     const xml=fs.readFileSync(root+'/static/src/components/dashboard/dashboard.xml','utf8');
     assert(xml.indexOf('ss_health_block') < xml.indexOf('ss_device_panel'));

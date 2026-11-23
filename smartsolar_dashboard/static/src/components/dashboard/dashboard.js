@@ -67,6 +67,8 @@ const COLORS = {
     grid: "rgba(148, 163, 184, 0.18)",
 };
 
+const DEVICE_TIMEOUT_MS = 10_000;
+
 export class SmartSolarDashboard extends Component {
     static template = "smartsolar.Dashboard";
     static props = ["*"];
@@ -138,12 +140,14 @@ export class SmartSolarDashboard extends Component {
             this._startAutoRefresh();
             this._applyTheme();
             this._startRealtime();
+            this._deviceHealthTimer = setInterval(() => this._refreshDeviceHealth(), 250);
         });
 
         onWillUnmount(() => {
             this._disposed = true;
             this._stopAutoRefresh();
             clearInterval(this._energyChartTimer);
+            clearInterval(this._deviceHealthTimer);
             this._stopRealtime();
             this._destroyCharts();
         });
@@ -183,9 +187,7 @@ export class SmartSolarDashboard extends Component {
             this.state.data = { ...this.state.data, ...data };
             // A raw snapshot can lag bus readings or a message received while
             // this RPC was in flight. Keep those newer device values visible.
-            for (const msg of this._deviceRealtime?.values() || []) {
-                this._updateDeviceFromRealtime(msg, true);
-            }
+            this._restoreDeviceRealtime();
             this.state.lastRefresh = new Date();
             this.state.snapshotRefresh = this.state.lastRefresh;
             return true;
@@ -341,13 +343,17 @@ export class SmartSolarDashboard extends Component {
                 this._renderRealtimeFromBuffer();
             } else {
                 // Lần đầu vào Live → load 2 phút gần nhất từ DB
+                const generation = this._dataGeneration;
+                const systemId = this.state.systemId;
                 const data = await rpc("/smartsolar/dashboard/data", {
                     time_range: "2min",
-                    system_id: this.state.systemId,
+                    system_id: systemId,
                     include_energy_comparison: false,
                 });
-                if (data) {
+                if (data && !this._disposed && generation === this._dataGeneration
+                    && systemId === this.state.systemId && this.state.timeRange === key) {
                     this.state.data = data;
+                    this._restoreDeviceRealtime();
                     this.state.lastRefresh = new Date();
                     this._renderAllCharts();
                 }
@@ -518,6 +524,13 @@ export class SmartSolarDashboard extends Component {
         }
     }
 
+    _restoreDeviceRealtime() {
+        for (const msg of this._deviceRealtime?.values() || []) {
+            this._updateDeviceFromRealtime(msg, true);
+        }
+        this._refreshDeviceHealth();
+    }
+
     _updateDeviceFromRealtime(msg, snapshot = false) {
         const data = this.state.data;
         if (!data?.devices || (this.state.systemId && Number(msg.system_id) !== Number(this.state.systemId))) return;
@@ -539,11 +552,38 @@ export class SmartSolarDashboard extends Component {
             last_sync: msg.label || dev.last_sync };
         next.status = next.temperature >= (data.kpi?.temperature_alert ?? 60) ? 'warning' : 'online';
         data.devices = data.devices.map(item => item.id === dev.id ? next : item);
-        this._deviceRealtime.set(dev.id, { ...previous, ...msg });
-        if (data.kpi) {
-            data.kpi.online_devices = data.devices.filter(item => item.is_online).length;
-            data.kpi.offline_devices = data.devices.length - data.kpi.online_devices;
+        if (!snapshot) {
+            this._deviceRealtime.set(dev.id, { ...previous, ...msg, receivedAt: Date.now() });
+            this._refreshDeviceHealth();
         }
+    }
+
+    _refreshDeviceHealth(now = Date.now()) {
+        const data = this.state.data;
+        if (!data?.devices || !data.kpi) return;
+        let changed = false;
+        let online = 0;
+        const devices = data.devices.map(dev => {
+            // Server snapshot labels are UTC+7. Live frames can be newer than
+            // the most recently persisted sample for this device.
+            const syncedAt = dev.last_sync ? Date.parse(dev.last_sync.replace(" ", "T") + "+07:00") : NaN;
+            const receivedAt = this._deviceRealtime?.get(dev.id)?.receivedAt;
+            const lastSeen = Math.max(syncedAt || 0, receivedAt ?? 0);
+            const age = lastSeen ? now - lastSeen : Infinity;
+            if (dev.is_online && age <= DEVICE_TIMEOUT_MS) {
+                online++;
+                return dev;
+            }
+            const minutes = lastSeen ? Math.max(0, Math.floor(age / 60_000)) : null;
+            if (!dev.is_online && dev.status === "offline" && dev.offline_minutes === minutes) return dev;
+            changed = true;
+            return { ...dev, is_online: false, status: "offline", offline_minutes: minutes };
+        });
+        if (changed) data.devices = devices;
+        if (data.kpi.total_devices !== devices.length) data.kpi.total_devices = devices.length;
+        if (data.kpi.online_devices !== online) data.kpi.online_devices = online;
+        const offline = devices.length - online;
+        if (data.kpi.offline_devices !== offline) data.kpi.offline_devices = offline;
     }
 
     deviceSyncLabel(value) {
