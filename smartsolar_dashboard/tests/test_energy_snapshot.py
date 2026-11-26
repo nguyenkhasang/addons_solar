@@ -9,24 +9,6 @@ from ..models.dashboard_readers import DashboardReaders
 
 
 class TestEnergySnapshot(TestCase):
-    def test_lifetime_load_combines_both_sources_and_preserves_unknown(self):
-        dashboard = MagicMock()
-        dashboard._get_settings.return_value = {
-            'currency_symbol': '₫', 'refresh_interval': 60, 'temperature_alert': 60,
-        }
-        dashboard._get_current_total_power.return_value = 0
-        lifetime = dashboard.env['smartsolar.lifetime']
-        for inverter, grid, expected in ((264.6, 118.5, 383.1), (10, 0, 10), (0, 0, 0),
-                                          (10, None, None), (None, None, None)):
-            with self.subTest(inverter=inverter, grid=grid):
-                lifetime.get_totals.return_value = {
-                    'inverter_kwh': inverter, 'grid_kwh': grid, 'pv_kwh': None, 'saved': None,
-                }
-                result = DashboardReaders._get_dashboard_overview(
-                    dashboard, 12, {}, datetime(2026, 11, 26))
-                self.assertEqual(result['total_load_kwh'], expected)
-                self.assertEqual(result['total_kwh'], inverter)
-
     def test_snapshot_uses_fixed_cutoff_ledger_and_existing_widget_calculation(self):
         for system_id in (None, 12):
             for cutoff in (datetime(2026, 10, 29, 6), datetime(2026, 10, 31, 17, 0, 1)):

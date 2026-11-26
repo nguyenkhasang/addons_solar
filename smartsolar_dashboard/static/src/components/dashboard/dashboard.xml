@@ -40,7 +40,7 @@
                         <div t-att-class="'ss_energy_card ss_energy_' + metric.color">
                             <div class="ss_energy_card_head">
                                 <span class="ss_energy_icon"><i aria-hidden="true" t-att-class="'fa ' + ({grid_kwh: 'fa-plug', inverter_kwh: 'fa-exchange', total_kwh: 'fa-home', pv_kwh: 'fa-sun-o'}[metric.key])"/></span>
-                                <div><div class="ss_energy_label"><t t-esc="metric.label"/></div><div class="ss_energy_caption"><t t-esc="{grid_kwh: 'Điện lấy từ lưới', inverter_kwh: 'Điện inverter cấp tải', total_kwh: 'Tổng điện cấp tải', pv_kwh: 'Năng lượng thu từ PV'}[metric.key]"/></div></div>
+                                <div><div class="ss_energy_label"><t t-esc="metric.label"/></div><div class="ss_energy_caption"><t t-esc="{grid_kwh: 'Điện lấy từ lưới', inverter_kwh: 'Điện inverter cấp tải', total_kwh: 'Tổng điện tiêu thụ', pv_kwh: 'Năng lượng thu từ PV'}[metric.key]"/></div></div>
                             </div>
                             <div class="ss_energy_today_label">Hôm nay</div>
                             <div class="ss_energy_value"><t t-esc="fmtNumber(metric.today, 2)"/><small>kWh</small></div>
@@ -164,7 +164,7 @@
                 </details>
             </div>
             <div class="ss_lifetime_grid" t-if="hasData">
-                <div class="ss_lifetime_item"><span>Tổng điện cấp tải</span><strong><t t-esc="fmtNumber(state.data.kpi.total_load_kwh, 1)"/> kWh</strong></div>
+                <div class="ss_lifetime_item"><span>Tổng điện cấp tải</span><strong><t t-esc="fmtNumber(state.data.kpi.total_kwh, 1)"/> kWh</strong></div>
                 <div class="ss_lifetime_item"><span>Tổng thu PV</span><strong><t t-esc="fmtNumber(state.data.kpi.total_pv_kwh, 1)"/> kWh</strong></div>
                 <div class="ss_lifetime_item"><span>Tổng lấy lưới</span><strong><t t-esc="fmtNumber(state.data.kpi.total_limiter_kwh, 1)"/> kWh</strong></div>
                 <div class="ss_lifetime_item"><span>Tổng tiết kiệm</span><strong><t t-esc="fmtMoney(state.data.kpi.revenue_total)"/> <t t-esc="state.data.kpi.currency_symbol"/></strong></div>
