@@ -145,13 +145,17 @@ class DashboardReaders(models.AbstractModel):
         power = self._get_current_total_power(system_id)
         capacity = sum(systems.mapped('capacity'))
         totals = self.env['smartsolar.lifetime'].get_totals(system_id)
+        inverter_kwh, grid_kwh = totals['inverter_kwh'], totals['grid_kwh']
+        total_load_kwh = (round(inverter_kwh + grid_kwh, 3)
+                          if inverter_kwh is not None and grid_kwh is not None else None)
         return {
             'total_systems': len(systems), 'total_devices': len(devices),
             'online_devices': online, 'offline_devices': len(devices)-online,
             'current_power_w': round(power, 2), 'current_power_kw': round(power/1000, 3),
             'capacity_kw': round(capacity, 2),
             'efficiency': round(power/(capacity*1000)*100, 1) if capacity > 0 else 0,
-            'total_kwh': totals['inverter_kwh'], 'total_limiter_kwh': totals['grid_kwh'],
+            'total_kwh': inverter_kwh, 'total_limiter_kwh': grid_kwh,
+            'total_load_kwh': total_load_kwh,
             'total_pv_kwh': totals['pv_kwh'], 'revenue_total': totals['saved'],
             'lifetime': totals, 'currency_symbol': settings['currency_symbol'],
             'refresh_interval': settings['refresh_interval'],

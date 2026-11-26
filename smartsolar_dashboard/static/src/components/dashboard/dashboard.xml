@@ -164,7 +164,7 @@
                 </details>
             </div>
             <div class="ss_lifetime_grid" t-if="hasData">
-                <div class="ss_lifetime_item"><span>Tổng điện cấp tải</span><strong><t t-esc="fmtNumber(state.data.kpi.total_kwh, 1)"/> kWh</strong></div>
+                <div class="ss_lifetime_item"><span>Tổng điện cấp tải</span><strong><t t-esc="fmtNumber(state.data.kpi.total_load_kwh, 1)"/> kWh</strong></div>
                 <div class="ss_lifetime_item"><span>Tổng thu PV</span><strong><t t-esc="fmtNumber(state.data.kpi.total_pv_kwh, 1)"/> kWh</strong></div>
                 <div class="ss_lifetime_item"><span>Tổng lấy lưới</span><strong><t t-esc="fmtNumber(state.data.kpi.total_limiter_kwh, 1)"/> kWh</strong></div>
                 <div class="ss_lifetime_item"><span>Tổng tiết kiệm</span><strong><t t-esc="fmtMoney(state.data.kpi.revenue_total)"/> <t t-esc="state.data.kpi.currency_symbol"/></strong></div>
