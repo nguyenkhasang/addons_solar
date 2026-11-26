@@ -58,7 +58,11 @@
                                 <div><span>Công suất</span><strong><t t-esc="fmtBms(b.power, 1)"/> <small>W</small></strong></div>
                                 <div><span>Dòng điện</span><strong><t t-esc="fmtBms(b.current, 2)"/> <small>A</small></strong></div>
                             </div>
-                            <div class="ss_ov_bms_balance"><span>Cân bằng <strong class="ss_ov_bms_balance_state" t-att-class="{ on: b.balancing === true, off: b.balancing === false }"><t t-esc="b.balancing == null ? '—' : b.balancing ? 'ON' : 'OFF'"/></strong></span><span>Dòng cân bằng <strong><t t-esc="fmtBms(b.balance_current, 3)"/> A</strong></span></div>
+                            <div class="ss_ov_bms_balance">
+                                <span>Cân bằng <strong class="ss_ov_bms_balance_state" t-att-class="{ on: b.balancing === true, off: b.balancing === false }"><t t-esc="b.balancing == null ? '—' : b.balancing ? 'ON' : 'OFF'"/></strong></span>
+                                <span>Số chu kỳ <strong t-esc="fmtBms(b.cycle_count, 0)"/></span>
+                                <span>Dòng cân bằng <strong><t t-esc="fmtBms(b.balance_current, 3)"/> A</strong></span>
+                            </div>
                             <div class="ss_ov_bms_temperatures"><span>Pin T1 <strong><t t-esc="fmtBms(b.battery_temperature_1, 1)"/> °C</strong></span><span>Pin T2 <strong><t t-esc="fmtBms(b.battery_temperature_2, 1)"/> °C</strong></span><span>MOS <strong><t t-esc="fmtBms(b.mos_temperature, 1)"/> °C</strong></span></div>
                         </div>
                         <div class="ss_ov_bms_cell_panel">
